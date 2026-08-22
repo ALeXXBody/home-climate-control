@@ -11,6 +11,11 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN
+from .firmware_manager import (
+    async_setup_firmware_manager,
+    catalog_item,
+    get_firmware_manager,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,11 +28,15 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         return
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_set_zone)
+    websocket_api.async_register_command(hass, ws_list_devices)
+    websocket_api.async_register_command(hass, ws_ping_devices)
+    websocket_api.async_register_command(hass, ws_flash_device)
+    websocket_api.async_register_command(hass, ws_reboot_device)
+    websocket_api.async_register_command(hass, ws_firmware_catalog)
     hass.data[key] = True
 
 
 def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
-    """Build a snapshot of all HCC controllers for the UI."""
     store = hass.data.get(DOMAIN, {})
     systems: list[dict[str, Any]] = []
 
@@ -84,13 +93,19 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
             }
         )
 
+    mgr = get_firmware_manager(hass)
+    devices = mgr.list_devices() if mgr else []
+
     return {
         "domain": DOMAIN,
         "systems": systems,
+        "devices": devices,
+        "firmware_catalog": mgr.catalog if mgr else [],
         "support_url": "https://buymeacoffee.com/alexxbody",
         "docs": {
             "software": "https://github.com/ALeXXBody/home-climate-control",
             "hardware": "https://github.com/ALeXXBody/home-climate-system",
+            "flash": "https://github.com/ALeXXBody/home-climate-system/blob/main/docs/flash.md",
         },
     }
 
@@ -102,7 +117,7 @@ async def ws_get_status(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return full system snapshot for the sidebar app."""
+    await async_setup_firmware_manager(hass)
     connection.send_result(msg["id"], _collect_status(hass))
 
 
@@ -121,7 +136,6 @@ async def ws_set_zone(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Apply zone changes via climate services."""
     entity_id = msg["entity_id"]
     if not entity_id.startswith("climate."):
         connection.send_error(msg["id"], "invalid_entity", "Not a climate entity")
@@ -150,3 +164,119 @@ async def ws_set_zone(
         )
 
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/list_devices"})
+@websocket_api.async_response
+async def ws_list_devices(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    connection.send_result(
+        msg["id"],
+        {"devices": mgr.list_devices(), "catalog": mgr.catalog},
+    )
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/ping_devices"})
+@websocket_api.async_response
+async def ws_ping_devices(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    await mgr.async_ping()
+    connection.send_result(msg["id"], {"ok": True, "devices": mgr.list_devices()})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/flash_device",
+        vol.Required("node_id"): str,
+        vol.Optional("url"): str,
+        vol.Optional("catalog_id"): str,
+        vol.Optional("force"): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_flash_device(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    url = msg.get("url") or ""
+    catalog_id = msg.get("catalog_id")
+    item = None
+    if catalog_id:
+        item = catalog_item(mgr.catalog, catalog_id)
+        if item and not url:
+            url = item.get("url") or ""
+        elif item is None:
+            connection.send_error(
+                msg["id"], "unknown_catalog_id", f"No such firmware: {catalog_id}"
+            )
+            return
+    if not url:
+        connection.send_error(msg["id"], "missing_url", "Provide url or catalog_id")
+        return
+
+    # Board guard: refuse images built for another board unless forced.
+    # Prefix match allows e.g. lolin_c3_mini_gw image on lolin_c3_mini.
+    dev = mgr.devices.get(msg["node_id"])
+    if (
+        item
+        and dev is not None
+        and dev.board
+        and item.get("board")
+        and dev.board != item["board"]
+        and not dev.board.startswith(item["board"])
+        and not item["board"].startswith(dev.board)
+        and not msg.get("force", False)
+    ):
+        connection.send_error(
+            msg["id"],
+            "board_mismatch",
+            f"Image is for '{item['board']}' but device reports "
+            f"'{dev.board}'. Pass force=true to flash anyway.",
+        )
+        return
+
+    result = await mgr.async_trigger_ota(msg["node_id"], url)
+    if not result.get("ok"):
+        connection.send_error(
+            msg["id"], "flash_failed", result.get("error") or "flash failed"
+        )
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/reboot_device",
+        vol.Required("node_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_reboot_device(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    result = await mgr.async_reboot(msg["node_id"])
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/firmware_catalog"})
+@websocket_api.async_response
+async def ws_firmware_catalog(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    connection.send_result(msg["id"], {"catalog": mgr.catalog})

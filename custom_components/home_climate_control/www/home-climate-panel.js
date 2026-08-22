@@ -12,6 +12,8 @@ class HomeClimatePanel extends HTMLElement {
     this._tab = "overview";
     this._loading = true;
     this._error = null;
+    this._notice = null;
+    this._busy = {};
     this._poll = null;
   }
 
@@ -223,6 +225,14 @@ class HomeClimatePanel extends HTMLElement {
           border-radius: 8px;
           margin-bottom: 16px;
         }
+        .notice {
+          background: #1b5e2033;
+          border: 1px solid #66bb6a;
+          color: #c8e6c9;
+          padding: 12px 16px;
+          border-radius: 8px;
+          margin-bottom: 16px;
+        }
         .empty {
           text-align: center;
           padding: 48px 16px;
@@ -259,6 +269,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("settings", "Settings")}
         </nav>
         ${this._error ? `<div class="error">${this._esc(this._error)}</div>` : ""}
+        ${this._notice ? `<div class="notice">${this._esc(this._notice)}</div>` : ""}
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
           <span>Home Climate Control</span>
@@ -295,6 +306,9 @@ class HomeClimatePanel extends HTMLElement {
         this._setZone(id, { preset_mode: el.value });
       });
     });
+    root.querySelectorAll("[data-fw-action]").forEach((el) => {
+      el.addEventListener("click", () => this._onFwAction(el));
+    });
   }
 
   _tabBtn(id, label) {
@@ -302,7 +316,7 @@ class HomeClimatePanel extends HTMLElement {
   }
 
   _body(sys, systems) {
-    if (!systems.length) {
+    if (!systems.length && this._tab !== "firmware") {
       return `
         <div class="empty card">
           <p><strong>No Home Climate Control system configured yet.</strong></p>
@@ -318,15 +332,7 @@ class HomeClimatePanel extends HTMLElement {
           "Coming soon: interactive house layout with zone temperatures and heat demand."
         );
       case "firmware":
-        return this._placeholder(
-          "Firmware",
-          "Coming soon: discover Home Climate System devices and flash ESP32/ESP8266 firmware over the network.",
-          [
-            "List HCS devices on MQTT",
-            "OTA update from GitHub releases",
-            "Serial flash helper (browser)",
-          ]
-        );
+        return this._firmwareHtml();
       case "settings":
         return this._settingsHtml(sys);
       default:
@@ -428,6 +434,187 @@ class HomeClimatePanel extends HTMLElement {
         <p>Tune curve and flow limits via <strong>Settings → Devices &amp; services → Home Climate Control → Configure</strong>.</p>
         <p class="sub">Editable settings in this panel will be added later.</p>
       </div>`;
+  }
+
+  _firmwareHtml() {
+    const devices = this._status?.devices || [];
+    const catalog = this._status?.firmware_catalog || [];
+    const online = devices.filter((d) => d.online).length;
+
+    const deviceCards = devices
+      .map((d) => {
+        const match = catalog.find((c) => c.board === d.board) || null;
+        const update = match && match.version !== d.version ? match : null;
+        const options = [
+          ...catalog.map(
+            (c) =>
+              `<option value="${this._esc(c.id)}" ${match === c ? "selected" : ""}>${this._esc(c.title)}</option>`
+          ),
+          `<option value="__custom__">Custom URL…</option>`,
+        ].join("");
+        return `
+      <div class="card zone">
+        <div>
+          <div class="zone-title">${this._esc(d.name || d.node_id)}
+            ${d.online ? '<span class="badge on">online</span>' : '<span class="badge off">offline</span>'}
+            ${update ? `<span class="badge heat">v${this._esc(update.version)} available</span>` : ""}
+          </div>
+          <div class="zone-meta">
+            ${this._esc(d.node_id)} · ${this._esc(d.board || "?")} · v${this._esc(d.version || "?")} · ${this._esc(d.ip || "no IP")}
+            · seen ${this._ago(d.last_seen)}
+            ${d.last_error ? ` · <span style="color:#ef9a9a">${this._esc(d.last_error)}</span>` : ""}
+          </div>
+        </div>
+        <div class="controls">
+          <select data-catalog-for="${this._esc(d.node_id)}">${options}</select>
+          <button type="button" data-fw-action="flash" data-node="${this._esc(d.node_id)}"
+            ${!d.online || this._busy[d.node_id] ? "disabled" : ""}>Flash</button>
+          <button type="button" class="ghost" data-fw-action="reboot" data-node="${this._esc(d.node_id)}"
+            ${!d.online || this._busy[d.node_id] ? "disabled" : ""}>Reboot</button>
+          <button type="button" class="ghost" data-fw-action="open" data-node="${this._esc(d.node_id)}"
+            ${!d.ota_http ? "disabled" : ""}>OTA page</button>
+        </div>
+      </div>`;
+      })
+      .join("");
+
+    const catalogRows = catalog
+      .map(
+        (c) => `
+      <div class="card zone">
+        <div>
+          <div class="zone-title">${this._esc(c.title)}</div>
+          <div class="zone-meta">${this._esc(c.notes || "")} · board: ${this._esc(c.board)}</div>
+        </div>
+        <div class="controls"><a href="${this._esc(c.url)}" target="_blank" rel="noopener"><button type="button" class="ghost">Download</button></a></div>
+      </div>`
+      )
+      .join("");
+
+    return `
+      <div class="card zone" style="margin-bottom:16px">
+        <div>
+          <div class="zone-title">Devices</div>
+          <div class="zone-meta">${online} online / ${devices.length} known — devices announce via MQTT discovery every 30 s</div>
+        </div>
+        <div class="controls">
+          <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
+        </div>
+      </div>
+      ${
+        devices.length
+          ? `<div class="zones">${deviceCards}</div>`
+          : `<div class="empty card">No HCS devices discovered yet.<p class="sub">Power on a device with Home Climate System firmware; it announces itself on MQTT topic <code>hcs/discovery/&lt;node&gt;</code>.</p></div>`
+      }
+      <h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Firmware catalog</h3>
+      ${catalog.length ? `<div class="zones">${catalogRows}</div>` : `<div class="sub">Catalog unavailable.</div>`}`;
+  }
+
+  _onFwAction(el) {
+    const action = el.getAttribute("data-fw-action");
+    if (action === "ping") return this._pingDevices();
+    const nodeId = el.getAttribute("data-node");
+    if (!nodeId) return;
+    if (action === "open") return this._openOtaPage(nodeId);
+    if (action === "reboot") return this._rebootDevice(nodeId);
+    if (action === "flash") return this._flashDevice(nodeId);
+  }
+
+  async _pingDevices() {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/ping_devices",
+      });
+      this._status = { ...(this._status || {}), devices: res.devices };
+      this._notice = "Discovery ping sent.";
+      setTimeout(() => this._refresh(), 3000);
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._render();
+  }
+
+  _selectedFirmware(nodeId, devices, catalog) {
+    const sel = this.shadowRoot.querySelector(`select[data-catalog-for="${nodeId}"]`);
+    let value = sel?.value;
+    if (!value) {
+      const dev = devices.find((d) => d.node_id === nodeId);
+      value = catalog.find((c) => c.board === dev?.board)?.id;
+    }
+    return value;
+  }
+
+  async _flashDevice(nodeId) {
+    const devices = this._status?.devices || [];
+    const catalog = this._status?.firmware_catalog || [];
+    const selection = this._selectedFirmware(nodeId, devices, catalog);
+    if (!selection) return;
+    const dev = devices.find((d) => d.node_id === nodeId);
+    const item = catalog.find((c) => c.id === selection);
+
+    let url, label;
+    if (selection === "__custom__") {
+      url = prompt("Firmware .bin URL:");
+      if (!url) return;
+      label = url.split("/").pop();
+    } else {
+      url = item?.url;
+      label = item?.title || selection;
+    }
+    if (!confirm(
+      `Flash "${label}" to ${dev?.name || nodeId}?\n\nThe device downloads firmware over HTTP and reboots (~60 s). Do not power it off during the update.`
+    )) return;
+
+    this._busy[nodeId] = true;
+    this._notice = null;
+    this._error = null;
+    this._render();
+    try {
+      await this._hass.callWS({
+        type: "home_climate_control/flash_device",
+        node_id: nodeId,
+        ...(selection === "__custom__" ? { url } : { catalog_id: selection }),
+      });
+      this._notice = `Update command sent to ${nodeId}. It will report back after rebooting into the new firmware.`;
+      setTimeout(() => this._refresh(), 90000);
+    } catch (err) {
+      this._error = err?.message || String(err);
+    } finally {
+      delete this._busy[nodeId];
+      this._refresh();
+    }
+  }
+
+  async _rebootDevice(nodeId) {
+    if (!confirm(`Reboot ${nodeId}?`)) return;
+    try {
+      await this._hass.callWS({
+        type: "home_climate_control/reboot_device",
+        node_id: nodeId,
+      });
+      this._notice = `Reboot command sent to ${nodeId}.`;
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._refresh();
+  }
+
+  _openOtaPage(nodeId) {
+    const dev = (this._status?.devices || []).find((d) => d.node_id === nodeId);
+    if (dev?.ota_http) window.open(dev.ota_http, "_blank", "noopener");
+  }
+
+  _ago(iso) {
+    if (!iso) return "unknown";
+    const ms = Date.now() - new Date(iso).getTime();
+    if (Number.isNaN(ms)) return "unknown";
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} h ago`;
+    return `${Math.floor(h / 24)} d ago`;
   }
 
   _placeholder(title, text, items = []) {

@@ -78,6 +78,8 @@ def install_ha_stubs() -> None:
     selector.EntitySelectorConfig = lambda **k: k
     entity_platform = _mod("homeassistant.helpers.entity_platform")
     entity_platform.AddEntitiesCallback = object
+    aiohttp_client = _mod("homeassistant.helpers.aiohttp_client")
+    aiohttp_client.async_get_clientsession = MagicMock()
 
     # voluptuous not needed if we don't import config_flow in unit tests
 
@@ -90,6 +92,7 @@ def install_ha_stubs() -> None:
     components.climate = climate
     helpers.event = event
     helpers.selector = selector
+    helpers.aiohttp_client = aiohttp_client
 
     install_ha_stubs._done = True  # type: ignore[attr-defined]
 

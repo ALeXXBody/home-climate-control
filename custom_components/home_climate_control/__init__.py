@@ -90,6 +90,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_setup_websocket(hass)
     await async_register_panel(hass)
 
+    from .firmware_manager import async_setup_firmware_manager
+
+    await async_setup_firmware_manager(hass)
+
     await hass.config_entries.async_forward_entry_setups(entry, ["climate"])
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
