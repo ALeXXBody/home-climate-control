@@ -1,6 +1,6 @@
 # Home Climate Control
 
-Private Home Assistant custom component for multi-zone heating control.
+Home Assistant custom component for multi-zone heating control.
 
 **Software** (this repo) · companion **hardware/firmware**:  
 [home-climate-system](https://github.com/ALeXXBody/home-climate-system)
@@ -12,7 +12,7 @@ OpenTherm weather compensation and the lowest workable flow temperature.
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
 | **Domain** | `home_climate_control` |
-| **License** | MIT (private until public release) |
+| **License** | MIT |
 
 ## Naming
 
@@ -31,8 +31,6 @@ OpenTherm weather compensation and the lowest workable flow temperature.
 
 ## Install via HACS (custom repository)
 
-Because this repo is private, install it as a **custom repository** in HACS.
-
 ### 1. Add the repository in HACS
 
 1. Open **HACS** in Home Assistant.
@@ -41,10 +39,6 @@ Because this repo is private, install it as a **custom repository** in HACS.
    - **Repository:** `https://github.com/ALeXXBody/home-climate-control`
    - **Category:** `Integration`
 4. Click **Add**.
-
-> If HACS cannot see a private repo, connect a GitHub account that has access:
-> HACS → three-dot menu → **GitHub** (or re-authenticate HACS with a token
-> that can read this repository).
 
 ### 2. Download the integration
 
@@ -140,4 +134,4 @@ https://buymeacoffee.com/alexxbody
 
 ## License
 
-MIT (see [`LICENSE`](LICENSE)). Repository stays private until ready for public release.
+MIT (see [`LICENSE`](LICENSE)).
