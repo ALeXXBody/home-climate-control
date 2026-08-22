@@ -248,7 +248,7 @@ class HomeClimatePanel extends HTMLElement {
       </style>
       <div class="wrap">
         <header>
-          <h1>Home Climate</h1>
+          <h1>Home Climate ${sys?.demo ? '<span class="badge heat" style="font-size:0.7rem;vertical-align:middle">DEMO</span>' : ""}</h1>
           <button class="ghost refresh" type="button" data-action="refresh">Refresh</button>
         </header>
         <nav class="tabs">
@@ -350,7 +350,7 @@ class HomeClimatePanel extends HTMLElement {
     return `
       <div class="grid">
         <div class="card"><h3>Outdoor</h3><div class="metric">${outdoor}<span class="unit">°C</span></div>
-          <div class="sub">Boiler outdoor sensor</div></div>
+          <div class="sub">${sys.demo ? "Simulated outdoor (demo)" : "Boiler outdoor sensor"}</div></div>
         <div class="card"><h3>Flow setpoint</h3><div class="metric">${flow}<span class="unit">°C</span></div>
           <div class="sub">Weather-compensated target</div></div>
         <div class="card"><h3>Total demand</h3><div class="metric">${demand}<span class="unit">%</span></div>

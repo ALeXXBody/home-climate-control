@@ -6,6 +6,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from .const import (
+    BACKEND_DEMO,
+    BACKEND_OTGW_MQTT,
+    CONF_BACKEND,
     CONF_OTGW_NODE_ID,
     CONF_OTGW_PREFIX,
     CONF_ZONES,
@@ -13,6 +16,7 @@ from .const import (
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
     DEFAULT_OTGW_PREFIX,
+    DEMO_DEFAULT_OUTDOOR,
     DOMAIN,
 )
 
@@ -26,13 +30,41 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up when HA loads the integration (YAML or discovery)."""
     hass.data.setdefault(DOMAIN, {})
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
+    from .boiler.demo import DemoOtgwBackend
     from .boiler.otgw_mqtt import OtgwMqttBackend
+
+    backend_type = entry.data.get(CONF_BACKEND, BACKEND_OTGW_MQTT)
+    min_flow = opts.get("min_flow_temp", DEFAULT_MIN_FLOW_TEMP)
+    max_flow = opts.get("max_flow_temp", DEFAULT_MAX_FLOW_TEMP)
+
+    if backend_type == BACKEND_DEMO:
+        rooms: dict[str, float] = {}
+        for z in opts.get(CONF_ZONES, []):
+            name = z.get("name")
+            if name:
+                rooms[name] = float(z.get("demo_start_temp", 18.0))
+        return DemoOtgwBackend(
+            min_flow,
+            max_flow,
+            outdoor=float(entry.data.get("demo_outdoor", DEMO_DEFAULT_OUTDOOR)),
+            rooms=rooms,
+        )
+
+    return OtgwMqttBackend(
+        hass,
+        prefix=entry.data.get(CONF_OTGW_PREFIX, DEFAULT_OTGW_PREFIX),
+        node_id=entry.data.get(CONF_OTGW_NODE_ID, ""),
+        min_flow=min_flow,
+        max_flow=max_flow,
+    )
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .central import CentralController
     from .panel import async_register_panel
     from .websocket_api import async_setup_websocket
@@ -40,13 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     opts = entry.options
-    backend = OtgwMqttBackend(
-        hass,
-        prefix=entry.data.get(CONF_OTGW_PREFIX, DEFAULT_OTGW_PREFIX),
-        node_id=entry.data.get(CONF_OTGW_NODE_ID, ""),
-        min_flow=opts.get("min_flow_temp", DEFAULT_MIN_FLOW_TEMP),
-        max_flow=opts.get("max_flow_temp", DEFAULT_MAX_FLOW_TEMP),
-    )
+    backend = _build_backend(hass, entry, opts)
     controller = CentralController(
         hass,
         backend,
@@ -58,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),
+        "backend": entry.data.get(CONF_BACKEND, BACKEND_OTGW_MQTT),
     }
 
     async_setup_websocket(hass)
@@ -77,7 +104,11 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
     from homeassistant.core import callback
     from homeassistant.helpers.event import async_track_state_change_event
 
-    temp_map = {z.temp_sensor_entity: z for z in zones if z.temp_sensor_entity}
+    temp_map = {
+        z.temp_sensor_entity: z
+        for z in zones
+        if z.temp_sensor_entity
+    }
     window_entities = sorted({s for z in zones for s in z.window_sensor_entities})
     watched = list(temp_map.keys()) + window_entities
     if not watched:
@@ -136,7 +167,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await controller.async_stop()
         unload_ok = await hass.config_entries.async_unload_platforms(entry, ["climate"])
 
-    # Drop sidebar when no config entries remain.
     remaining = [
         k
         for k, v in hass.data.get(DOMAIN, {}).items()

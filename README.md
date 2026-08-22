@@ -97,12 +97,23 @@ sidebar (icon: thermometer home). Full-screen UI for:
 | Firmware | Placeholder (HCS device flash later) |
 | Settings | Curve / flow limits (read-only; edit via Configure) |
 
-## Status (v0.2.0)
+## Demo mode (no hardware)
 
-- Config flow: OTGW MQTT prefix + node id, flow limits, curve coefficient, zones
+When adding the integration, choose **Demo OTGW**. That creates:
+
+- Simulated outdoor temperature, boiler flame / modulation / flow / return
+- Two zones: **Living Room** and **Bedroom** (room temps evolve over time)
+- No MQTT or real sensors required
+
+Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
+and flow setpoint change. Perfect for testing the UI before firmware/board work.
+
+## Status (v0.3.0)
+
+- Config flow: **Demo OTGW** or real OTGW MQTT
 - Zone climate entities (presets, window pause, TRV demand respect)
 - Central controller: weather-compensated heating curve + PID flow boost
-- Boiler backend: OTGW-firmware MQTT (`ctrlsetpt` / `chenable` / telemetry)
+- Boiler backends: demo simulator + OTGW-firmware MQTT
 - **Sidebar panel** + WebSocket API (`home_climate_control/get_status`, `set_zone`)
 
 Not yet: low-load duty cycling, auto-tune, underfloor profiles, floor plan, firmware flasher,

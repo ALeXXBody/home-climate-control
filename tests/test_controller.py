@@ -177,3 +177,65 @@ async def test_central_uses_worst_zone_pid():
     await ctrl.async_control_step()
     base = flow_for_outdoor(20.0, 5.0, 1.0, 25, 75, -10)
     assert backend.flow == pytest.approx(min(75, base + 8.0))
+
+
+@pytest.mark.asyncio
+async def test_demo_backend_heats_when_ch_on():
+    from home_climate_control.boiler.demo import DemoOtgwBackend
+
+    demo = DemoOtgwBackend(25, 75, outdoor=5.0, rooms={"Living Room": 18.0})
+    await demo.async_start()
+    await demo.async_set_ch_enabled(True)
+    await demo.async_set_flow_setpoint(55.0)
+
+    class Z:
+        name = "Living Room"
+
+        def wants_heat(self):
+            return True
+
+        def paused(self):
+            return False
+
+        def on_sensor_update(self, t, w):
+            self.temp = t
+
+    z = Z()
+    demo._last_tick -= 120  # force a large dt
+    demo.simulate_step([z])
+    assert demo.flame_on is True
+    assert demo.ch_active is True
+    assert demo.modulation_level > 0
+    assert demo.get_room_temp("Living Room") > 18.0
+    assert demo.diagnostics()["demo"] is True
+
+
+@pytest.mark.asyncio
+async def test_demo_backend_idle_when_ch_off():
+    from home_climate_control.boiler.demo import DemoOtgwBackend
+
+    demo = DemoOtgwBackend(25, 75, outdoor=5.0, rooms={"Bedroom": 19.0})
+    await demo.async_start()
+    await demo.async_set_ch_enabled(False)
+    demo._last_tick -= 60
+    demo.simulate_step([])
+    assert demo.flame_on is False
+    assert demo.modulation_level == 0.0
+
+
+@pytest.mark.asyncio
+async def test_central_with_demo_backend_commands_flow():
+    from home_climate_control.boiler.demo import DemoOtgwBackend
+
+    hass = MagicMock()
+    demo = DemoOtgwBackend(25, 75, outdoor=0.0, rooms={"Living Room": 17.0})
+    ctrl = CentralController(
+        hass, demo, curve_coeff=1.2, design_outdoor=-10, min_flow=25, max_flow=75
+    )
+    ctrl.register_zone(
+        FakeZone("Living Room", wants=True, setpoint=21.0, pid_extra=2.0, demand=0.8)
+    )
+    await ctrl.async_control_step()
+    assert demo.ch_active is True or demo._ch_enabled is True
+    assert ctrl.flow_setpoint is not None
+    assert 25 <= ctrl.flow_setpoint <= 75

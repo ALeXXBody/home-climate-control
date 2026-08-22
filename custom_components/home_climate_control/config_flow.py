@@ -13,6 +13,9 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
 from .const import (
+    BACKEND_DEMO,
+    BACKEND_OTGW_MQTT,
+    CONF_BACKEND,
     CONF_OTGW_NODE_ID,
     CONF_OTGW_PREFIX,
     CONF_ZONE_NAME,
@@ -26,6 +29,9 @@ from .const import (
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
     DEFAULT_OTGW_PREFIX,
+    DEMO_DEFAULT_OUTDOOR,
+    DEMO_DEFAULT_ROOMS,
+    DEMO_UNIQUE_ID,
     DOMAIN,
     MAX_FLOW_TEMP_LIMIT,
     MIN_FLOW_TEMP_LIMIT,
@@ -49,7 +55,85 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Step 1: boiler / OTGW connection."""
+        """Choose backend: Demo OTGW or real OTGW MQTT."""
+        if user_input is not None:
+            backend = user_input[CONF_BACKEND]
+            self._data[CONF_BACKEND] = backend
+            if backend == BACKEND_DEMO:
+                return await self.async_step_demo()
+            return await self.async_step_otgw()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_BACKEND, default=BACKEND_DEMO): vol.In(
+                    {
+                        BACKEND_DEMO: "Demo OTGW (no hardware — for testing)",
+                        BACKEND_OTGW_MQTT: "Real OTGW via MQTT",
+                    }
+                ),
+            }
+        )
+        return self.async_show_form(step_id="user", data_schema=schema)
+
+    async def async_step_demo(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """One-click demo system with simulated boiler and rooms."""
+        await self.async_set_unique_id(DEMO_UNIQUE_ID)
+        self._abort_if_unique_id_configured()
+
+        if user_input is not None:
+            zones = []
+            for name, start_temp, setpoint in DEMO_DEFAULT_ROOMS:
+                zones.append(
+                    {
+                        CONF_ZONE_NAME: name,
+                        CONF_ZONE_TEMP_SENSOR: None,
+                        CONF_ZONE_WINDOW_SENSORS: [],
+                        CONF_ZONE_TRV_CLIMATES: [],
+                        "setpoint": setpoint,
+                        "demo_start_temp": start_temp,
+                    }
+                )
+            title = user_input.get(CONF_NAME, f"{NAME} (Demo)")
+            return self.async_create_entry(
+                title=title,
+                data={
+                    CONF_BACKEND: BACKEND_DEMO,
+                    CONF_NAME: title,
+                    "demo_outdoor": DEMO_DEFAULT_OUTDOOR,
+                },
+                options={
+                    CONF_MIN_FLOW: user_input.get(CONF_MIN_FLOW, DEFAULT_MIN_FLOW_TEMP),
+                    CONF_MAX_FLOW: user_input.get(CONF_MAX_FLOW, DEFAULT_MAX_FLOW_TEMP),
+                    CONF_CURVE: user_input.get(CONF_CURVE, DEFAULT_CURVE_COEFF),
+                    CONF_ZONES: zones,
+                },
+            )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_NAME, default=f"{NAME} (Demo)"): str,
+                vol.Required(CONF_MIN_FLOW, default=DEFAULT_MIN_FLOW_TEMP): vol.All(
+                    vol.Coerce(float),
+                    vol.Range(min=MIN_FLOW_TEMP_LIMIT, max=MAX_FLOW_TEMP_LIMIT),
+                ),
+                vol.Required(CONF_MAX_FLOW, default=DEFAULT_MAX_FLOW_TEMP): vol.All(
+                    vol.Coerce(float),
+                    vol.Range(min=MIN_FLOW_TEMP_LIMIT, max=MAX_FLOW_TEMP_LIMIT),
+                ),
+                vol.Required(CONF_CURVE, default=DEFAULT_CURVE_COEFF): vol.All(
+                    vol.Coerce(float),
+                    vol.Range(min=CURVE_COEFF_MIN, max=CURVE_COEFF_MAX),
+                ),
+            }
+        )
+        return self.async_show_form(step_id="demo", data_schema=schema)
+
+    async def async_step_otgw(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Real OTGW MQTT connection settings."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -57,7 +141,8 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 f"hcc_{user_input[CONF_OTGW_PREFIX]}_{user_input[CONF_OTGW_NODE_ID]}"
             )
             self._abort_if_unique_id_configured()
-            self._data = user_input
+            self._data.update(user_input)
+            self._data[CONF_BACKEND] = BACKEND_OTGW_MQTT
             return await self.async_step_zone()
 
         schema = vol.Schema(
@@ -79,12 +164,12 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="otgw", data_schema=schema, errors=errors)
 
     async def async_step_zone(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Step 2+: add heating zones (at least one)."""
+        """Add heating zones for real OTGW setup."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -102,6 +187,7 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(
                 title=self._data.get(CONF_NAME, NAME),
                 data={
+                    CONF_BACKEND: BACKEND_OTGW_MQTT,
                     CONF_OTGW_PREFIX: self._data[CONF_OTGW_PREFIX],
                     CONF_OTGW_NODE_ID: self._data[CONF_OTGW_NODE_ID],
                     CONF_NAME: self._data.get(CONF_NAME, NAME),
@@ -118,7 +204,9 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_ZONE_NAME, default=f"Zone {len(self._zones) + 1}"): str,
                 vol.Required(CONF_ZONE_TEMP_SENSOR): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                    selector.EntitySelectorConfig(
+                        domain="sensor", device_class="temperature"
+                    )
                 ),
                 vol.Optional(CONF_ZONE_WINDOW_SENSORS): selector.EntitySelector(
                     selector.EntitySelectorConfig(
@@ -147,7 +235,7 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
-    """Options flow: retune curve / flow limits. Zones reconfiguration later."""
+    """Options flow: retune curve / flow limits."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

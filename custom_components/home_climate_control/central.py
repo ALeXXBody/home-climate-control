@@ -5,6 +5,7 @@ Control loop (every CONTROL_LOOP_SECONDS):
 2. Boiler flow setpoint = max(requested flow) across demanding zones,
    raised by the worst-zone PID contribution.
 3. No demand anywhere -> CH off.
+4. Demo backend: advance simulated boiler + room temperatures.
 """
 
 from __future__ import annotations
@@ -57,7 +58,6 @@ class CentralController:
         self._unsub_loop = async_track_time_interval(
             self.hass, self._async_control_tick, timedelta(seconds=CONTROL_LOOP_SECONDS)
         )
-        # Immediate first tick so the boiler reacts without waiting a full minute.
         await self.async_control_step()
         _LOGGER.info("Central controller started (%d zones)", len(self.zones))
 
@@ -73,20 +73,22 @@ class CentralController:
     def register_zone(self, zone) -> None:
         if zone not in self.zones:
             self.zones.append(zone)
+            ensure = getattr(self.backend, "ensure_room", None)
+            if callable(ensure):
+                name = getattr(zone, "name", None) or "Zone"
+                ensure(name, getattr(zone, "current_temperature", None) or 18.0)
 
     def outdoor_temp(self) -> float | None:
-        """Prefer boiler outdoor sensor from OTGW; optional HA sensor later."""
         return self.backend.outdoor_temp
 
     async def _async_control_tick(self, _now=None) -> None:
         try:
             await self.async_control_step()
-        except Exception:  # noqa: BLE001 — keep the loop alive
+        except Exception:  # noqa: BLE001
             _LOGGER.exception("Control tick failed")
 
     async def async_control_step(self) -> None:
         outdoor = self.outdoor_temp()
-
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
 
         if not demanding:
@@ -98,38 +100,51 @@ class CentralController:
             self.total_demand = 0.0
             self.active_zone_names = []
             self.estimated_gas_percent = 0.0
-            return
+        else:
+            max_setpoint = max(z.effective_setpoint() for z in demanding)
+            base_flow = flow_for_outdoor(
+                max_setpoint,
+                outdoor if outdoor is not None else self.design_outdoor,
+                self.curve_coeff,
+                self.min_flow,
+                self.max_flow,
+                self.design_outdoor,
+            )
+            worst_pid_extra = max(z.pid_flow_contribution() for z in demanding)
+            target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
 
-        max_setpoint = max(z.effective_setpoint() for z in demanding)
-        base_flow = flow_for_outdoor(
-            max_setpoint,
-            outdoor if outdoor is not None else self.design_outdoor,
-            self.curve_coeff,
-            self.min_flow,
-            self.max_flow,
-            self.design_outdoor,
-        )
-        worst_pid_extra = max(z.pid_flow_contribution() for z in demanding)
-        target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
+            if not self._ch_on:
+                await self.backend.async_set_ch_enabled(True)
+                self._ch_on = True
+            await self.backend.async_set_flow_setpoint(target_flow)
 
-        if not self._ch_on:
-            await self.backend.async_set_ch_enabled(True)
-            self._ch_on = True
-        await self.backend.async_set_flow_setpoint(target_flow)
+            self.flow_setpoint = target_flow
+            self.active_zone_names = [z.name for z in demanding]
+            self.total_demand = sum(z.demand_level() for z in demanding)
+            self.estimated_gas_percent = min(100.0, self.total_demand * 100.0)
 
-        self.flow_setpoint = target_flow
-        self.active_zone_names = [z.name for z in demanding]
-        self.total_demand = sum(z.demand_level() for z in demanding)
-        self.estimated_gas_percent = min(100.0, self.total_demand * 100.0)
+            _LOGGER.debug(
+                "tick: outdoor=%s flow=%.1f (base %.1f + pid %.1f) zones=%s",
+                f"{outdoor:.1f}" if outdoor is not None else "?",
+                target_flow,
+                base_flow,
+                worst_pid_extra,
+                self.active_zone_names,
+            )
 
-        _LOGGER.debug(
-            "tick: outdoor=%s flow=%.1f (base %.1f + pid %.1f) zones=%s",
-            f"{outdoor:.1f}" if outdoor is not None else "?",
-            target_flow,
-            base_flow,
-            worst_pid_extra,
-            self.active_zone_names,
-        )
+        # Demo physics + push simulated room temps into zones.
+        simulate = getattr(self.backend, "simulate_step", None)
+        if callable(simulate):
+            simulate(self.zones)
+            get_room = getattr(self.backend, "get_room_temp", None)
+            if callable(get_room):
+                for zone in self.zones:
+                    name = getattr(zone, "name", None)
+                    if not name:
+                        continue
+                    temp = get_room(name)
+                    if temp is not None and hasattr(zone, "on_sensor_update"):
+                        zone.on_sensor_update(temp, None)
 
     def diagnostics(self) -> dict:
         data = {

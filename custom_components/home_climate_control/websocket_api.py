@@ -68,6 +68,8 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
         systems.append(
             {
                 "entry_id": entry_id,
+                "demo": bool(diag.get("demo")),
+                "backend": diag.get("backend") or data.get("backend"),
                 "flow_setpoint": getattr(controller, "flow_setpoint", None),
                 "total_demand": getattr(controller, "total_demand", 0),
                 "active_zones": list(getattr(controller, "active_zone_names", [])),

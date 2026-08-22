@@ -73,10 +73,15 @@ class ZoneClimateEntity(ClimateEntity):
         self._window_sensors: list[str] = list(zone_cfg.get("window_sensors") or [])
         self._trv_climates: list[str] = list(zone_cfg.get("trv_climates") or [])
 
-        self._current_temp: float | None = None
+        # Demo zones start with a simulated room temp; real setups wait for sensors.
+        start = zone_cfg.get("demo_start_temp")
+        self._current_temp: float | None = float(start) if start is not None else None
         self._target_temp: float = float(zone_cfg.get("setpoint", DEFAULT_ZONE_SETPOINT))
         self._preset: str = "none"
-        self._hvac_mode: HVACMode = HVACMode.OFF
+        # Demo: heat on so the virtual boiler reacts immediately after setup.
+        self._hvac_mode: HVACMode = (
+            HVACMode.HEAT if zone_cfg.get("demo_start_temp") is not None else HVACMode.OFF
+        )
         self._window_open: bool = False
 
         curve_coeff = coordinator.curve_coeff

@@ -73,10 +73,22 @@ OUTDOOR_STALE_AFTER_SECONDS = 1800
 # --- Control loop ------------------------------------------------------------
 CONTROL_LOOP_SECONDS = 60
 
+# --- Backend selection -------------------------------------------------------
+CONF_BACKEND = "backend"
+BACKEND_OTGW_MQTT = "otgw_mqtt"
+BACKEND_DEMO = "demo"
+BACKENDS = [BACKEND_DEMO, BACKEND_OTGW_MQTT]
+
 # --- MQTT (OTGW-firmware) ----------------------------------------------------
 CONF_OTGW_PREFIX = "otgw_prefix"
 CONF_OTGW_NODE_ID = "otgw_node_id"
 DEFAULT_OTGW_PREFIX = "OTGW"
+DEMO_UNIQUE_ID = "hcc_demo"
+DEMO_DEFAULT_OUTDOOR = 5.0
+DEMO_DEFAULT_ROOMS = (
+    ("Living Room", 18.5, 21.0),
+    ("Bedroom", 17.0, 19.0),
+)
 # Node id defaults to the gateway hostname pattern published by otgw-firmware,
 # e.g. "otgw-AABBCCDDEEFF". User must confirm it in config flow.
 CONF_OUTDOOR_SENSOR = "outdoor_sensor"
