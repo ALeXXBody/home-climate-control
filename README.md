@@ -116,6 +116,14 @@ pytest -v
 - [Architecture](docs/architecture.md)
 - Hardware/firmware: [home-climate-system](https://github.com/ALeXXBody/home-climate-system)
 
+## Support
+
+If this project helps you, you can support development here:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/alexxbody)
+
+https://buymeacoffee.com/alexxbody
+
 ## License
 
 MIT (see [`LICENSE`](LICENSE)). Repository stays private until ready for public release.
