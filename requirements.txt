@@ -1,3 +1,0 @@
-# Home Climate System Requirements
-
-voluptuous>=0.12.1

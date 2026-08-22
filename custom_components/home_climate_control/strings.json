@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Climate Control — boiler",
+        "description": "Connect to your OpenTherm Gateway (OTGW-firmware MQTT). Outdoor temperature is read from the boiler's own outdoor sensor via OTGW.",
+        "data": {
+          "name": "Name",
+          "otgw_prefix": "MQTT top topic (prefix)",
+          "otgw_node_id": "OTGW node id (e.g. otgw-AABBCCDDEEFF)",
+          "min_flow_temp": "Minimum flow temperature (°C)",
+          "max_flow_temp": "Maximum flow temperature (°C)",
+          "curve_coeff": "Heating curve coefficient"
+        }
+      },
+      "zone": {
+        "title": "Add a heating zone",
+        "description": "Zones already added: {zone_count}. Each zone needs a room temperature sensor. Optional TRVs are respected as demand sources; optional window sensors pause the zone when open.",
+        "data": {
+          "name": "Zone name",
+          "temp_sensor": "Room temperature sensor",
+          "window_sensors": "Window / door sensors",
+          "trv_climates": "TRV climate entities",
+          "add_another": "Add another zone after this one"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This OTGW is already configured"
+    },
+    "error": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Home Climate Control options",
+        "data": {
+          "min_flow_temp": "Minimum flow temperature (°C)",
+          "max_flow_temp": "Maximum flow temperature (°C)",
+          "curve_coeff": "Heating curve coefficient"
+        }
+      }
+    }
+  }
+}

@@ -73,6 +73,12 @@ Runs every control tick (default 60 s):
    `binary_sensor.hcc_boiler_on`, diagnostic attributes (return temp,
    modulation, estimated instant gas use from min/max consumption).
 
+### Outdoor temperature source (priority order)
+1. Boiler's own outdoor sensor reported by OTGW via MQTT (`Tout` /
+   `outdoor_sensor_value`) — primary, no extra hardware needed.
+2. Fallback: any HA temperature sensor / weather integration entity,
+   selectable in options if MQTT value is missing or stale (>30 min).
+
 ### Heating curve
 Radiator variant first: Precision-curve family
 `flow = setpoint + curve_coeff · (setpoint_winter − outdoor)/(setpoint_winter − outdoor_design)`

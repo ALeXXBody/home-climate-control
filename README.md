@@ -1,48 +1,40 @@
-# Home Climate System
+# Home Climate Control
 
-Home Assistant custom component for advanced climate control with enhanced PID logic.
+Private Home Assistant custom component. MIT license planned for public release.
 
-## Features
+**Goal:** multi-zone climate control that respects room/TRV heat requests while
+minimising gas use via OpenTherm weather compensation and the lowest workable
+flow temperature.
 
-- Advanced PID temperature control algorithm 
-- Support for multiple preset modes (none, away, boost, comfort)
-- Boiler state management and modulation control
-- Integration with Home Assistant's climate platform
-- Configurable PID parameters for different heating scenarios
+## Status
 
-## Installation
+Phase 1 MVP skeleton (v0.1.0):
 
-1. Copy the `home_climate_system` folder to your Home Assistant configuration directory under `custom_components/`
-2. Restart Home Assistant
-3. Add the integration through the UI or configure manually in `configuration.yaml`
+- Config flow: OTGW MQTT prefix + node id, flow limits, curve coefficient, zones
+- Zone climate entities (presets, window pause, TRV demand respect)
+- Central controller: weather-compensated heating curve + PID flow boost
+- Boiler backend: OTGW-firmware MQTT (`ctrlsetpt` / `chenable` / telemetry)
 
-## Configuration
+Not yet: low-load duty cycling, auto-tune, underfloor profiles, diagnostics
+sensors UI, HACS packaging polish.
 
-```yaml
-climate:
-  - platform: home_climate_system
-    name: "Home Climate System"
-```
+## Install (dev)
 
-### PID Parameters (Advanced)
+1. Copy `custom_components/home_climate_control` into your HA config directory.
+2. Ensure the MQTT integration is configured and OTGW-firmware is publishing.
+3. Restart Home Assistant → Settings → Devices & services → Add integration
+   → **Home Climate Control**.
+4. Enter MQTT top topic (default `OTGW`), node id (e.g. `otgw-AABBCCDDEEFF`),
+   then add at least one zone (room temperature sensor).
 
-The component includes configurable PID parameters that can be adjusted for different heating systems:
+Outdoor temperature is taken from the boiler outdoor sensor published by OTGW
+as `outsidetemperature`.
 
-- **Proportional Gain (Kp)**: Controls immediate response to temperature error  
-- **Integral Gain (Ki)**: Eliminates steady-state error over time
-- **Derivative Gain (Kd)**: Provides stability and reduces overshoot
+## Docs
 
-### Preset Modes
+- [Research (SAT / Better Thermostat / Versatile Thermostat + licenses)](docs/research.md)
+- [Architecture](docs/architecture.md)
 
-- `none`: Normal operation with standard control logic
-- `away`: Reduces target temperature by 3°C for energy savings  
-- `boost`: Increases target temperature by 2°C for faster heating
-- `comfort`: Maintains optimal comfort level (default behavior)
+## License
 
-## Usage
-
-The component works as a standard Home Assistant climate entity and supports all common operations:
-- Setting target temperatures 
-- Switching between HVAC modes (heat/off)
-- Managing preset modes
-- Monitoring current temperature readings
+MIT (see `LICENSE`). Repository stays private until ready for public release.

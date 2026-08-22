@@ -1,0 +1,14 @@
+{
+  "domain": "home_climate_control",
+  "name": "Home Climate Control",
+  "codeowners": ["@ALeXXBody"],
+  "config_flow": true,
+  "dependencies": ["mqtt"],
+  "documentation": "https://github.com/ALeXXBody/home-climate-system",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/ALeXXBody/home-climate-system/issues",
+  "loggers": ["home_climate_control"],
+  "requirements": [],
+  "version": "0.1.0"
+}
