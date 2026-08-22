@@ -2,18 +2,32 @@
 
 Private Home Assistant custom component for multi-zone heating control.
 
+**Software** (this repo) · companion **hardware/firmware**:  
+[home-climate-system](https://github.com/ALeXXBody/home-climate-system)
+
 **Goal:** respect room and TRV heat requests while minimising gas use via
 OpenTherm weather compensation and the lowest workable flow temperature.
 
-Repository: https://github.com/ALeXXBody/home-climate-system (private)
+| | |
+|---|---|
+| **Repo** | https://github.com/ALeXXBody/home-climate-control |
+| **Domain** | `home_climate_control` |
+| **License** | MIT (private until public release) |
+
+## Naming
+
+| Name | What it is |
+|---|---|
+| **Home Climate Control** | This software — HA custom integration |
+| **Home Climate System** | Hardware + ESP32/ESP8266 firmware (separate repo) |
 
 ## Requirements
 
 - Home Assistant 2024.1 or newer
 - [HACS](https://hacs.xyz/) (recommended)
 - MQTT integration configured in Home Assistant
-- OpenTherm Gateway running [OTGW-firmware](https://github.com/rvdbreemen/OTGW-firmware) with MQTT enabled
-- Boiler outdoor temperature sensor (used for weather compensation)
+- OpenTherm Gateway with MQTT (e.g. OTGW-firmware), **or** later a Home Climate System device
+- Boiler outdoor temperature sensor (weather compensation)
 
 ## Install via HACS (custom repository)
 
@@ -24,7 +38,7 @@ Because this repo is private, install it as a **custom repository** in HACS.
 1. Open **HACS** in Home Assistant.
 2. Open the three-dot menu (⋮) in the top right → **Custom repositories**.
 3. Fill in:
-   - **Repository:** `https://github.com/ALeXXBody/home-climate-system`
+   - **Repository:** `https://github.com/ALeXXBody/home-climate-control`
    - **Category:** `Integration`
 4. Click **Add**.
 
@@ -83,15 +97,13 @@ as `outsidetemperature`.
 - Central controller: weather-compensated heating curve + PID flow boost
 - Boiler backend: OTGW-firmware MQTT (`ctrlsetpt` / `chenable` / telemetry)
 
-Not yet: low-load duty cycling, auto-tune, underfloor profiles, diagnostics sensors UI.
+Not yet: low-load duty cycling, auto-tune, underfloor profiles, diagnostics sensors UI,
+native Home Climate System device backend.
 
 ## Run tests (local venv)
 
-These unit tests cover the heating curve, PID, OTGW MQTT topics/commands, and
-the central controller (mocked Home Assistant — no full HA install required).
-
 ```bash
-cd /path/to/home-climate-system
+cd /path/to/home-climate-control
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
@@ -100,8 +112,9 @@ pytest -v
 
 ## Docs
 
-- [Research (SAT / Better Thermostat / Versatile Thermostat + licenses)](docs/research.md)
+- [Research (third-party thermostats + licenses)](docs/research.md)
 - [Architecture](docs/architecture.md)
+- Hardware/firmware: [home-climate-system](https://github.com/ALeXXBody/home-climate-system)
 
 ## License
 

@@ -3,6 +3,15 @@
 Status: draft. Target platform: Home Assistant custom component (HACS).
 License plan: private during development, MIT on first release.
 
+**Repos**
+
+| Product | Repo | Role |
+|---|---|---|
+| Home Climate Control | `ALeXXBody/home-climate-control` | HA software (this doc) |
+| Home Climate System | `ALeXXBody/home-climate-system` | ESP32/ESP8266 firmware + hardware |
+
+Do not confuse with third-party **SAT** (Alexwijn/SAT) — research reference only.
+
 ## Design goals
 
 1. Create HA climate entities (one per zone) that users interact with.
