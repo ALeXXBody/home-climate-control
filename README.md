@@ -85,6 +85,19 @@ as `outsidetemperature`.
 
 Not yet: low-load duty cycling, auto-tune, underfloor profiles, diagnostics sensors UI.
 
+## Run tests (local venv)
+
+These unit tests cover the heating curve, PID, OTGW MQTT topics/commands, and
+the central controller (mocked Home Assistant — no full HA install required).
+
+```bash
+cd /path/to/home-climate-system
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest -v
+```
+
 ## Docs
 
 - [Research (SAT / Better Thermostat / Versatile Thermostat + licenses)](docs/research.md)

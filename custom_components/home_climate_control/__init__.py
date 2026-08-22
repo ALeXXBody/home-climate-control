@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
-
-from .boiler.otgw_mqtt import OtgwMqttBackend
-from .central import CentralController
 from .const import (
     CONF_OTGW_NODE_ID,
     CONF_OTGW_PREFIX,
@@ -21,10 +16,22 @@ from .const import (
     DOMAIN,
 )
 
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+
+    from .central import CentralController
+
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from homeassistant.core import HomeAssistant  # noqa: F401
+    from homeassistant.helpers.event import async_track_state_change_event  # noqa: F401
+
+    from .boiler.otgw_mqtt import OtgwMqttBackend
+    from .central import CentralController
+
     hass.data.setdefault(DOMAIN, {})
 
     opts = entry.options
@@ -57,16 +64,17 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-@callback
 def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> None:
     """Subscribe room temp + window sensors feeding each zone."""
+    from homeassistant.core import callback
+    from homeassistant.helpers.event import async_track_state_change_event
+
     temp_map = {z.temp_sensor_entity: z for z in zones if z.temp_sensor_entity}
     window_entities = sorted({s for z in zones for s in z.window_sensor_entities})
     watched = list(temp_map.keys()) + window_entities
     if not watched:
         return
 
-    # Seed current values so the first control tick has data.
     for entity_id, zone in temp_map.items():
         state = hass.states.get(entity_id)
         if state is not None and state.state not in ("unknown", "unavailable"):
@@ -114,7 +122,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     stored = hass.data[DOMAIN].pop(entry.entry_id, None)
     unload_ok = True
     if stored is not None:
-        controller: CentralController = stored["controller"]
+        controller = stored["controller"]
         await controller.async_stop()
         unload_ok = await hass.config_entries.async_unload_platforms(entry, ["climate"])
     return unload_ok
