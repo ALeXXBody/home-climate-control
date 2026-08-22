@@ -4,6 +4,14 @@ DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
 
+# Sidebar app (custom panel)
+PANEL_URL_PATH = "home-climate"
+PANEL_TITLE = "Home Climate"
+PANEL_ICON = "mdi:home-thermometer"
+PANEL_WEBCOMPONENT = "home-climate-panel"
+PANEL_STATIC_URL = f"/{DOMAIN}_static"
+PANEL_JS = "home-climate-panel.js"
+
 # --- Boiler limits -----------------------------------------------------------
 DEFAULT_MIN_FLOW_TEMP = 25.0
 DEFAULT_MAX_FLOW_TEMP = 75.0

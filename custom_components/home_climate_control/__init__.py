@@ -25,12 +25,17 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    from homeassistant.core import HomeAssistant  # noqa: F401
-    from homeassistant.helpers.event import async_track_state_change_event  # noqa: F401
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up when HA loads the integration (YAML or discovery)."""
+    hass.data.setdefault(DOMAIN, {})
+    return True
 
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .boiler.otgw_mqtt import OtgwMqttBackend
     from .central import CentralController
+    from .panel import async_register_panel
+    from .websocket_api import async_setup_websocket
 
     hass.data.setdefault(DOMAIN, {})
 
@@ -54,6 +59,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),
     }
+
+    async_setup_websocket(hass)
+    await async_register_panel(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, ["climate"])
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -119,10 +127,22 @@ def get_controller(hass: HomeAssistant, entry: ConfigEntry) -> CentralController
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from .panel import async_unregister_panel
+
     stored = hass.data[DOMAIN].pop(entry.entry_id, None)
     unload_ok = True
     if stored is not None:
         controller = stored["controller"]
         await controller.async_stop()
         unload_ok = await hass.config_entries.async_unload_platforms(entry, ["climate"])
+
+    # Drop sidebar when no config entries remain.
+    remaining = [
+        k
+        for k, v in hass.data.get(DOMAIN, {}).items()
+        if isinstance(v, dict) and "controller" in v
+    ]
+    if not remaining:
+        await async_unregister_panel(hass)
+
     return unload_ok

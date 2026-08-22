@@ -90,14 +90,28 @@ as `outsidetemperature`.
 
 **Manual:** replace `custom_components/home_climate_control` with the new files → restart HA.
 
-## Status (v0.1.0)
+## Sidebar app
+
+After the integration is set up, a **Home Climate** item appears in the Home Assistant
+sidebar (icon: thermometer home). Full-screen UI for:
+
+| Tab | Status |
+|---|---|
+| Overview | Boiler / outdoor / flow / demand + zone summary |
+| Zones | Set temperature, heat/off, presets |
+| Floor plan | Placeholder (coming later) |
+| Firmware | Placeholder (HCS device flash later) |
+| Settings | Curve / flow limits (read-only; edit via Configure) |
+
+## Status (v0.2.0)
 
 - Config flow: OTGW MQTT prefix + node id, flow limits, curve coefficient, zones
 - Zone climate entities (presets, window pause, TRV demand respect)
 - Central controller: weather-compensated heating curve + PID flow boost
 - Boiler backend: OTGW-firmware MQTT (`ctrlsetpt` / `chenable` / telemetry)
+- **Sidebar panel** + WebSocket API (`home_climate_control/get_status`, `set_zone`)
 
-Not yet: low-load duty cycling, auto-tune, underfloor profiles, diagnostics sensors UI,
+Not yet: low-load duty cycling, auto-tune, underfloor profiles, floor plan, firmware flasher,
 native Home Climate System device backend.
 
 ## Run tests (local venv)

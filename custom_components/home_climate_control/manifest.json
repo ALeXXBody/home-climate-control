@@ -3,12 +3,12 @@
   "name": "Home Climate Control",
   "codeowners": ["@ALeXXBody"],
   "config_flow": true,
-  "dependencies": ["mqtt"],
+  "dependencies": ["mqtt", "http", "frontend", "panel_custom", "websocket_api"],
   "documentation": "https://github.com/ALeXXBody/home-climate-control",
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/ALeXXBody/home-climate-control/issues",
   "loggers": ["home_climate_control"],
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
