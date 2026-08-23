@@ -19,15 +19,7 @@
     </filter>
   </defs>
 
-  <style>
-    .title { font-family: 'Manrope', 'Inter', 'Segoe UI', sans-serif; font-weight: 700; font-size: 52px; fill: #FFFFFF; }
-    .subtitle { font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 400; font-size: 26px; fill: #9FB3C8; }
-    .badge-text { font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 600; font-size: 15px; fill: #38BDF8; }
-    .telemetry-label { font-family: 'JetBrains Mono', monospace; font-size: 16px; fill: #9FB3C8; }
-    .telemetry-val { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; fill: #F59E0B; }
-    .telemetry-val-blue { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; fill: #38BDF8; }
-  </style>
-
+  
   <!-- Master Canvas Background -->
   <rect width="1280" height="640" fill="url(#bannerBg)" />
 
@@ -53,24 +45,24 @@
   <!-- BRANDING TEXT BLOCK -->
   <g transform="translate(360, 215)">
     <!-- Title -->
-    <text x="0" y="0" class="title">Home Climate Control</text>
+    <text x="0" y="0" font-family="DejaVu Sans, Verdana, sans-serif" font-weight="700" font-size="52" fill="#FFFFFF">Home Climate Control</text>
     
     <!-- Tagline -->
-    <text x="0" y="44" class="subtitle">Save gas, stay comfortable.</text>
+    <text x="0" y="44" font-family="DejaVu Sans, Verdana, sans-serif" font-size="26" fill="#9FB3C8">Save gas, stay comfortable.</text>
 
     <!-- PILL BADGES -->
     <g transform="translate(0, 80)">
       <!-- Badge 1 -->
       <rect x="0" y="0" width="160" height="36" rx="18" fill="#1A2230" stroke="#2A364F" stroke-width="1.5" />
-      <text x="80" y="23" text-anchor="middle" class="badge-text">OpenTherm Native</text>
+      <text x="80" y="23" text-anchor="middle" font-family="DejaVu Sans, Verdana, sans-serif" font-weight="600" font-size="15" fill="#38BDF8">OpenTherm Native</text>
 
       <!-- Badge 2 -->
       <rect x="172" y="0" width="200" height="36" rx="18" fill="#1A2230" stroke="#2A364F" stroke-width="1.5" />
-      <text x="272" y="23" text-anchor="middle" class="badge-text">Weather Compensation</text>
+      <text x="272" y="23" text-anchor="middle" font-family="DejaVu Sans, Verdana, sans-serif" font-weight="600" font-size="15" fill="#38BDF8">Weather Compensation</text>
 
       <!-- Badge 3 -->
       <rect x="384" y="0" width="120" height="36" rx="18" fill="#1A2230" stroke="#2A364F" stroke-width="1.5" />
-      <text x="444" y="23" text-anchor="middle" class="badge-text">HACS Ready</text>
+      <text x="444" y="23" text-anchor="middle" font-family="DejaVu Sans, Verdana, sans-serif" font-weight="600" font-size="15" fill="#38BDF8">HACS Ready</text>
     </g>
   </g>
 
@@ -82,10 +74,10 @@
     <!-- Telemetry Readouts -->
     <g transform="translate(0, 42)">
       <!-- Item 1 -->
-      <text x="0" y="0" class="telemetry-label">Outdoor: <tspan class="telemetry-val-blue">4.2°C</tspan></text>
-      <text x="240" y="0" class="telemetry-label">Target Flow: <tspan class="telemetry-val">41.5°C</tspan></text>
-      <text x="520" y="0" class="telemetry-label">Modulation: <tspan class="telemetry-val">28%</tspan></text>
-      <text x="780" y="0" class="telemetry-label">Status: <tspan class="telemetry-val" fill="#22C55E">Heating Gently</tspan></text>
+      <text x="0" y="0" font-family="DejaVu Sans Mono, monospace" font-size="16" fill="#9FB3C8">Outdoor: <tspan font-family="DejaVu Sans Mono, monospace" font-weight="700" font-size="16" fill="#38BDF8">4.2°C</tspan></text>
+      <text x="240" y="0" font-family="DejaVu Sans Mono, monospace" font-size="16" fill="#9FB3C8">Target Flow: <tspan font-family="DejaVu Sans Mono, monospace" font-weight="700" font-size="16" fill="#F59E0B">41.5°C</tspan></text>
+      <text x="520" y="0" font-family="DejaVu Sans Mono, monospace" font-size="16" fill="#9FB3C8">Modulation: <tspan font-family="DejaVu Sans Mono, monospace" font-weight="700" font-size="16" fill="#F59E0B">28%</tspan></text>
+      <text x="780" y="0" font-family="DejaVu Sans Mono, monospace" font-size="16" fill="#9FB3C8">Status: <tspan font-family="DejaVu Sans Mono, monospace" font-weight="700" font-size="16" fill="#22C55E">Heating Gently</tspan></text>
     </g>
   </g>
 </svg>
