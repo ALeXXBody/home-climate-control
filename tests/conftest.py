@@ -80,6 +80,12 @@ def install_ha_stubs() -> None:
     entity_platform.AddEntitiesCallback = object
     aiohttp_client = _mod("homeassistant.helpers.aiohttp_client")
     aiohttp_client.async_get_clientsession = MagicMock()
+    storage = _mod("homeassistant.helpers.storage")
+    class _Store:
+        def __init__(self, *a, **k): pass
+        async def async_load(self): return {}
+        async def async_save(self, d): pass
+    storage.Store = _Store
 
     # voluptuous not needed if we don't import config_flow in unit tests
 
@@ -93,6 +99,7 @@ def install_ha_stubs() -> None:
     helpers.event = event
     helpers.selector = selector
     helpers.aiohttp_client = aiohttp_client
+    helpers.storage = storage
 
     install_ha_stubs._done = True  # type: ignore[attr-defined]
 
