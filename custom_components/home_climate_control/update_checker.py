@@ -14,7 +14,6 @@ import logging
 from datetime import timedelta
 
 from homeassistant.components import persistent_notification
-from homeassistant.const import __version__ as _HA_UNUSED  # noqa: F401
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.event import async_track_time_interval
