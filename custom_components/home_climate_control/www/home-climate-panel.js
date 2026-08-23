@@ -284,15 +284,7 @@ class HomeClimatePanel extends HTMLElement {
         @media (max-width: 700px) {
           .fw-cat { grid-template-columns: 1fr; }
         }
-        .fw-thumb {
-          width: 74px; height: 74px; object-fit: cover;
-          border-radius: 8px; background: #fff;
-          border: 1px solid var(--divider-color, #333);
-        }
-        .dev-card {
-          display: flex; gap: 12px; align-items: flex-start;
-        }
-        .dev-card .controls { flex: 1; }
+
       </style>
       <div class="wrap">
         <header>
@@ -663,11 +655,9 @@ class HomeClimatePanel extends HTMLElement {
           ),
           `<option value="__custom__">Custom URL…</option>`,
         ].join("");
-        const thumb = match?.image || "";
         return `
-      <div class="card zone dev-card">
-        ${thumb ? `<img class="fw-thumb" src="${this._esc(thumb)}" alt="">` : ""}
-        <div style="flex:1">
+      <div class="card zone">
+        <div>
           <div class="zone-title">${this._esc(d.name || d.node_id)}
             ${d.online ? '<span class="badge on">online</span>' : '<span class="badge off">offline</span>'}
             ${update ? `<span class="badge heat">v${this._esc(update.version)} available</span>` : ""}
@@ -747,7 +737,7 @@ class HomeClimatePanel extends HTMLElement {
           </div>
         </div>
         <div id="hcc-board-preview" style="text-align:center">
-          <img alt="" style="max-width:340px;width:100%;border-radius:10px;background:#fff">
+          <img alt="" style="max-width:170px;width:100%;border-radius:10px">
           <p class="sub" style="margin-top:6px"></p>
         </div>
       </div>

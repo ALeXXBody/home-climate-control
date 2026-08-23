@@ -19,6 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 DISCOVERY_PREFIX = "hcs/discovery/"
 DISCOVERY_PING = "hcs/discovery/ping"
+AVAILABILITY_TOPIC = "hcs/+/online"  # devices publish retained LWT here
 # Drop devices not seen for this long (seconds)
 STALE_AFTER = 120
 
@@ -30,7 +31,7 @@ DEFAULT_CATALOG: list[dict[str, str]] = [
         "version": "1.0.2",
         "board": "d1_mini",
         "description": "ESP8266 · Wi-Fi 4 · 4 MB flash · the classic budget board",
-        "image": "/home_climate_control_static/boards/photos/d1_mini.jpg",
+        "image": "/home_climate_control_static/boards/photos/d1_mini.png",
         "model": "D1 mini (ESP8266)",
         "title": "HCS 1.0.2 — ESP8266 D1 mini",
         "url": f"{_RELEASE}/firmware-d1_mini.bin",
@@ -41,7 +42,7 @@ DEFAULT_CATALOG: list[dict[str, str]] = [
         "version": "1.0.2",
         "board": "lolin_s2_mini",
         "description": "ESP32-S2 · single core · USB-OTG · 4 MB flash",
-        "image": "/home_climate_control_static/boards/photos/lolin_s2_mini.jpg",
+        "image": "/home_climate_control_static/boards/photos/lolin_s2_mini.png",
         "model": "LOLIN S2 mini",
         "title": "HCS 1.0.2 — LOLIN S2 mini",
         "url": f"{_RELEASE}/firmware-lolin_s2_mini.bin",
@@ -52,7 +53,7 @@ DEFAULT_CATALOG: list[dict[str, str]] = [
         "version": "1.0.2",
         "board": "lolin_c3_mini",
         "description": "ESP32-C3 · RISC-V · USB-C · direct DIYLess shield fitment",
-        "image": "/home_climate_control_static/boards/photos/lolin_c3_mini.jpg",
+        "image": "/home_climate_control_static/boards/photos/lolin_c3_mini.png",
         "model": "LOLIN C3 mini v2.1",
         "title": "HCS 1.0.2 — LOLIN C3 mini v2.1",
         "url": f"{_RELEASE}/firmware-lolin_c3_mini.bin",
@@ -74,7 +75,7 @@ DEFAULT_CATALOG: list[dict[str, str]] = [
         "version": "1.0.2",
         "board": "esp32s3_zero",
         "description": "ESP32-S3 · dual-core LX7 · vector instructions · tiny footprint",
-        "image": "/home_climate_control_static/boards/photos/esp32s3_zero.jpg",
+        "image": "/home_climate_control_static/boards/photos/esp32s3_zero.png",
         "model": "ESP32-S3-Zero",
         "title": "HCS 1.0.2 — ESP32-S3-Zero",
         "url": f"{_RELEASE}/firmware-esp32s3_zero.bin",
@@ -85,7 +86,7 @@ DEFAULT_CATALOG: list[dict[str, str]] = [
         "version": "1.0.2",
         "board": "lolin_s2_mini_gw",
         "description": "",
-        "image": "/home_climate_control_static/boards/photos/lolin_s2_mini.jpg",
+        "image": "/home_climate_control_static/boards/photos/lolin_s2_mini.png",
         "title": "HCS 1.0.2 GW — LOLIN S2 mini (gateway)",
         "url": f"{_RELEASE}/firmware-lolin_s2_mini_gw.bin",
         "notes": "Gateway build (HCS_GW_ENABLE): OT 4/5 + tstat tap 16/17",
@@ -105,7 +106,7 @@ DEFAULT_CATALOG: list[dict[str, str]] = [
         "version": "1.0.2",
         "board": "lolin_c3_mini_gw",
         "description": "",
-        "image": "/home_climate_control_static/boards/photos/lolin_c3_mini.jpg",
+        "image": "/home_climate_control_static/boards/photos/lolin_c3_mini.png",
         "title": "HCS 1.0.2 GW — LOLIN C3 mini v2.1 (gateway)",
         "url": f"{_RELEASE}/firmware-lolin_c3_mini_gw.bin",
         "notes": "Gateway build (HCS_GW_ENABLE): OT 7/6 + tstat tap 4/5",
@@ -131,6 +132,7 @@ class HcsDevice:
     api_status: str = ""
     api_ota: str = ""
     online: bool = True
+    seen_lwt_offline: bool = False
     last_seen: str = ""
     last_error: str = ""
 
@@ -153,17 +155,47 @@ class FirmwareManager:
     async def async_start(self) -> None:
         if self._unsub is not None:
             return
+        # Nothing is trusted as online until it announces fresh — retained
+        # discovery payloads can be hours old (board powered off long ago).
+        for dev in self.devices.values():
+            dev.online = False
         self._unsub = await mqtt.async_subscribe(
             self.hass, f"{DISCOVERY_PREFIX}+", self._on_discovery, 0
+        )
+        self._unsub_avail = await mqtt.async_subscribe(
+            self.hass, AVAILABILITY_TOPIC, self._on_availability, 0
         )
         # Ask devices to announce themselves
         await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)
         _LOGGER.info("Firmware manager listening on %s+", DISCOVERY_PREFIX)
 
+    @callback
+    def _on_availability(self, msg) -> None:
+        """LWT: instant offline on power-loss, online on (re)connect."""
+        try:
+            node = msg.topic.split("/")[1]
+        except IndexError:
+            return
+        state = (msg.payload or b"").decode("utf-8", errors="replace").strip()
+        dev = self.devices.get(node)
+        if dev is None:
+            if state == "online":
+                dev = HcsDevice(node_id=node, last_seen=datetime.now(timezone.utc).isoformat())
+                self.devices[node] = dev
+            else:
+                return
+        dev.online = state == "online"
+        dev.seen_lwt_offline = state != "online"
+        if dev.online:
+            dev.last_seen = datetime.now(timezone.utc).isoformat()
+
     async def async_stop(self) -> None:
         if self._unsub:
             self._unsub()
             self._unsub = None
+        if getattr(self, "_unsub_avail", None):
+            self._unsub_avail()
+            self._unsub_avail = None
 
     DEVICE_TTL = 600  # seconds; boards announce every ~30 s when online
 
@@ -218,7 +250,7 @@ class FirmwareManager:
         dev.api_ota = data.get("api_ota") or (
             f"http://{ip}/api/ota" if ip else dev.api_ota
         )
-        dev.online = True
+        dev.online = not dev.seen_lwt_offline
         dev.last_seen = datetime.now(timezone.utc).isoformat()
         self.devices[node] = dev
         self._prune_stale()

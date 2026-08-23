@@ -273,6 +273,73 @@ def test_catalog_has_model_labels_and_real_photos():
     for item in DEFAULT_CATALOG:
         assert "model" in item or "_gw" in item["board"], item["id"]
         if item["board"] == "lolin_c3_mini":
-            assert "/photos/" in item["image"]
+            assert item["image"].endswith(".png") and "/photos/" in item["image"]
         if item["board"] == "d1_mini":
-            assert "/photos/" in item["image"]
+            assert item["image"].endswith(".png") and "/photos/" in item["image"]
+
+
+def test_availability_lwt_marks_offline_and_stale_discovery_respected():
+    """LWT offline must win over stale retained discovery payloads."""
+    import json as _json
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+        HcsDevice,
+    )
+
+    hass = MagicMock()
+    hass.config_entries.async_entries.return_value = []
+    hass.async_create_task = lambda c: (c.close() if hasattr(c, "close") else None)
+    mgr = FirmwareManager(hass)
+
+    msg = MagicMock()
+    msg.topic = "hcs/hcs-x/online"
+    msg.payload = b"offline"
+
+    mgr.devices["hcs-x"] = HcsDevice(node_id="hcs-x")
+    mgr._on_availability(msg)
+    assert mgr.devices["hcs-x"].online is False
+    assert mgr.devices["hcs-x"].seen_lwt_offline is True
+
+    # Stale retained discovery must NOT bring it back online
+    disc = MagicMock()
+    disc.topic = "hcs/discovery/hcs-x"
+    disc.payload = _json.dumps({"node_id": "hcs-x", "version": "1.0.2"})
+    mgr._on_discovery(disc)
+    assert mgr.devices["hcs-x"].online is False
+
+    # Real reconnect flips it back
+    msg.payload = b"online"
+    mgr._on_availability(msg)
+    assert mgr.devices["hcs-x"].online is True
+
+
+def test_async_start_marks_everything_offline_first():
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+        HcsDevice,
+    )
+
+    async def fake_sub(hass, topic, cb, qos=0):
+        return lambda: None
+
+    async def fake_pub(hass, topic, payload, *a, **k):
+        return None
+
+    import custom_components.home_climate_control.firmware_manager as fm
+
+    orig_sub, orig_pub = fm.mqtt.async_subscribe, fm.mqtt.async_publish
+    fm.mqtt.async_subscribe = fake_sub
+    fm.mqtt.async_publish = fake_pub
+    try:
+        hass = MagicMock()
+        mgr = FirmwareManager(hass)
+        d1 = HcsDevice(node_id="a"); d1.online = True
+        d2 = HcsDevice(node_id="b"); d2.online = True
+        mgr.devices = {"a": d1, "b": d2}
+        __import__("asyncio").run(mgr.async_start())
+        assert d1.online is False and d2.online is False
+    finally:
+        fm.mqtt.async_subscribe = orig_sub
+        fm.mqtt.async_publish = orig_pub

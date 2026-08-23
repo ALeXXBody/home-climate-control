@@ -62,7 +62,7 @@ const STATUS = {
       version: "1.0.2",
       url: "https://example.com/fw.bin",
       description: "test desc",
-      image: "/home_climate_control_static/boards/photos/lolin_c3_mini.jpg",
+      image: "/home_climate_control_static/boards/photos/lolin_c3_mini.png",
     },
     {
       id: "hcs-1.0.2-d1_mini",
@@ -71,7 +71,7 @@ const STATUS = {
       version: "1.0.2",
       url: "https://example.com/fw2.bin",
       description: "d1 desc",
-      image: "/home_climate_control_static/boards/photos/d1_mini.jpg",
+      image: "/home_climate_control_static/boards/photos/d1_mini.png",
     },
   ],
 };
@@ -135,11 +135,15 @@ check(
   opts.includes("ESP8266 D1 mini"),
   "model label fallback from title failed"
 );
-const devImg = el.shadowRoot.querySelector(".dev-card img.fw-thumb");
-check(!!devImg, "device card photo thumbnail missing");
 check(
-  (devImg?.getAttribute("src") || "").includes("/photos/"),
-  "thumbnail not using real board photo"
+  !el.shadowRoot.querySelector(".dev-card img"),
+  "device cards must not show photos (catalog card only)"
+);
+const prevImg = el.shadowRoot.querySelector("#hcc-board-preview img");
+check(!!prevImg, "catalog preview image missing");
+check(
+  /max-width:\s*170px/.test(prevImg?.getAttribute("style") || ""),
+  "catalog preview not halved"
 );
 
 // 2) catalog dropdown + preview exist
