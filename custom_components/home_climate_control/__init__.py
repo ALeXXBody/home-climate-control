@@ -98,7 +98,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_setup_boiler_info(hass, entry.entry_id)
     )
 
-    await hass.config_entries.async_forward_entry_setups(entry, ["climate", "sensor"])
+    await hass.config_entries.async_forward_entry_setups(
+        entry, ["climate", "sensor", "update"]
+    )
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
@@ -181,7 +183,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await bi.async_unload()
 
         unload_ok = await hass.config_entries.async_unload_platforms(
-            entry, ["climate", "sensor"]
+            entry, ["climate", "sensor", "update"]
         )
 
     remaining = [

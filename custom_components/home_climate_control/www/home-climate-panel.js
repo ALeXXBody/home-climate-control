@@ -333,6 +333,9 @@ class HomeClimatePanel extends HTMLElement {
     root
       .querySelector('[data-action="save-boiler-info"]')
       ?.addEventListener("click", () => this._onSaveBoilerInfo());
+    this.shadowRoot.getElementById("hcc-board-sel")
+      ?.addEventListener("change", () => this._renderBoardPreview());
+    this._renderBoardPreview();
     this._populateBoilerCatalog();
   }
 
@@ -644,16 +647,9 @@ class HomeClimatePanel extends HTMLElement {
       })
       .join("");
 
-    const catalogRows = catalog
+    const boardOptions = catalog
       .map(
-        (c) => `
-      <div class="card zone">
-        <div>
-          <div class="zone-title">${this._esc(c.title)}</div>
-          <div class="zone-meta">${this._esc(c.notes || "")} · board: ${this._esc(c.board)}</div>
-        </div>
-        <div class="controls"><a href="${this._esc(c.url)}" target="_blank" rel="noopener"><button type="button" class="ghost">Download</button></a></div>
-      </div>`
+        (c) => `<option value="${this._esc(c.id)}">${this._esc(c.title)}</option>`
       )
       .join("");
 
@@ -675,7 +671,35 @@ class HomeClimatePanel extends HTMLElement {
           : `<div class="empty card">No HCS devices discovered yet.<p class="sub">Power on a device with Home Climate System firmware; it announces itself on MQTT topic <code>hcs/discovery/&lt;node&gt;</code>.</p></div>`
       }
       <h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Firmware catalog</h3>
-      ${catalog.length ? `<div class="zones">${catalogRows}</div>` : `<div class="sub">Catalog unavailable.</div>`}`;
+      <div class="card">
+        <select id="hcc-board-sel" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+          ${boardOptions}
+        </select>
+        <div id="hcc-board-preview" style="margin-top:12px;text-align:center">
+          <img alt="" style="max-width:320px;width:100%;border-radius:10px">
+          <p class="sub" style="margin-top:6px"></p>
+        </div>
+      </div>
+      ${
+        devices.length
+          ? `<h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Discovered devices</h3><div class="zones">${deviceCards}</div>`
+          : `<div class="empty card">No HCS devices discovered yet.<p class="sub">Power on a device with Home Climate System firmware; it announces itself on MQTT topic <code>hcs/discovery/&lt;node&gt;</code>.</p></div>`
+      }`;
+  }
+
+  _renderBoardPreview() {
+    const sel = this.shadowRoot.getElementById("hcc-board-sel");
+    const box = this.shadowRoot.getElementById("hcc-board-preview");
+    if (!sel || !box) return;
+    const catalog = this._status?.firmware_catalog || [];
+    const item = catalog.find((c) => c.id === sel.value);
+    if (!item) { box.style.display = "none"; return; }
+    box.style.display = "";
+    const img = box.querySelector("img");
+    img.src = item.image || "";
+    img.alt = this._esc(item.title);
+    box.querySelector("p").textContent =
+      item.description ? `${item.description} — v${item.version}` : `v${item.version}`;
   }
 
   _onFwAction(el) {
