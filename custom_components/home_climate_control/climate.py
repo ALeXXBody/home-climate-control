@@ -27,12 +27,15 @@ async def async_setup_entry(
     entities = [ZoneClimateEntity(hass, controller, entry, zcfg) for zcfg in zones_cfg]
     if not entities:
         _LOGGER.warning(
-            "No zones configured for %s — add zones via config or reinstall",
+            "No rooms configured for %s — add rooms via config or reinstall",
             entry.title,
         )
 
     async_add_entities(entities, update_before_add=False)
-    # Real backend: wire HA sensors. Demo: rooms are driven by DemoBoilerBackend.
-    if any(z.temp_sensor_entity for z in entities):
+    # Wire external temp sensors + TRV climates (TRV temp is the fallback).
+    # Demo rooms are driven by DemoBoilerBackend physics, not HA entities.
+    if any(
+        z.temp_sensor_entity or getattr(z, "trv_entity", None) for z in entities
+    ):
         wire_zone_sensors(hass, entry, entities)
     await controller.async_start()

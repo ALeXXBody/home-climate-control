@@ -191,40 +191,57 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_zone(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Add heating zones."""
+        """Add a heated room: TRV + optional external temperature sensor.
+
+        The HCS ESP module is the boiler gateway for the whole system — it is
+        not selected per room. Temperature comes from an external sensor when
+        present, otherwise from the TRV's own current_temperature.
+        """
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            zone = {
-                CONF_ZONE_NAME: user_input[CONF_ZONE_NAME],
-                CONF_ZONE_TEMP_SENSOR: user_input[CONF_ZONE_TEMP_SENSOR],
-                CONF_ZONE_WINDOW_SENSORS: user_input.get(CONF_ZONE_WINDOW_SENSORS) or [],
-                CONF_ZONE_TRV_CLIMATES: user_input.get(CONF_ZONE_TRV_CLIMATES) or [],
-            }
-            self._zones.append(zone)
+            trv = user_input.get(CONF_ZONE_TRV_CLIMATES)
+            if not trv:
+                errors["base"] = "trv_required"
+            else:
+                # Selector may return str (single) or list; normalise to list.
+                trv_list = [trv] if isinstance(trv, str) else list(trv)
+                zone = {
+                    CONF_ZONE_NAME: user_input[CONF_ZONE_NAME],
+                    CONF_ZONE_TRV_CLIMATES: trv_list,
+                    CONF_ZONE_TEMP_SENSOR: user_input.get(CONF_ZONE_TEMP_SENSOR) or None,
+                    CONF_ZONE_WINDOW_SENSORS: user_input.get(CONF_ZONE_WINDOW_SENSORS)
+                    or [],
+                }
+                self._zones.append(zone)
 
-            if user_input.get("add_another"):
-                return await self.async_step_zone()
+                if user_input.get("add_another"):
+                    return await self.async_step_zone()
 
-            return self.async_create_entry(
-                title=self._data.get(CONF_NAME, NAME),
-                data={
-                    CONF_BACKEND: self._data[CONF_BACKEND],
-                    CONF_NODE_ID: self._data.get(CONF_NODE_ID, ""),
-                    CONF_NAME: self._data.get(CONF_NAME, NAME),
-                },
-                options={
-                    CONF_MIN_FLOW: self._data[CONF_MIN_FLOW],
-                    CONF_MAX_FLOW: self._data[CONF_MAX_FLOW],
-                    CONF_CURVE: self._data[CONF_CURVE],
-                    CONF_ZONES: self._zones,
-                },
-            )
+                return self.async_create_entry(
+                    title=self._data.get(CONF_NAME, NAME),
+                    data={
+                        CONF_BACKEND: self._data[CONF_BACKEND],
+                        CONF_NODE_ID: self._data.get(CONF_NODE_ID, ""),
+                        CONF_NAME: self._data.get(CONF_NAME, NAME),
+                    },
+                    options={
+                        CONF_MIN_FLOW: self._data[CONF_MIN_FLOW],
+                        CONF_MAX_FLOW: self._data[CONF_MAX_FLOW],
+                        CONF_CURVE: self._data[CONF_CURVE],
+                        CONF_ZONES: self._zones,
+                    },
+                )
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_ZONE_NAME, default=f"Zone {len(self._zones) + 1}"): str,
-                vol.Required(CONF_ZONE_TEMP_SENSOR): selector.EntitySelector(
+                vol.Required(
+                    CONF_ZONE_NAME, default=f"Room {len(self._zones) + 1}"
+                ): str,
+                vol.Required(CONF_ZONE_TRV_CLIMATES): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="climate")
+                ),
+                vol.Optional(CONF_ZONE_TEMP_SENSOR): selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         domain="sensor", device_class="temperature"
                     )
@@ -235,9 +252,6 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         device_class=["window", "door", "opening"],
                         multiple=True,
                     )
-                ),
-                vol.Optional(CONF_ZONE_TRV_CLIMATES): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="climate", multiple=True)
                 ),
                 vol.Optional("add_another", default=False): bool,
             }

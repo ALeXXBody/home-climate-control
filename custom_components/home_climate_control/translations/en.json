@@ -3,9 +3,9 @@
     "step": {
       "user": {
         "title": "Home Climate Control",
-        "description": "Connect a **Home Climate System** device (ESP32/ESP8266 with HCS firmware), or pick **Demo** to explore without hardware.",
+        "description": "Connect a **Home Climate System** device as the boiler gateway (ESP32/ESP8266), or pick **Demo** to explore without hardware. Rooms (TRV + temperature) are configured next.",
         "data": {
-          "backend": "Boiler connection"
+          "backend": "Boiler gateway"
         }
       },
       "demo": {
@@ -19,37 +19,38 @@
         }
       },
       "hcs": {
-        "title": "Home Climate System device",
+        "title": "Boiler gateway (Home Climate System)",
         "description": "{hint}",
         "data": {
           "name": "Name",
-          "node_id": "Device node id (e.g. hcs-aabbccddeeff)",
+          "node_id": "Gateway node id (e.g. hcs-aabbccddeeff)",
           "min_flow_temp": "Minimum flow temperature (°C)",
           "max_flow_temp": "Maximum flow temperature (°C)",
           "curve_coeff": "Heating curve coefficient"
         }
       },
       "zone": {
-        "title": "Add a heating zone",
-        "description": "Zones already added: {zone_count}. Each zone needs a room temperature sensor. Optional TRVs are respected as demand sources; optional window sensors pause the zone when open.",
+        "title": "Add a room",
+        "description": "Rooms already added: {zone_count}. A room is: **TRV** + optional **wall temperature sensor** + optional **window/door sensors**. Open window/door pauses heating for that room. No external temp → TRV temperature is used. The ESP gateway is boiler-only, not part of a room.",
         "data": {
-          "name": "Zone name",
-          "temp_sensor": "Room temperature sensor",
+          "name": "Room name",
+          "trv_climates": "TRV (climate entity)",
+          "temp_sensor": "External temperature sensor (optional)",
           "window_sensors": "Window / door sensors",
-          "trv_climates": "TRV climate entities",
-          "add_another": "Add another zone after this one"
+          "add_another": "Add another room after this one"
         }
       },
       "discovery": {
-        "title": "New Home Climate System device found",
-        "description": "Board **{node}** announced itself on MQTT. Confirm to adopt it — zones are configured on the next screen."
+        "title": "New Home Climate System gateway found",
+        "description": "Board **{node}** announced itself on MQTT. Confirm to adopt it as the boiler gateway — rooms are configured on the next screen."
       }
     },
     "abort": {
       "already_configured": "This system is already configured"
     },
     "error": {
-      "node_required": "Enter the HCS device node id (shown on the device web UI)."
+      "node_required": "Enter the HCS gateway node id (shown on the device web UI).",
+      "trv_required": "Select a TRV climate entity for this room."
     }
   },
   "options": {

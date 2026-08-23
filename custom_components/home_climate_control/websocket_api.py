@@ -83,6 +83,18 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                     "preset_mode": getattr(zone, "preset_mode", "none"),
                     "demand_level": getattr(zone, "demand_level", lambda: 0)(),
                     "window_open": getattr(zone, "paused", lambda: False)(),
+                    "window_sensors": list(
+                        getattr(zone, "window_sensor_entities", []) or []
+                    ),
+                    "trv": getattr(zone, "trv_entity", None),
+                    "temp_sensor": getattr(zone, "temp_sensor_entity", None),
+                    "temp_source": (
+                        (getattr(zone, "extra_state_attributes", {}) or {}).get(
+                            "temp_source"
+                        )
+                        if hasattr(zone, "extra_state_attributes")
+                        else None
+                    ),
                     "effective_setpoint": getattr(
                         zone, "effective_setpoint", lambda: None
                     )(),

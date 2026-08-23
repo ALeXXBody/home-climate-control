@@ -281,7 +281,7 @@ class HomeClimatePanel extends HTMLElement {
         </header>
         <nav class="tabs">
           ${this._tabBtn("overview", "Overview")}
-          ${this._tabBtn("zones", "Zones")}
+          ${this._tabBtn("zones", "Rooms")}
           ${this._tabBtn("floorplan", "Floor plan")}
           ${this._tabBtn("firmware", "Firmware")}
           ${this._tabBtn("settings", "Settings")}
@@ -443,7 +443,7 @@ class HomeClimatePanel extends HTMLElement {
       case "floorplan":
         return this._placeholder(
           "Floor plan",
-          "Coming soon: interactive house layout with zone temperatures and heat demand."
+          "Coming soon: interactive house layout with room temperatures and heat demand."
         );
       case "firmware":
         return this._firmwareHtml();
@@ -485,7 +485,7 @@ class HomeClimatePanel extends HTMLElement {
   _zonesHtml(sys, compact = false) {
     const zones = sys.zones || [];
     if (!zones.length) {
-      return `<div class="card empty">No zones in this system.</div>`;
+      return `<div class="card empty">No rooms configured. Add rooms (TRV + optional temp sensor) in the integration setup.</div>`;
     }
     return `
       <div class="zones">
@@ -496,11 +496,16 @@ class HomeClimatePanel extends HTMLElement {
             return `
           <div class="card zone">
             <div>
-              <div class="zone-title">${this._esc(z.name || z.entity_id || "Zone")}</div>
+              <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
               <div class="zone-meta">
                 ${this._fmt(z.current_temperature)}°C → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C
                 · demand ${Math.round((z.demand_level || 0) * 100)}%
-                ${z.window_open ? " · window open" : ""}
+                ${z.trv ? ` · TRV ${this._esc(z.trv)}` : ""}
+                ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (z.temp_source === "trv" ? " · temp from TRV" : "")}
+                ${(z.window_sensors || []).length
+                  ? ` · window ${this._esc((z.window_sensors || []).join(", "))}`
+                  : ""}
+                ${z.window_open ? ' · <span class="badge heat">window/door open</span>' : ""}
                 ${heat ? ' · <span class="badge heat">heating</span>' : ""}
               </div>
             </div>

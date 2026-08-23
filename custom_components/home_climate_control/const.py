@@ -89,11 +89,15 @@ DEMO_DEFAULT_ROOMS = (
 )
 CONF_OUTDOOR_SENSOR = "outdoor_sensor"
 
-CONF_ZONES = "zones"
+# Rooms (stored under options key "zones" for backward compatibility).
+# A room is: one TRV climate + optional external temperature sensor.
+# If no external sensor is set, the TRV's current_temperature is used.
+# The HCS ESP module is the boiler gateway only — never a room member.
+CONF_ZONES = "zones"  # options key (legacy name; UI says "Rooms")
 CONF_ZONE_NAME = "name"
-CONF_ZONE_TEMP_SENSOR = "temp_sensor"
+CONF_ZONE_TEMP_SENSOR = "temp_sensor"  # optional external wall sensor
 CONF_ZONE_WINDOW_SENSORS = "window_sensors"
-CONF_ZONE_TRV_CLIMATES = "trv_climates"
+CONF_ZONE_TRV_CLIMATES = "trv_climates"  # required: one climate entity (TRV)
 CONF_ZONE_IS_UNDERFLOOR = "underfloor"
 
 # Telemetry subjects on the native hcs/<node> bus (informational only):

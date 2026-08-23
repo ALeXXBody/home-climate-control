@@ -114,7 +114,13 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> None:
-    """Subscribe room temp + window sensors feeding each zone."""
+    """Subscribe external temp sensors, TRV climates, and window sensors.
+
+    Room temperature source priority:
+      1. External temperature sensor (if configured)
+      2. TRV climate entity current_temperature (fallback)
+    HCS/ESP is never a room sensor — it is the boiler gateway only.
+    """
     from homeassistant.core import callback
     from homeassistant.helpers.event import async_track_state_change_event
 
@@ -123,8 +129,19 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
         for z in zones
         if z.temp_sensor_entity
     }
+    trv_map: dict[str, list] = {}
+    for z in zones:
+        for trv in getattr(z, "trv_entities", None) or []:
+            trv_map.setdefault(trv, []).append(z)
+        # single-TRV property
+        trv = getattr(z, "trv_entity", None)
+        if trv:
+            trv_map.setdefault(trv, [])
+            if z not in trv_map[trv]:
+                trv_map[trv].append(z)
+
     window_entities = sorted({s for z in zones for s in z.window_sensor_entities})
-    watched = list(temp_map.keys()) + window_entities
+    watched = list(temp_map.keys()) + list(trv_map.keys()) + window_entities
     if not watched:
         return
 
@@ -135,6 +152,12 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
                 zone.on_sensor_update(float(state.state), None)
             except ValueError:
                 pass
+
+    for entity_id, room_list in trv_map.items():
+        for zone in room_list:
+            if not zone.temp_sensor_entity and hasattr(zone, "on_trv_update"):
+                zone.on_trv_update()
+
     for entity_id in window_entities:
         state = hass.states.get(entity_id)
         if state is not None:
@@ -156,6 +179,12 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
                 zone.on_sensor_update(float(new.state), None)
             except ValueError:
                 pass
+            return
+
+        if entity_id in trv_map:
+            for zone in trv_map[entity_id]:
+                if hasattr(zone, "on_trv_update"):
+                    zone.on_trv_update()
             return
 
         if entity_id in window_entities:

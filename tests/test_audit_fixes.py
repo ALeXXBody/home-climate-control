@@ -102,3 +102,78 @@ def test_sensor_topic_scoped_to_node():
 
     assert _topic_for_node("hcs-abc", "failsafe") == "hcs/hcs-abc/failsafe"
     assert _topic_for_node("", "boiler_diag") == "hcs/+/boiler_diag"
+
+
+def test_room_uses_trv_temp_when_no_external_sensor():
+    """Room temp falls back to TRV current_temperature."""
+    from unittest.mock import MagicMock
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    hass = MagicMock()
+    trv_state = MagicMock()
+    trv_state.state = "heat"
+    trv_state.attributes = {
+        "current_temperature": 19.5,
+        "temperature": 21.0,
+        "hvac_action": "heating",
+    }
+    hass.states.get.return_value = trv_state
+
+    coord = MagicMock()
+    coord.curve_coeff = 1.2
+    coord.flow_setpoint = 45.0
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    room = ZoneClimateEntity(
+        hass,
+        coord,
+        entry,
+        {
+            "name": "Living",
+            "trv_climates": ["climate.living_trv"],
+            "temp_sensor": None,
+            "window_sensors": ["binary_sensor.living_window"],
+        },
+    )
+    room.async_write_ha_state = MagicMock()
+    room._refresh_temp_from_trv()
+    assert room.current_temperature == 19.5
+    assert room.trv_entity == "climate.living_trv"
+    assert room.window_sensor_entities == ["binary_sensor.living_window"]
+    assert room.wants_heat() is False  # hvac off by default
+    room._hvac_mode = room._hvac_mode.__class__("heat") if False else __import__(
+        "homeassistant.components.climate", fromlist=["HVACMode"]
+    ).HVACMode.HEAT
+    assert room.wants_heat() is True
+    room.on_sensor_update(None, True)  # window open
+    assert room.paused() is True
+    assert room.wants_heat() is False
+
+
+def test_room_config_requires_trv():
+    import asyncio
+    from custom_components.home_climate_control.config_flow import (
+        HomeClimateControlConfigFlow,
+    )
+
+    flow = HomeClimateControlConfigFlow()
+    flow.context = {}
+    flow._data = {
+        "backend": "hcs",
+        "node_id": "hcs-x",
+        "name": "HCC",
+        "min_flow_temp": 25,
+        "max_flow_temp": 75,
+        "curve_coeff": 1.2,
+    }
+    res = asyncio.run(
+        flow.async_step_zone(
+            {
+                "name": "Living",
+                "trv_climates": None,
+                "temp_sensor": "sensor.living_t",
+            }
+        )
+    )
+    assert res["type"] == "form"
+    assert res.get("errors", {}).get("base") == "trv_required"
