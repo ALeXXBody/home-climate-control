@@ -27,15 +27,15 @@ def test_catalog_covers_all_boards() -> None:
 
 def test_catalog_urls_match_release_assets() -> None:
     for item in DEFAULT_CATALOG:
-        assert item["version"] == "0.9.2"
+        assert item["version"] == "1.0.1"
         assert item["url"].startswith(
-            "https://github.com/ALeXXBody/home-climate-system/releases/download/v0.9.2/"
+            "https://github.com/ALeXXBody/home-climate-system/releases/download/v1.0.1/"
         )
         assert item["url"].endswith(f"firmware-{item['board']}.bin")
 
 
 def test_catalog_item_lookup() -> None:
-    assert catalog_item(DEFAULT_CATALOG, "hcs-0.9.2-lolin_c3_mini") is not None
+    assert catalog_item(DEFAULT_CATALOG, "hcs-1.0.1-lolin_c3_mini") is not None
     assert catalog_item(DEFAULT_CATALOG, "nope") is None
 
 
