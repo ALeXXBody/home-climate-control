@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/branding/banner.svg" alt="Home Climate Control" width="640">
+  <img src="docs/branding/banner-1280.png" alt="Home Climate Control" width="640">
 </p>
 
 # Home Climate Control
