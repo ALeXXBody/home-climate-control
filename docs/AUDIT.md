@@ -34,6 +34,9 @@ Findings marked FIXED shipped on `main`; no release was cut for them.
 | F10 | Info | Broker host with stray whitespace caused silent no-SYN MQTT failure | Fixed in v0.9.1/v0.9.2 (host sanitised at ingest, state logged, `mqtt_link` exposed) |
 | F11 | Info | Long `String +=` status build truncated response head once payload grew | Fixed in v0.9.2 (single JsonDocument + one serialize) |
 | F12 | Info | No `sprintf`/`strcpy`/unbounded copies found; EEPROM blob writes use bounded `strncpy` into zero-initialised struct; JSON parsing via ArduinoJson throughout | Verified clean |
+| F13 | **Critical** | ESP8266 settings loader accepted only blob magic V3/V6 — devices upgrading from v0.5–v0.7-era blobs (V4/V5) failed `load()` entirely: WiFi/MQTT settings wiped, device dropped to captive portal after OTA | **FIXED** — loader accepts V3→V6 and maps fields per version; upgrade chain from any historical release is now safe |
+| F14 | Medium | Cross-site request forgery: a malicious webpage open in a browser on the same LAN could POST to `http://<device>/api/control` etc. when no password is configured | **FIXED** — `Origin` header collected and validated on all mutating endpoints; cross-origin posts rejected with 403 (curl/HA unaffected) |
+| F15 | Info | `/api/settings` GET reviewed for secret exposure | Verified clean — passwords already returned as `*_set` booleans, never in cleartext |
 
 ## Residual risks (accepted / documented)
 
