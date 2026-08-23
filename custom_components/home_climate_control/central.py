@@ -45,6 +45,7 @@ class CentralController:
         self.max_flow = max_flow
         self.autotune = autotune
         self.setbacks = None
+        self.gas = None
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
@@ -97,6 +98,17 @@ class CentralController:
         import time as _time
 
         now = _time.monotonic()
+
+        # Gas accounting: integrate burner kW x dt from live telemetry.
+        if self.gas is not None:
+            try:
+                self.gas.feed(
+                    now=_time.time(),
+                    flame_on=bool(getattr(self.backend, "flame_on", False) or False),
+                    modulation=getattr(self.backend, "modulation_level", None),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("gas feed failed", exc_info=True)
         outdoor = self.outdoor_temp()
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
 
@@ -200,6 +212,8 @@ class CentralController:
             data["autotune"] = self.autotune.as_dict()
         if self.setbacks is not None:
             data["setbacks"] = self.setbacks.as_dict()
+        if self.gas is not None:
+            data["gas"] = self.gas.as_dict()
         data["cycle_guard"] = self.cycleguard.as_dict()
         data.update(self.backend.diagnostics())
         return data

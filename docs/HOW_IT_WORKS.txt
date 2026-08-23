@@ -231,3 +231,21 @@ picks a product image from www/boilers/ via image_url_for().
 * The update entity must not poll during OTA; cooldown owns notification
   silence so users do not get spammed while boards reboot.
 * Panel is a single JS file with no build step; keep it that way.
+
+14. GAS ACCOUNTING (ESTIMATED)
+------------------------------------------------------------------------------
+OpenTherm has no standard gas-consumption ID, so HCC estimates burn from
+telemetry every control tick (60 s), integrating only while the flame is on:
+
+  Modulating boilers   kW = P_min + (P_max - P_min) x modulation%/100
+  On/off boilers       kW = P_max x duty factor (default 0.6)
+
+P_max / P_min are the boiler NAMEPLATE heat-INPUT range in kW (set them in
+Configure). A calibration factor (default 1.0) lets you match a real gas
+meter exactly; an optional price per kWh adds a daily cost estimate.
+Hot-water burns count too - it is house gas either way. Steps longer than
+5 minutes are clamped so reconnect gaps never bill phantom energy.
+
+Daily kWh buckets and the running total persist across restarts
+(Store "home_climate_control_gasmeter", last 14 days kept) and appear on
+the panel's Boiler tab as "Gas (est.)".

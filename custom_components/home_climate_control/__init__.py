@@ -68,6 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .autotune import CurveAutoTuner
     from .central import CentralController
     from .setback import SetbackLearner
+    from .gasmeter import GasMeter
     from .panel import async_register_panel
     from .websocket_api import async_setup_websocket
 
@@ -83,6 +84,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await tuner.async_load()
     setbacks = SetbackLearner(hass, enabled=opts.get("learn_setbacks", True))
     await setbacks.async_load()
+    gas = GasMeter(
+        hass,
+        rated_power_kw=opts.get("rated_heat_input_kw", 24.0),
+        min_power_kw=opts.get("min_heat_input_kw", 0.0),
+        nomod_factor=opts.get("nomod_duty_factor", 0.6),
+        calibration=opts.get("gas_calibration", 1.0),
+        price_per_kwh=opts.get("gas_price_per_kwh"),
+    )
+    await gas.async_load()
     controller = CentralController(
         hass,
         backend,
@@ -93,6 +103,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         autotune=tuner,
     )
     controller.setbacks = setbacks
+    controller.gas = gas
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),

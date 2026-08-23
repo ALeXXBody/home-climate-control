@@ -62,11 +62,21 @@
           "max_flow_temp": "Maximum flow temperature (\u00b0C)",
           "curve_coeff": "Heating curve coefficient",
           "auto_tune_curve": "Auto-tune the heating curve (recommended)",
-          "learn_setbacks": "Learn smart night/Away setbacks per room"
+          "learn_setbacks": "Learn smart night/Away setbacks per room",
+          "rated_heat_input_kw": "Boiler rated heat input (kW)",
+          "min_heat_input_kw": "Minimum heat input (kW, optional)",
+          "nomod_duty_factor": "On/off boiler duty factor",
+          "gas_calibration": "Calibration factor",
+          "gas_price_per_kwh": "Gas price per kWh (optional)"
         },
         "data_description": {
           "auto_tune_curve": "Watches room comfort and slowly adjusts the curve coefficient to burn less gas. The learned value persists across restarts.",
-          "learn_setbacks": "Measures how fast each room recovers after away/eco periods and sizes future setbacks so mornings are warm without wasteful catch-up burns."
+          "learn_setbacks": "Measures how fast each room recovers after away/eco periods and sizes future setbacks so mornings are warm without wasteful catch-up burns.",
+          "rated_heat_input_kw": "The MAXIMUM 'central heating input' from the boiler's nameplate (heat input, not output). Used to convert modulation % into kW.",
+          "min_heat_input_kw": "Lowest firing rate from the nameplate range (e.g. 24 kW max / 4 kW min). Improves accuracy at low fire; leave 0 for simple proportional math.",
+          "nomod_duty_factor": "For boilers that never report modulation: estimated average burner output fraction while the flame is on. 0.6 suits most on/off boilers.",
+          "gas_calibration": "Multiply estimates so they match your gas meter exactly (e.g. meter shows 0.95x of ours -> set 0.95). Compare after a full day of heating.",
+          "gas_price_per_kwh": "Adds a cost-per-day estimate to the panel. Leave empty to skip."
         }
       }
     }

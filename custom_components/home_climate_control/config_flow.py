@@ -41,6 +41,11 @@ CONF_MAX_FLOW = "max_flow_temp"
 CONF_CURVE = "curve_coeff"
 CONF_AUTOTUNE = "autotune_curve"
 CONF_LEARN_SETBACKS = "learn_setbacks"
+CONF_GAS_POWER_KW = "rated_heat_input_kw"
+CONF_GAS_MIN_KW = "min_heat_input_kw"
+CONF_GAS_NOMOD = "nomod_duty_factor"
+CONF_GAS_CALIB = "gas_calibration"
+CONF_GAS_PRICE = "gas_price_per_kwh"
 
 
 class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -314,6 +319,33 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     default=opts.get(CONF_LEARN_SETBACKS, True),
                     description="learn_setbacks",
                 ): bool,
+                vol.Required(
+                    CONF_GAS_POWER_KW,
+                    default=opts.get(CONF_GAS_POWER_KW, 24.0),
+                    description="rated_heat_input_kw",
+                ): vol.All(vol.Coerce(float), vol.Range(min=1, max=200)),
+                vol.Required(
+                    CONF_GAS_MIN_KW,
+                    default=opts.get(CONF_GAS_MIN_KW, 0.0),
+                    description="min_heat_input_kw",
+                ): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+                vol.Required(
+                    CONF_GAS_NOMOD,
+                    default=opts.get(CONF_GAS_NOMOD, 0.6),
+                    description="nomod_duty_factor",
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.05, max=1)),
+                vol.Required(
+                    CONF_GAS_CALIB,
+                    default=opts.get(CONF_GAS_CALIB, 1.0),
+                    description="gas_calibration",
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.01, max=10)),
+                vol.Required(
+                    CONF_GAS_PRICE,
+                    default=opts.get(CONF_GAS_PRICE),
+                    description="gas_price_per_kwh",
+                ): vol.Any(
+                    None, vol.All(vol.Coerce(float), vol.Range(min=0))
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
