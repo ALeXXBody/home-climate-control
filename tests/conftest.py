@@ -136,6 +136,19 @@ def install_ha_stubs() -> None:
     ha.http_view = comp_http
     comp.http = comp_http
 
+    comp_update = _mod("homeassistant.components.update")
+    class _UpdateEntityFeature:
+        INSTALL = 1
+        RELEASE_NOTES = 2
+        PROGRESS = 4
+    class _UpdateDeviceClass:
+        FIRMWARE = "firmware"
+    comp_update.UpdateEntityFeature = _UpdateEntityFeature
+    comp_update.UpdateDeviceClass = _UpdateDeviceClass
+    comp_update.UpdateEntity = object
+    ha.components.update = comp_update
+    comp.update = comp_update
+
     dr = _mod("homeassistant.helpers.device_registry")
     class _DeviceInfo(dict):
         def __init__(self, **kw): super().__init__(**kw)
