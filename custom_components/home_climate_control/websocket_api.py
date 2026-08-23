@@ -28,6 +28,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         return
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_set_zone)
+    websocket_api.async_register_command(hass, ws_set_failsafe)
     websocket_api.async_register_command(hass, ws_list_devices)
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
@@ -164,6 +165,35 @@ async def ws_set_zone(
         )
 
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_failsafe",
+        vol.Required("enable"): bool,
+        vol.Required("flow"): vol.Coerce(float),
+        vol.Required("grace_min"): vol.Coerce(int),
+    }
+)
+@websocket_api.async_response
+async def ws_set_failsafe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Push connection-loss failsafe values to the HCS device (persisted there)."""
+    data = hass.data.get(DOMAIN, {})
+    entry_id = next(iter(data), None)
+    backend = data.get(entry_id, {}).get("backend") if entry_id else None
+    if backend is None or not hasattr(backend, "async_set_failsafe_cfg"):
+        connection.send_error(
+            msg["id"], "no_backend", "Failsafe requires an OTGW-MQTT backend"
+        )
+        return
+    await backend.async_set_failsafe_cfg(
+        msg["enable"], msg["flow"], msg["grace_min"]
+    )
+    connection.send_result(msg["id"], {"ok": True})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/list_devices"})

@@ -30,8 +30,10 @@ async def async_setup_entry(
     """Set up the boiler diagnostic sensor from a config entry."""
     node_hint = entry.data.get("otgw_node", "")
     sensor = BoilerDiagSensor(entry.entry_id, node_hint)
+    fs_sensor = FailsafeSensor(entry.entry_id, node_hint)
     hass.data[DOMAIN][entry.entry_id]["boiler_diag_sensor"] = sensor
-    async_add_entities([sensor])
+    hass.data[DOMAIN][entry.entry_id]["failsafe_sensor"] = fs_sensor
+    async_add_entities([sensor, fs_sensor])
 
 
 class BoilerDiagSensor(SensorEntity):
@@ -94,3 +96,47 @@ class BoilerDiagSensor(SensorEntity):
 
     _raw_asf = None
     _raw_oem = None
+
+
+class FailsafeSensor(SensorEntity):
+    """Connection-loss failsafe state reported by an HCS device.
+
+    State: OFF (normal), HOLD (link lost, inside grace) or ON (failsafe
+    heating active). Retained on the device so it survives reboots.
+    """
+
+    _attr_should_poll = False
+    _attr_name = "Heating failsafe"
+    _attr_icon = "mdi:shield-home-outline"
+    native_value = "OFF"
+
+    def __init__(self, entry_id: str, node_hint: str) -> None:
+        self._entry_id = entry_id
+        self._node_hint = node_hint
+        self._sub = None
+        self._attr_unique_id = f"{DOMAIN}_failsafe_{entry_id}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="Home Climate Control",
+            manufacturer="Home Climate Control",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        @callback
+        def on_message(msg) -> None:
+            v = (msg.payload or "").strip().upper()
+            if v in ("ON", "HOLD", "OFF"):
+                self.native_value = v
+                self.async_write_ha_state()
+
+        self._sub = await mqtt.async_subscribe(
+            self.hass, "hcs/+/failsafe", on_message, 0
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._sub:
+            self._sub()
+            self._sub = None
+        await super().async_will_remove_from_hass()

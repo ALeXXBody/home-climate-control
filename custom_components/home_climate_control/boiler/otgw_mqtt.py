@@ -138,6 +138,17 @@ class OtgwMqttBackend(BoilerBackend):
         self._commanded_setpoint = temp
         _LOGGER.debug("Flow setpoint commanded: %.1f °C", temp)
 
+    async def async_set_failsafe_cfg(
+        self, enable: bool, flow: float, grace_min: int
+    ) -> None:
+        """Push connection-loss failsafe values to the HCS device (saved there)."""
+        import json
+
+        payload = json.dumps(
+            {"enable": bool(enable), "flow": float(flow), "grace_min": int(grace_min)}
+        )
+        await self._publish_cmd("failsafe_cfg", payload)
+
     async def async_set_max_modulation(self, percent: float) -> None:
         await self._publish_cmd(OTGW_CMD_MAX_MODULATION, f"{int(percent)}")
 

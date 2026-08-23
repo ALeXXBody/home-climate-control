@@ -310,6 +310,30 @@ class HomeClimatePanel extends HTMLElement {
     root.querySelectorAll("[data-fw-action]").forEach((el) => {
       el.addEventListener("click", () => this._onFwAction(el));
     });
+    root
+      .querySelector('[data-action="save-failsafe"]')
+      ?.addEventListener("click", () => this._onSaveFailsafe());
+  }
+
+  async _onSaveFailsafe() {
+    const msg = this.shadowRoot.getElementById("hcc-fs-msg");
+    try {
+      await this._hass.callWS({
+        type: "home_climate_control/set_failsafe",
+        enable: this.shadowRoot.getElementById("hcc-fs-en").checked,
+        flow: parseFloat(this.shadowRoot.getElementById("hcc-fs-flow").value),
+        grace_min: parseInt(
+          this.shadowRoot.getElementById("hcc-fs-grace").value,
+          10
+        ),
+      });
+      if (msg) msg.textContent = "Saved to device";
+    } catch (err) {
+      if (msg) msg.textContent = "Failed: " + (err?.message || String(err));
+    }
+    setTimeout(() => {
+      if (msg) msg.textContent = "";
+    }, 3000);
   }
 
   _tabBtn(id, label) {
@@ -431,9 +455,24 @@ class HomeClimatePanel extends HTMLElement {
         <div class="card"><h3>Max flow</h3><div class="metric">${this._fmt(sys.max_flow)}<span class="unit">°C</span></div></div>
         <div class="card"><h3>Entry</h3><div class="sub">${this._esc(sys.entry_id || "")}</div></div>
       </div>
+      <div class="card">
+        <h3>Connection-loss failsafe</h3>
+        <p class="sub">If WiFi/MQTT stays down longer than the grace period,
+        the HCS device forces CH on at this flow setpoint (values are saved on
+        the device itself).</p>
+        <label style="display:flex;align-items:center;gap:8px;margin:8px 0">
+          <input type="checkbox" id="hcc-fs-en"> Enable failsafe heating
+        </label>
+        <label>Flow setpoint °C</label>
+        <input type="number" id="hcc-fs-flow" min="20" max="90" step="1" value="40">
+        <label>Grace period (minutes)</label>
+        <input type="number" id="hcc-fs-grace" min="1" max="120" step="1" value="10">
+        <button class="ghost" type="button" data-action="save-failsafe"
+          style="margin-top:8px;padding:6px 14px">Save to device</button>
+        <span id="hcc-fs-msg" style="margin-left:8px;font-size:.85rem"></span>
+      </div>
       <div class="card placeholder">
         <p>Tune curve and flow limits via <strong>Settings → Devices &amp; services → Home Climate Control → Configure</strong>.</p>
-        <p class="sub">Editable settings in this panel will be added later.</p>
       </div>`;
   }
 
