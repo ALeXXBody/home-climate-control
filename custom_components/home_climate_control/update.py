@@ -20,6 +20,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .update_checker import version_tuple
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,14 +34,15 @@ async def async_setup_entry(
 
 
 class HcsFirmwareUpdateEntity(UpdateEntity):
-    _attr_should_poll = True          # polls checker + devices every 30 s
+    # Polling re-diffed devices every cycle and flipped available/installed
+    # versions during OTA, which spammed HA "state" toasts. Discovery + the
+    # 6 h checker own freshness; this entity only reads cached checker info.
+    _attr_should_poll = False
     _attr_title = "Home Climate System firmware"
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_icon = "mdi:chip"
     _attr_supported_features = (
-        UpdateEntityFeature.INSTALL
-        | UpdateEntityFeature.RELEASE_NOTES
-        | UpdateEntityFeature.PROGRESS
+        UpdateEntityFeature.INSTALL | UpdateEntityFeature.RELEASE_NOTES
     )
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
@@ -51,16 +53,21 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
 
     @property
     def installed_version(self) -> str | None:
+        """Lowest reported version across known devices (stable, no flap)."""
         mgr = self._mgr()
         devs = list(getattr(mgr, "devices", {}).values()) if mgr else []
-        online = [d for d in devs if d.online and d.version]
-        if online:
-            return online[0].version
-        return devs[0].version if devs else None
+        versions = [d.version for d in devs if getattr(d, "version", None)]
+        if not versions:
+            return None
+        return sorted(versions, key=version_tuple)[0]
 
     @property
     def latest_version(self) -> str | None:
         info = self._checker_info()
+        if info.get("installing"):
+            # During OTA cooldown report installed==latest so HA stops toasting
+            # "update available" while boards still announce the old build.
+            return self.installed_version
         return info.get("latest_version") or self.installed_version
 
     def _mgr(self):
@@ -91,19 +98,8 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
                 d["node_id"] for d in info.get("outdated_devices", [])
             ],
             "latest_tag": info.get("latest_tag"),
-            "changelog": info.get("changelog"),
+            "installing": bool(info.get("installing")),
         }
-
-    async def async_update(self) -> None:
-        """Refresh checker data (cheap; GitHub hit is rate-limited inside)."""
-        uc = self._checker()
-        if uc is not None and not uc.info.get("available"):
-            # only re-hit GitHub occasionally when we think we're current;
-            # the 6 h job owns that cadence, so just refresh device diff here
-            latest = uc.info.get("latest_version")
-            if latest:
-                uc.info["outdated_devices"] = uc._outdated_devices(latest)
-                uc.info["available"] = bool(uc.info["outdated_devices"])
 
     def _checker(self):
         from .update_checker import get_update_checker
@@ -129,10 +125,16 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         for item in DEFAULT_CATALOG:
             catalog[item["board"]] = item
 
-        outdated = uc.info.get("outdated_devices", [])
+        outdated = list(uc.info.get("outdated_devices") or [])
         if not outdated:
-            return
+            # One forced re-diff in case the entity was opened stale.
+            latest = uc.info.get("latest_version")
+            if latest:
+                outdated = uc._outdated_devices(latest)
+            if not outdated:
+                return
 
+        uc.mark_install_started()
         self._in_progress = True
         self.async_write_ha_state()
         try:
@@ -145,11 +147,11 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
                     await mgr.async_trigger_ota(node, item["url"])
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("OTA to %s failed: %s", node, err)
-                await asyncio.sleep(35)  # flash + reboot + re-announce
+                await asyncio.sleep(35)
         finally:
             self._in_progress = False
-            self.async_write_ha_state()
-            # clear the persistent notification once the flash batch is sent
+            # Dismiss the one-shot notification for this tag; keep _notified_tag
+            # so discovery during reboot cannot recreate it.
             from homeassistant.components import persistent_notification
 
             tag = uc.info.get("latest_tag")
@@ -157,9 +159,7 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
                 persistent_notification.async_dismiss(
                     self.hass, f"{DOMAIN}_fw_{tag}"
                 )
-            uc.info["available"] = False
-            uc.info["outdated_devices"] = []
+            self.async_write_ha_state()
 
-    @property
-    def release_notes(self) -> str | None:
+    async def async_release_notes(self) -> str | None:
         return self._checker_info().get("changelog")

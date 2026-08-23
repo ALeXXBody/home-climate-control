@@ -54,6 +54,8 @@ class HomeClimatePanel extends HTMLElement {
 
   async _refresh() {
     if (!this._hass) return;
+    // Avoid stacking renders while a flash/reboot is in flight.
+    if (Object.keys(this._busy || {}).length) return;
     try {
       this._status = await this._hass.callWS({
         type: "home_climate_control/get_status",
@@ -885,17 +887,16 @@ class HomeClimatePanel extends HTMLElement {
 
   async _rebootDevice(nodeId) {
     if (!confirm(`Reboot ${nodeId}?`)) return;
-    if (!confirm(`Reboot ${nodeId}?`)) return;
     try {
       await this._hass.callWS({
         type: "home_climate_control/reboot_device",
         node_id: nodeId,
       });
-      this._notice = `Reboot command sent to ${nodeId}.`;
+      this._flashNotice(`Reboot command sent to ${nodeId}.`);
     } catch (err) {
       this._error = err?.message || String(err);
+      this._render();
     }
-    this._refresh();
   }
 
   _openOtaPage(nodeId) {

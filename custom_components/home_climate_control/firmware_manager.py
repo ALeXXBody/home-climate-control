@@ -197,11 +197,19 @@ class FirmwareManager:
         dev.last_seen = datetime.now(timezone.utc).isoformat()
         self.devices[node] = dev
 
-        # Audit follow-up: the update checker runs once at HA startup and can
-        # race device discovery. Re-check (debounced) whenever a device
-        # announces or updates its version so the banner is never stale.
+        # Re-check (debounced) when a device announces a version — but skip
+        # during post-install cooldown so reboot churn does not thrash HA.
         if data.get("version") and self._hass:
-            self._hass.async_create_task(self._trigger_update_check())
+            try:
+                from .update_checker import get_update_checker
+
+                uc = get_update_checker(self._hass)
+                if uc is not None and uc._in_install_cooldown():
+                    pass
+                else:
+                    self._hass.async_create_task(self._trigger_update_check())
+            except Exception:  # noqa: BLE001
+                self._hass.async_create_task(self._trigger_update_check())
 
         # HA discovery: surface a setup card for boards that are not yet
         # claimed by any config entry (once per node).
@@ -287,6 +295,16 @@ class FirmwareManager:
             return {"ok": False, "error": "unknown device"}
         if not url:
             return {"ok": False, "error": "missing url"}
+
+        # Quiet update-entity / notification thrash while the board reboots.
+        try:
+            from .update_checker import get_update_checker
+
+            uc = get_update_checker(self.hass)
+            if uc is not None:
+                uc.mark_install_started()
+        except Exception:  # noqa: BLE001
+            pass
 
         # 1) MQTT command (device handles hcs/<node>/set/ota_url)
         topic = f"hcs/{node_id}/set/ota_url"

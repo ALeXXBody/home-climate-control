@@ -56,6 +56,8 @@ def is_newer(candidate: str | None, current: str | None) -> bool:
 
 class UpdateChecker:
     MIN_CHECK_INTERVAL_S = 600  # never hammer the API more often than this
+    # After an Install/flash, suppress "update available" noise while boards reboot.
+    POST_INSTALL_COOLDOWN_S = 180
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
@@ -64,6 +66,7 @@ class UpdateChecker:
         self._notified_tag: str | None = None
         self._token: str | None = None
         self._last_fetch: float = 0.0
+        self._install_quiet_until: float = 0.0
         self._unsub = None
         self._unsub_delay = None
 
@@ -90,6 +93,20 @@ class UpdateChecker:
         await self._store.async_save(
             {"notified_tag": self._notified_tag, "token": self._token}
         )
+
+    def mark_install_started(self) -> None:
+        """Call when OTA starts — stops notification/state thrash during reboot."""
+        self._install_quiet_until = time.monotonic() + self.POST_INSTALL_COOLDOWN_S
+        # Keep the tag so we do not recreate the same notification mid-flash.
+        self.info = {
+            **self.info,
+            "available": False,
+            "outdated_devices": [],
+            "installing": True,
+        }
+
+    def _in_install_cooldown(self) -> bool:
+        return time.monotonic() < self._install_quiet_until
 
     async def async_stop(self) -> None:
         if self._unsub_delay:
@@ -125,6 +142,21 @@ class UpdateChecker:
     async def async_check(self, force: bool = False) -> dict:
         now = time.monotonic()
         if not force and now - self._last_fetch < self.MIN_CHECK_INTERVAL_S:
+            # Still refresh the local outdated list cheaply (no GitHub hit),
+            # unless an install is in flight — that path owns the flags.
+            if not self._in_install_cooldown():
+                latest = self.info.get("latest_version")
+                if latest:
+                    outdated = self._outdated_devices(latest)
+                    self.info = {
+                        **self.info,
+                        "available": bool(outdated),
+                        "outdated_devices": outdated,
+                        "installing": False,
+                    }
+            return self.info
+
+        if self._in_install_cooldown() and not force:
             return self.info
 
         session = aiohttp_client.async_get_clientsession(self.hass)
@@ -161,7 +193,14 @@ class UpdateChecker:
         latest = tag.lstrip("vV")
 
         outdated = self._outdated_devices(latest)
-        any_outdated = bool(outdated)
+        if self._in_install_cooldown() and not force:
+            # Boards still report the pre-flash version during reboot — do not
+            # flip available/back and spam HA notifications/toasts.
+            any_outdated = False
+            outdated = []
+        else:
+            any_outdated = bool(outdated)
+
         self.info = {
             "available": any_outdated,
             "latest_tag": tag,
@@ -171,11 +210,12 @@ class UpdateChecker:
             "url": data.get("html_url"),
             "published_at": data.get("published_at"),
             "outdated_devices": outdated,
-            "checked_at": None,  # filled by callers if desired
+            "installing": self._in_install_cooldown(),
+            "checked_at": None,
         }
 
-        # One-time HA notification per new release
-        if any_outdated and tag != self._notified_tag:
+        # One-time HA notification per new release tag (never recreate mid-flash).
+        if any_outdated and tag and tag != self._notified_tag:
             from homeassistant.components import persistent_notification
 
             persistent_notification.async_create(
@@ -192,13 +232,17 @@ class UpdateChecker:
                 {"notified_tag": tag, "token": self._token}
             )
 
-        if not any_outdated and self._notified_tag:
+        # Dismiss only when every known device is genuinely on the latest tag.
+        if not any_outdated and self._notified_tag and not self._in_install_cooldown():
             from homeassistant.components import persistent_notification
 
             persistent_notification.async_dismiss(
                 self.hass, f"{DOMAIN}_fw_{self._notified_tag}"
             )
             self._notified_tag = None
+            await self._store.async_save(
+                {"notified_tag": None, "token": self._token}
+            )
 
         _LOGGER.info("Firmware check: latest=%s outdated=%d", tag, len(outdated))
         return self.info

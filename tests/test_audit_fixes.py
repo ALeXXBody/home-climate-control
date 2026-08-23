@@ -177,3 +177,53 @@ def test_room_config_requires_trv():
     )
     assert res["type"] == "form"
     assert res.get("errors", {}).get("base") == "trv_required"
+
+
+def test_update_checker_install_cooldown_suppresses_available():
+    """During post-Install quiet period, do not re-mark devices outdated."""
+    import asyncio
+    import time
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control.update_checker import UpdateChecker
+
+    hass = MagicMock()
+    uc = UpdateChecker(hass)
+    uc.info = {
+        "available": True,
+        "latest_version": "1.0.8",
+        "latest_tag": "v1.0.8",
+        "outdated_devices": [
+            {"node_id": "hcs-x", "version": "1.0.2", "board": "d1_mini"}
+        ],
+    }
+    uc._notified_tag = "v1.0.8"
+    uc.mark_install_started()
+    assert uc._in_install_cooldown() is True
+    assert uc.info["available"] is False
+    assert uc.info["outdated_devices"] == []
+
+    uc._last_fetch = time.monotonic()  # within MIN interval
+    out = asyncio.run(uc.async_check(force=False))
+    assert out["available"] is False
+    assert out.get("installing") is True
+
+
+def test_update_entity_no_progress_feature_and_stable_latest():
+    from unittest.mock import MagicMock
+    from homeassistant.components.update import UpdateEntityFeature
+    from custom_components.home_climate_control.update import HcsFirmwareUpdateEntity
+
+    hass = MagicMock()
+    ent = HcsFirmwareUpdateEntity(hass, "entry1")
+    assert not (ent._attr_supported_features & UpdateEntityFeature.PROGRESS)
+    assert ent._attr_should_poll is False
+
+    ent._checker_info = lambda: {
+        "latest_version": "1.0.8",
+        "installing": True,
+        "outdated_devices": [],
+    }
+    # Force installed_version via mgr empty → None, so set a stub
+    type(ent).installed_version = property(lambda self: "1.0.2")
+    assert ent.latest_version == "1.0.2"
