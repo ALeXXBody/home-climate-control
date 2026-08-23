@@ -44,6 +44,9 @@ class CentralController:
         self.min_flow = min_flow
         self.max_flow = max_flow
         self.autotune = autotune
+        from .cycleguard import CycleGuard
+
+        self.cycleguard = CycleGuard()
 
         self.zones: list = []
 
@@ -90,19 +93,38 @@ class CentralController:
             _LOGGER.exception("Control tick failed")
 
     async def async_control_step(self) -> None:
+        import time as _time
+
+        now = _time.monotonic()
         outdoor = self.outdoor_temp()
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
 
-        if not demanding:
-            if self._ch_on:
-                _LOGGER.info("No zone demand → CH off")
-                await self.backend.async_set_ch_enabled(False)
-                self._ch_on = False
-            self.flow_setpoint = None
-            self.total_demand = 0.0
-            self.active_zone_names = []
-            self.estimated_gas_percent = 0.0
-        else:
+        # CycleGuard owns the actual CH on/off decision: it enforces a
+        # minimum burn length and an adaptive rest window so a flickering
+        # thermostat signal cannot turn the boiler into a stop-start mess.
+        desired_ch = bool(demanding)
+        ch_state, _reason = self.cycleguard.decide(desired_ch, self._ch_on, now)
+        if ch_state != self._ch_on:
+            await self.backend.async_set_ch_enabled(ch_state)
+            self.cycleguard.record(ch_state, now)
+            self._ch_on = ch_state
+            if ch_state:
+                _LOGGER.info("CH on (%s)", _reason)
+            else:
+                _LOGGER.info("CH off (%s)", _reason)
+
+        if not ch_state and not self._ch_on:
+            # Fully at rest: no demand honoured this tick.
+            if not demanding:
+                self.flow_setpoint = None
+                self.total_demand = 0.0
+                self.active_zone_names = []
+                self.estimated_gas_percent = 0.0
+        elif demanding:
+            # Burner allowed to fire and zones want heat: compute the flow
+            # target. (If demand vanished mid-min-on-floor we deliberately
+            # keep the previous setpoint: the burner finishes its short
+            # minimum burn at low fire while TRVs throttle.)
             max_setpoint = max(z.effective_setpoint() for z in demanding)
             base_flow = flow_for_outdoor(
                 max_setpoint,
@@ -115,9 +137,6 @@ class CentralController:
             worst_pid_extra = max(z.pid_flow_contribution() for z in demanding)
             target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
 
-            if not self._ch_on:
-                await self.backend.async_set_ch_enabled(True)
-                self._ch_on = True
             await self.backend.async_set_flow_setpoint(target_flow)
 
             self.flow_setpoint = target_flow
@@ -178,5 +197,6 @@ class CentralController:
         }
         if self.autotune is not None:
             data["autotune"] = self.autotune.as_dict()
+        data["cycle_guard"] = self.cycleguard.as_dict()
         data.update(self.backend.diagnostics())
         return data
