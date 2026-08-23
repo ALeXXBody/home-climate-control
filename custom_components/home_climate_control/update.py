@@ -53,21 +53,25 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         self._attr_entity_picture = self._brand_icon_url()
 
     def _brand_icon_url(self) -> str | None:
-        """Absolute URL of the bundled brand icon for the Updates card."""
+        """Origin-relative URL of the bundled brand icon for the Updates card.
+
+        Relative on purpose: absolute get_url() links break when the browser
+        reaches HA via any other host than the one HA prefers internally
+        (IP vs .local, reverse proxy, remote UI). The version query busts
+        image caches across releases.
+        """
         from pathlib import Path
+
+        from .const import PANEL_STATIC_URL
 
         if not (Path(__file__).parent / "brand" / "icon.png").is_file():
             return None
         try:
-            from homeassistant.helpers.network import get_url
+            from homeassistant.const import __version__ as ha_version
 
-            base = get_url(self.hass, allow_cloud=False, prefer_internal=True)
-            return (
-                f"{base}/home_climate_control_static/"
-                f"brand/icon.png"
-            )
+            return f"{PANEL_STATIC_URL}/brand/icon.png?v={ha_version}"
         except Exception:  # noqa: BLE001
-            return None
+            return f"{PANEL_STATIC_URL}/brand/icon.png"
 
     @property
     def installed_version(self) -> str | None:
