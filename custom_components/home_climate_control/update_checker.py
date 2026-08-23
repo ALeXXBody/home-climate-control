@@ -58,16 +58,28 @@ class UpdateChecker:
         self._store = Store(hass, _STORE_VERSION, f"{DOMAIN}/update_checker")
         self._notified_tag: str | None = None
         self._unsub = None
+        self._unsub_delay = None
 
     async def async_start(self) -> None:
         data = await self._store.async_load() or {}
         self._notified_tag = data.get("notified_tag")
-        await self.async_check()  # immediate check at startup
+        # Delayed startup check: retained MQTT discovery needs a moment to
+        # populate device versions — an immediate check always saw zero
+        # devices and reported "up to date" until the next 6h tick.
+        async def _delayed_first(now=None):
+            await self.async_check()
+
+        from homeassistant.helpers.event import async_call_later
+
+        self._unsub_delay = async_call_later(self.hass, 15, _delayed_first)
         self._unsub = async_track_time_interval(
             self.hass, self._on_interval, CHECK_INTERVAL
         )
 
     async def async_stop(self) -> None:
+        if self._unsub_delay:
+            self._unsub_delay()
+            self._unsub_delay = None
         if self._unsub:
             self._unsub()
             self._unsub = None
