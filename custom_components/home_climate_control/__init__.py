@@ -94,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await async_setup_firmware_manager(hass)
 
-    await hass.config_entries.async_forward_entry_setups(entry, ["climate"])
+    await hass.config_entries.async_forward_entry_setups(entry, ["climate", "sensor"])
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 

@@ -269,6 +269,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("settings", "Settings")}
         </nav>
         ${this._error ? `<div class="error">${this._esc(this._error)}</div>` : ""}
+        ${this._boilerDiagBanner()}
         ${this._notice ? `<div class="notice">${this._esc(this._notice)}</div>` : ""}
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
@@ -666,6 +667,28 @@ class HomeClimatePanel extends HTMLElement {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  /**
+   * Boiler diagnostics banner: reads the HCS device's boiler_diag sensor
+   * entity (plain English fault text). Hidden when healthy/unknown.
+   */
+  _boilerDiagBanner() {
+    if (!this._hass?.states) return "";
+    const entry = Object.entries(this._hass.states).find(([id]) =>
+      id.endsWith("_boiler_diagnostic")
+    );
+    if (!entry) return "";
+    const st = entry[1];
+    const text = String(st.state ?? "");
+    if (!text || text === "unknown" || text === "no faults") return "";
+    return `<div class="error" style="display:flex;align-items:center;gap:8px">
+      <ha-icon icon="mdi:fire-alert"></ha-icon>
+      <span>Boiler: ${this._esc(text)}</span>
+      <button class="ghost refresh" type="button"
+        style="margin-left:auto;padding:2px 10px;font-size:0.8rem"
+        onclick="this.getRootNode().host._refresh()">Recheck</button>
+    </div>`;
   }
 }
 
