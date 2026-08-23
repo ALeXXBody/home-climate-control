@@ -34,13 +34,13 @@ w.document.body.appendChild(el);
 
 const STATUS = {
   domain: "home_climate_control",
-  systems: [{ entry_id: "e1", update_info: { available: false } }],
+  systems: [{ entry_id: "e1", update_info: { available: false, latest_tag: "v1.0.2" } }],
   devices: [
     {
       node_id: "hcs-test",
       name: "Test Board",
       board: "lolin_c3_mini",
-      version: "1.0.0",
+      version: "1.0.2",
       online: true,
       ip: "1.2.3.4",
     },
@@ -145,6 +145,13 @@ check(
   /max-width:\s*170px/.test(prevImg?.getAttribute("style") || ""),
   "catalog preview not halved"
 );
+
+// up-to-date pill on device card; global banner removed
+const pills = [...el.shadowRoot.querySelectorAll(".badge")].map((b) =>
+  b.textContent.trim()
+);
+check(pills.includes("up to date"), "up-to-date pill missing");
+check(!html.includes("Firmware is up to date"), "stale banner still rendered");
 
 // 2) catalog dropdown + preview exist
 check(!!el.shadowRoot.getElementById("hcc-board-sel"), "catalog dropdown missing");

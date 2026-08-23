@@ -343,3 +343,92 @@ def test_async_start_marks_everything_offline_first():
     finally:
         fm.mqtt.async_subscribe = orig_sub
         fm.mqtt.async_publish = orig_pub
+
+
+def test_startup_grace_ignores_and_wipes_retained_replays():
+    """Retained 'online'/'discovery' blobs must not resurrect dead boards."""
+    import json as _json
+    from unittest.mock import MagicMock
+
+    import custom_components.home_climate_control.firmware_manager as fm
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+    )
+
+    import asyncio as _aio
+
+    hass = MagicMock()
+    published = []
+    scheduled = []
+
+    async def fake_pub(h, topic, payload, qos=0, retain=False, **k):
+        published.append((topic, payload, retain))
+
+    hass.async_create_task.side_effect = lambda coro: scheduled.append(coro)
+
+    orig_pub = fm.mqtt.async_publish
+    fm.mqtt.async_publish = fake_pub
+    try:
+        mgr = FirmwareManager(hass)
+        mgr._grace_until = fm.time.monotonic() + 60  # inside grace
+
+        disc = MagicMock()
+        disc.topic = "hcs/discovery/hcs-ghost"
+        disc.payload = _json.dumps(
+            {"node_id": "hcs-ghost", "board": "d1_mini", "version": "1.0.2"}
+        )
+        mgr._on_discovery(disc)
+        assert "hcs-ghost" not in mgr.devices
+
+        avail = MagicMock()
+        avail.topic = "hcs/hcs-ghost/online"
+        avail.payload = b"online"
+        mgr._on_availability(avail)
+        assert "hcs-ghost" not in mgr.devices
+
+        for coro in list(scheduled):  # run the wipe publishes
+            _aio.run(coro)
+        scheduled.clear()
+        wiped = {t for t, _, r in published if r and t.endswith("online")}
+        assert "hcs/hcs-ghost/online" in wiped
+
+        # After grace the same payloads are trusted again
+        mgr._grace_until = 0.0
+        mgr._on_availability(avail)
+        assert mgr.devices["hcs-ghost"].online is True
+        mgr._on_discovery(disc)
+        assert mgr.devices["hcs-ghost"].version == "1.0.2"
+    finally:
+        fm.mqtt.async_publish = orig_pub
+
+
+def test_post_grace_ping_republishes_and_closes_window():
+    import asyncio
+    from unittest.mock import MagicMock
+
+    import custom_components.home_climate_control.firmware_manager as fm
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+    )
+
+    hass = MagicMock()
+    published = []
+
+    async def fake_pub(h, topic, payload, qos=0, retain=False, **k):
+        published.append(topic)
+
+    async def fake_sleep(s):
+        pass
+
+    orig_pub, orig_sleep = fm.mqtt.async_publish, asyncio.sleep
+    fm.mqtt.async_publish = fake_pub
+    asyncio.sleep = fake_sleep
+    try:
+        mgr = FirmwareManager(hass)
+        mgr._grace_until = fm.time.monotonic() + 60
+        asyncio.run(mgr._post_grace_ping())
+        assert mgr._grace_until == 0.0
+        assert fm.DISCOVERY_PING in published
+    finally:
+        fm.mqtt.async_publish = orig_pub
+        asyncio.sleep = orig_sleep

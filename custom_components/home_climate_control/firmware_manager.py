@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -148,13 +149,45 @@ class FirmwareManager:
         self._check_task = None
         self.hass = hass
         self.devices: dict[str, HcsDevice] = {}
+        self._grace_until = 0.0  # monotonic; retained-replay window after start
+        self._wiped: set[str] = set()
         self._flowed_nodes: set[str] = set()
         self._unsub = None
         self.catalog: list[dict[str, str]] = list(DEFAULT_CATALOG)
 
+    def _in_grace(self) -> bool:
+        return time.monotonic() < self._grace_until
+
+    def _wipe_retained(self, topic: str) -> None:
+        """Clear a stale retained blob so it can never impersonate liveness."""
+        if topic in self._wiped or not self._hass:
+            return
+        self._wiped.add(topic)
+        _LOGGER.info("Wiping stale retained payload on %s", topic)
+
+        async def _do() -> None:
+            await mqtt.async_publish(self.hass, topic, "", qos=0, retain=True)
+
+        self.hass.async_create_task(_do())
+
+    async def _post_grace_ping(self) -> None:
+        import asyncio
+
+        await asyncio.sleep(5)
+        self._grace_until = 0.0
+        await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)
+        self._prune_stale()
+        _LOGGER.info("Firmware manager grace window closed")
+
     async def async_start(self) -> None:
         if self._unsub is not None:
             return
+        # Retained replays poison BOTH discovery and availability topics —
+        # a board that died weeks ago still has retained "online" at the
+        # broker. Ignore everything for a short window after start while we
+        # wipe those blobs; live boards re-announce right after the ping.
+        self._grace_until = time.monotonic() + 5.0
+        self._wiped.clear()
         # Nothing is trusted as online until it announces fresh — retained
         # discovery payloads can be hours old (board powered off long ago).
         for dev in self.devices.values():
@@ -165,8 +198,10 @@ class FirmwareManager:
         self._unsub_avail = await mqtt.async_subscribe(
             self.hass, AVAILABILITY_TOPIC, self._on_availability, 0
         )
-        # Ask devices to announce themselves
+        # Ask devices to announce themselves (answers during grace are wiped
+        # + ignored; the post-grace ping re-triggers them within seconds)
         await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)
+        self.hass.async_create_task(self._post_grace_ping())
         _LOGGER.info("Firmware manager listening on %s+", DISCOVERY_PREFIX)
 
     @callback
@@ -177,6 +212,11 @@ class FirmwareManager:
         except IndexError:
             return
         state = (msg.payload or b"").decode("utf-8", errors="replace").strip()
+        if self._in_grace():
+            # Retained replay — wipe and ignore; live boards answer the
+            # post-grace ping within seconds.
+            self._wipe_retained(msg.topic)
+            return
         dev = self.devices.get(node)
         if dev is None:
             if state == "online":
@@ -232,6 +272,10 @@ class FirmwareManager:
             data = json.loads(payload)
         except (json.JSONDecodeError, UnicodeError) as err:
             _LOGGER.debug("bad discovery payload: %s", err)
+            return
+
+        if self._in_grace():
+            self._wipe_retained(msg.topic)
             return
 
         node = data.get("node_id") or msg.topic.rsplit("/", 1)[-1]

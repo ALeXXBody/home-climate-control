@@ -636,10 +636,7 @@ class HomeClimatePanel extends HTMLElement {
           ${ui.url ? `<a href="${this._esc(ui.url)}" target="_blank" rel="noopener" style="font-size:.85rem">Release page ↗</a>` : ""}
         </details>
       </div>`;
-    } else if (ui && !ui.error) {
-      banner = `<div class="card placeholder"><p class="sub">Firmware is up to date
-        (${this._esc(ui.latest_tag || "no releases found")}).</p></div>`;
-    }
+    } // "up to date" state moved onto each device card as a pill
 
     const deviceCards = devices
       .map((d) => {
@@ -660,7 +657,11 @@ class HomeClimatePanel extends HTMLElement {
         <div>
           <div class="zone-title">${this._esc(d.name || d.node_id)}
             ${d.online ? '<span class="badge on">online</span>' : '<span class="badge off">offline</span>'}
-            ${update ? `<span class="badge heat">v${this._esc(update.version)} available</span>` : ""}
+            ${update
+              ? `<span class="badge heat">v${this._esc(update.version)} available</span>`
+              : match
+                ? '<span class="badge on">up to date</span>'
+                : ""}
           </div>
           <div class="zone-meta">
             ${this._esc(d.node_id)} · ${this._esc(d.board || "?")} · v${this._esc(d.version || "?")} · ${this._esc(d.ip || "no IP")}
