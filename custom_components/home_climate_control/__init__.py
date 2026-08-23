@@ -170,12 +170,21 @@ def get_controller(hass: HomeAssistant, entry: ConfigEntry) -> CentralController
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .panel import async_unregister_panel
 
+    # Audit F1: sensor platform was never unloaded, boiler_info kept its
+    # MQTT subscription and update_checker its interval after entry removal.
     stored = hass.data[DOMAIN].pop(entry.entry_id, None)
     unload_ok = True
     if stored is not None:
         controller = stored["controller"]
         await controller.async_stop()
-        unload_ok = await hass.config_entries.async_unload_platforms(entry, ["climate"])
+
+        bi = stored.get("boiler_info")
+        if bi is not None:
+            await bi.async_unload()
+
+        unload_ok = await hass.config_entries.async_unload_platforms(
+            entry, ["climate", "sensor"]
+        )
 
     remaining = [
         k
@@ -184,5 +193,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ]
     if not remaining:
         await async_unregister_panel(hass)
+
+        from .update_checker import get_update_checker
+
+        uc = get_update_checker(hass)
+        if uc is not None:
+            await uc.async_stop()
+            import custom_components.home_climate_control.update_checker as _uc_mod
+
+            _uc_mod._ACTIVE = None
 
     return unload_ok
