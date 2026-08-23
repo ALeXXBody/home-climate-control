@@ -13,8 +13,8 @@
         "description": "Creates a simulated boiler with outdoor temperature, flame/modulation, and two rooms (Living Room + Bedroom). No MQTT or hardware required. Open the **Home Climate** sidebar after setup.",
         "data": {
           "name": "Name",
-          "min_flow_temp": "Minimum flow temperature (°C)",
-          "max_flow_temp": "Maximum flow temperature (°C)",
+          "min_flow_temp": "Minimum flow temperature (\u00b0C)",
+          "max_flow_temp": "Maximum flow temperature (\u00b0C)",
           "curve_coeff": "Heating curve coefficient"
         }
       },
@@ -24,14 +24,14 @@
         "data": {
           "name": "Name",
           "node_id": "Gateway node id (e.g. hcs-aabbccddeeff)",
-          "min_flow_temp": "Minimum flow temperature (°C)",
-          "max_flow_temp": "Maximum flow temperature (°C)",
+          "min_flow_temp": "Minimum flow temperature (\u00b0C)",
+          "max_flow_temp": "Maximum flow temperature (\u00b0C)",
           "curve_coeff": "Heating curve coefficient"
         }
       },
       "zone": {
         "title": "Add a room",
-        "description": "Rooms already added: {zone_count}. A room is: **TRV** + optional **wall temperature sensor** + optional **window/door sensors**. Open window/door pauses heating for that room. No external temp → TRV temperature is used. The ESP gateway is boiler-only, not part of a room.",
+        "description": "Rooms already added: {zone_count}. A room is: **TRV** + optional **wall temperature sensor** + optional **window/door sensors**. Open window/door pauses heating for that room. No external temp \u2192 TRV temperature is used. The ESP gateway is boiler-only, not part of a room.",
         "data": {
           "name": "Room name",
           "trv_climates": "TRV (climate entity)",
@@ -42,7 +42,7 @@
       },
       "discovery": {
         "title": "New Home Climate System gateway found",
-        "description": "Board **{node}** announced itself on MQTT. Confirm to adopt it as the boiler gateway — rooms are configured on the next screen."
+        "description": "Board **{node}** announced itself on MQTT. Confirm to adopt it as the boiler gateway \u2014 rooms are configured on the next screen."
       }
     },
     "abort": {
@@ -58,9 +58,13 @@
       "init": {
         "title": "Home Climate Control options",
         "data": {
-          "min_flow_temp": "Minimum flow temperature (°C)",
-          "max_flow_temp": "Maximum flow temperature (°C)",
-          "curve_coeff": "Heating curve coefficient"
+          "min_flow_temp": "Minimum flow temperature (\u00b0C)",
+          "max_flow_temp": "Maximum flow temperature (\u00b0C)",
+          "curve_coeff": "Heating curve coefficient",
+          "auto_tune_curve": "Auto-tune the heating curve (recommended)"
+        },
+        "data_description": {
+          "auto_tune_curve": "Watches room comfort and slowly adjusts the curve coefficient to burn less gas. The learned value persists across restarts."
         }
       }
     }

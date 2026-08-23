@@ -39,6 +39,7 @@ from .const import (
 CONF_MIN_FLOW = "min_flow_temp"
 CONF_MAX_FLOW = "max_flow_temp"
 CONF_CURVE = "curve_coeff"
+CONF_AUTOTUNE = "autotune_curve"
 
 
 class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -302,6 +303,11 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     vol.Coerce(float),
                     vol.Range(min=CURVE_COEFF_MIN, max=CURVE_COEFF_MAX),
                 ),
+                vol.Required(
+                    CONF_AUTOTUNE,
+                    default=opts.get(CONF_AUTOTUNE, True),
+                    description="auto_tune_curve",
+                ): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

@@ -65,6 +65,7 @@ def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from .autotune import CurveAutoTuner
     from .central import CentralController
     from .panel import async_register_panel
     from .websocket_api import async_setup_websocket
@@ -73,13 +74,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     opts = entry.options
     backend = _build_backend(hass, entry, opts)
+    tuner = CurveAutoTuner(
+        hass,
+        opts.get("curve_coeff", DEFAULT_CURVE_COEFF),
+        enabled=opts.get("autotune_curve", True),
+    )
+    await tuner.async_load()
     controller = CentralController(
         hass,
         backend,
-        curve_coeff=opts.get("curve_coeff", DEFAULT_CURVE_COEFF),
+        curve_coeff=tuner.coeff,
         design_outdoor=-10.0,
         min_flow=opts.get("min_flow_temp", DEFAULT_MIN_FLOW_TEMP),
         max_flow=opts.get("max_flow_temp", DEFAULT_MAX_FLOW_TEMP),
+        autotune=tuner,
     )
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,

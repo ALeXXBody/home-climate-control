@@ -35,6 +35,7 @@ class CentralController:
         design_outdoor: float,
         min_flow: float,
         max_flow: float,
+        autotune=None,
     ) -> None:
         self.hass = hass
         self.backend = backend
@@ -42,6 +43,7 @@ class CentralController:
         self.design_outdoor = design_outdoor
         self.min_flow = min_flow
         self.max_flow = max_flow
+        self.autotune = autotune
 
         self.zones: list = []
 
@@ -123,6 +125,24 @@ class CentralController:
             self.total_demand = sum(z.demand_level() for z in demanding)
             self.estimated_gas_percent = min(100.0, self.total_demand * 100.0)
 
+            # Auto-tune: feed aggregate comfort error, maybe learn a better
+            # curve coefficient (gas mission: no chronic cold, no overshoot).
+            if self.autotune is not None:
+                errs = []
+                for z in demanding:
+                    cur = getattr(z, "current_temperature", None)
+                    if cur is None:
+                        cur = getattr(z, "_current_temp", None)
+                    if cur is not None:
+                        errs.append(z.effective_setpoint() - cur)
+                if errs:
+                    self.autotune.observe(sum(errs) / len(errs), True)
+                    learned = self.autotune.step()
+                    if learned is not None and learned != self.curve_coeff:
+                        self.curve_coeff = learned
+                else:
+                    self.autotune.observe(None, False)
+
             _LOGGER.debug(
                 "tick: outdoor=%s flow=%.1f (base %.1f + pid %.1f) zones=%s",
                 f"{outdoor:.1f}" if outdoor is not None else "?",
@@ -156,5 +176,7 @@ class CentralController:
             "min_flow": self.min_flow,
             "max_flow": self.max_flow,
         }
+        if self.autotune is not None:
+            data["autotune"] = self.autotune.as_dict()
         data.update(self.backend.diagnostics())
         return data
