@@ -262,3 +262,17 @@ def test_firmware_manager_prunes_stale_devices():
 
     assert "hcs-old" not in mgr.devices
     assert "hcs-fresh" in mgr.devices
+
+
+def test_catalog_has_model_labels_and_real_photos():
+    """Dropdown shows board model; images are real photos where sourced."""
+    from custom_components.home_climate_control.firmware_manager import (
+        DEFAULT_CATALOG,
+    )
+
+    for item in DEFAULT_CATALOG:
+        assert "model" in item or "_gw" in item["board"], item["id"]
+        if item["board"] == "lolin_c3_mini":
+            assert "/photos/" in item["image"]
+        if item["board"] == "d1_mini":
+            assert "/photos/" in item["image"]

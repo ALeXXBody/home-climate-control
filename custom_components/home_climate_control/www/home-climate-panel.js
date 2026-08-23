@@ -275,6 +275,24 @@ class HomeClimatePanel extends HTMLElement {
         }
         footer a { color: var(--primary-color, #03a9f4); }
         .refresh { margin-left: auto; }
+        .fw-cat {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 16px;
+          align-items: start;
+        }
+        @media (max-width: 700px) {
+          .fw-cat { grid-template-columns: 1fr; }
+        }
+        .fw-thumb {
+          width: 74px; height: 74px; object-fit: cover;
+          border-radius: 8px; background: #fff;
+          border: 1px solid var(--divider-color, #333);
+        }
+        .dev-card {
+          display: flex; gap: 12px; align-items: flex-start;
+        }
+        .dev-card .controls { flex: 1; }
       </style>
       <div class="wrap">
         <header>
@@ -591,6 +609,13 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
+  static _modelLabel(c) {
+    if (!c) return "";
+    if (c.model) return c.model;
+    // Fallback: strip legacy "HCS x.y.z — " / "HCS x.y.z GW — " prefixes.
+    return String(c.title || "").replace(/^HCS\s+[\d.]+\s+(GW\s+)?—\s+/, "");
+  }
+
   _firmwareHtml() {
     // Only currently-online boards — a powered-off module re-registers
     // within seconds of coming back, so no need to keep dead cards around.
@@ -628,16 +653,21 @@ class HomeClimatePanel extends HTMLElement {
       .map((d) => {
         const match = catalog.find((c) => c.board === d.board) || null;
         const update = match && match.version !== d.version ? match : null;
+        const label = (c) =>
+          HomeClimatePanel._modelLabel(c) +
+          (String(c.board || "").endsWith("_gw") ? " · gateway" : "");
         const options = [
           ...catalog.map(
             (c) =>
-              `<option value="${this._esc(c.id)}" ${match === c ? "selected" : ""}>${this._esc(c.title)}</option>`
+              `<option value="${this._esc(c.id)}" ${match === c ? "selected" : ""}>${this._esc(label(c))}</option>`
           ),
           `<option value="__custom__">Custom URL…</option>`,
         ].join("");
+        const thumb = match?.image || "";
         return `
-      <div class="card zone">
-        <div>
+      <div class="card zone dev-card">
+        ${thumb ? `<img class="fw-thumb" src="${this._esc(thumb)}" alt="">` : ""}
+        <div style="flex:1">
           <div class="zone-title">${this._esc(d.name || d.node_id)}
             ${d.online ? '<span class="badge on">online</span>' : '<span class="badge off">offline</span>'}
             ${update ? `<span class="badge heat">v${this._esc(update.version)} available</span>` : ""}
@@ -669,7 +699,7 @@ class HomeClimatePanel extends HTMLElement {
     const boardOptions = catalog
       .map(
         (c) =>
-          `<option value="${this._esc(c.id)}"${c.id === this._selectedBoardId ? " selected" : ""}>${this._esc(c.title)}</option>`
+          `<option value="${this._esc(c.id)}"${c.id === this._selectedBoardId ? " selected" : ""}>${this._esc(HomeClimatePanel._modelLabel(c))}</option>`
       )
       .join("");
 
@@ -702,20 +732,23 @@ class HomeClimatePanel extends HTMLElement {
           : `<div class="empty card">No HCS devices discovered yet.<p class="sub">Power on a device with Home Climate System firmware; it announces itself on MQTT topic <code>hcs/discovery/&lt;node&gt;</code>.</p></div>`
       }
       <h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Firmware catalog</h3>
-      <div class="card">
-        <select id="hcc-board-sel" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
-          ${boardOptions}
-        </select>
-        <div id="hcc-board-preview" style="margin-top:12px;text-align:center">
-          <img alt="" style="max-width:320px;width:100%;border-radius:10px">
-          <p class="sub" style="margin-top:6px"></p>
+      <div class="card fw-cat">
+        <div>
+          <label style="display:block;font-size:.85rem;margin-bottom:6px">Board model</label>
+          <select id="hcc-board-sel" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+            ${boardOptions}
+          </select>
+          <label style="display:block;margin-top:14px;font-size:.85rem">Flash this image to a device</label>
+          <div style="display:flex;gap:6px;margin-top:4px">
+            <input id="hcc-cat-node" placeholder="node id (hcs-…)"
+              style="flex:1;padding:6px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+            <button type="button" class="ghost" data-fw-action="flash-catalog"
+              style="padding:6px 12px">Flash</button>
+          </div>
         </div>
-        <label style="display:block;margin-top:10px;font-size:.85rem">Flash this image to a device</label>
-        <div style="display:flex;gap:6px;margin-top:4px">
-          <input id="hcc-cat-node" placeholder="node id (hcs-…)"
-            style="flex:1;padding:6px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
-          <button type="button" class="ghost" data-fw-action="flash-catalog"
-            style="padding:6px 12px">Flash</button>
+        <div id="hcc-board-preview" style="text-align:center">
+          <img alt="" style="max-width:340px;width:100%;border-radius:10px;background:#fff">
+          <p class="sub" style="margin-top:6px"></p>
         </div>
       </div>
 `;

@@ -57,11 +57,21 @@ const STATUS = {
     {
       id: "hcs-1.0.2-lolin_c3_mini",
       title: "HCS 1.0.2 — LOLIN C3 mini",
+      model: "LOLIN C3 mini v2.1",
       board: "lolin_c3_mini",
       version: "1.0.2",
       url: "https://example.com/fw.bin",
       description: "test desc",
-      image: "/home_climate_control_static/boards/lolin_c3_mini.svg",
+      image: "/home_climate_control_static/boards/photos/lolin_c3_mini.jpg",
+    },
+    {
+      id: "hcs-1.0.2-d1_mini",
+      title: "HCS 1.0.2 — ESP8266 D1 mini",
+      board: "d1_mini",
+      version: "1.0.2",
+      url: "https://example.com/fw2.bin",
+      description: "d1 desc",
+      image: "/home_climate_control_static/boards/photos/d1_mini.jpg",
     },
   ],
 };
@@ -109,6 +119,27 @@ check(html.includes("hcs-test"), "online device missing from firmware page");
 check(
   !html.includes("Ghost Board"),
   "offline device card rendered"
+);
+
+// 1c) catalog card: dropdown LEFT, image RIGHT, model-only labels
+check(!!el.shadowRoot.querySelector(".fw-cat"), "catalog grid layout missing");
+const opts = [...el.shadowRoot.querySelectorAll("#hcc-board-sel option")].map(
+  (o) => o.textContent
+);
+check(
+  !opts.some((t) => /^HCS /.test(t)),
+  "dropdown shows legacy HCS/version labels"
+);
+check(opts.includes("LOLIN C3 mini v2.1"), "model label missing (with field)");
+check(
+  opts.includes("ESP8266 D1 mini"),
+  "model label fallback from title failed"
+);
+const devImg = el.shadowRoot.querySelector(".dev-card img.fw-thumb");
+check(!!devImg, "device card photo thumbnail missing");
+check(
+  (devImg?.getAttribute("src") || "").includes("/photos/"),
+  "thumbnail not using real board photo"
 );
 
 // 2) catalog dropdown + preview exist
