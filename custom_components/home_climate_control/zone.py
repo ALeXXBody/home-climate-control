@@ -198,6 +198,9 @@ class ZoneClimateEntity(ClimateEntity):
 
     def effective_setpoint(self) -> float:
         offset = PRESET_OFFSETS.get(self._preset, 0.0)
+        learner = getattr(self.coordinator, "setbacks", None)
+        if learner is not None and self._preset in ("away", "eco"):
+            offset = learner.offset_for(self.name, fallback=offset)
         return self._target_temp + offset
 
     def wants_heat(self) -> bool:
@@ -237,6 +240,19 @@ class ZoneClimateEntity(ClimateEntity):
         if temperature is not None:
             self._current_temp = temperature
             self._temp_from_trv = False
+        learner = getattr(self.coordinator, "setbacks", None)
+        if (
+            learner is not None
+            and temperature is not None
+            and self._hvac_mode == HVACMode.HEAT
+            and not self._window_open
+        ):
+            import time as _t
+
+            try:
+                learner.observe(self.name, _t.time(), temperature, self._preset)
+            except Exception:  # noqa: BLE001
+                pass
         if window_open is not None:
             self._window_open = window_open
         if self.hass is not None:

@@ -61,10 +61,12 @@
           "min_flow_temp": "Minimum flow temperature (\u00b0C)",
           "max_flow_temp": "Maximum flow temperature (\u00b0C)",
           "curve_coeff": "Heating curve coefficient",
-          "auto_tune_curve": "Auto-tune the heating curve (recommended)"
+          "auto_tune_curve": "Auto-tune the heating curve (recommended)",
+          "learn_setbacks": "Learn smart night/Away setbacks per room"
         },
         "data_description": {
-          "auto_tune_curve": "Watches room comfort and slowly adjusts the curve coefficient to burn less gas. The learned value persists across restarts."
+          "auto_tune_curve": "Watches room comfort and slowly adjusts the curve coefficient to burn less gas. The learned value persists across restarts.",
+          "learn_setbacks": "Measures how fast each room recovers after away/eco periods and sizes future setbacks so mornings are warm without wasteful catch-up burns."
         }
       }
     }

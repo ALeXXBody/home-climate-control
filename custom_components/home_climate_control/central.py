@@ -44,6 +44,7 @@ class CentralController:
         self.min_flow = min_flow
         self.max_flow = max_flow
         self.autotune = autotune
+        self.setbacks = None
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
@@ -197,6 +198,8 @@ class CentralController:
         }
         if self.autotune is not None:
             data["autotune"] = self.autotune.as_dict()
+        if self.setbacks is not None:
+            data["setbacks"] = self.setbacks.as_dict()
         data["cycle_guard"] = self.cycleguard.as_dict()
         data.update(self.backend.diagnostics())
         return data

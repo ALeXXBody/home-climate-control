@@ -40,6 +40,7 @@ CONF_MIN_FLOW = "min_flow_temp"
 CONF_MAX_FLOW = "max_flow_temp"
 CONF_CURVE = "curve_coeff"
 CONF_AUTOTUNE = "autotune_curve"
+CONF_LEARN_SETBACKS = "learn_setbacks"
 
 
 class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -307,6 +308,11 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     CONF_AUTOTUNE,
                     default=opts.get(CONF_AUTOTUNE, True),
                     description="auto_tune_curve",
+                ): bool,
+                vol.Required(
+                    CONF_LEARN_SETBACKS,
+                    default=opts.get(CONF_LEARN_SETBACKS, True),
+                    description="learn_setbacks",
                 ): bool,
             }
         )

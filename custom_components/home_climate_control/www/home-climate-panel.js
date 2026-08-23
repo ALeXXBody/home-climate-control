@@ -565,6 +565,9 @@ class HomeClimatePanel extends HTMLElement {
         <div class="card"><h3>Min flow</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit">°C</span></div></div>
         <div class="card"><h3>Max flow</h3><div class="metric">${this._fmt(sys.max_flow)}<span class="unit">°C</span></div></div>
         ${sys.cycle_guard ? `<div class="card"><h3>Burner cycles</h3><div class="metric">${sys.cycle_guard.starts_1h}<span class="unit">/h</span></div><p class="sub">${this._esc(sys.cycle_guard.last_reason || sys.cycle_guard.state)} · patience ×${this._esc(sys.cycle_guard.multiplier)}</p></div>` : ""}
+        ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
+          ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
+        </div>` : ""}
         <div class="card"><h3>Entry</h3><div class="sub">${this._esc(sys.entry_id || "")}</div></div>
       </div>
       <div class="card">

@@ -67,6 +67,7 @@ def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .autotune import CurveAutoTuner
     from .central import CentralController
+    from .setback import SetbackLearner
     from .panel import async_register_panel
     from .websocket_api import async_setup_websocket
 
@@ -80,6 +81,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         enabled=opts.get("autotune_curve", True),
     )
     await tuner.async_load()
+    setbacks = SetbackLearner(hass, enabled=opts.get("learn_setbacks", True))
+    await setbacks.async_load()
     controller = CentralController(
         hass,
         backend,
@@ -89,6 +92,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         max_flow=opts.get("max_flow_temp", DEFAULT_MAX_FLOW_TEMP),
         autotune=tuner,
     )
+    controller.setbacks = setbacks
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),
