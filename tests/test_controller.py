@@ -270,3 +270,28 @@ async def test_build_backend_factory():
     entry.data = {CONF_BACKEND: BACKEND_DEMO}
     be = _build_backend(hass, entry, opts)
     assert be is not None
+
+
+def test_options_flow_preserves_zones():
+    """Configure→Save must never wipe zones stored in entry options."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control.config_flow import (
+        HomeClimateControlOptionsFlow,
+    )
+
+    flow = HomeClimateControlOptionsFlow()
+    zones = [{"name": "Living", "temp_sensor": "sensor.living_t"}]
+    entry = MagicMock()
+    entry.options = {
+        "min_flow_temp": 30,
+        "max_flow_temp": 80,
+        "curve_coeff": 1.2,
+        "zones": zones,
+    }
+    flow.config_entry = entry
+
+    res = asyncio.run(flow.async_step_init({"min_flow_temp": 35}))
+    assert res["data"]["zones"] == zones
+    assert res["data"]["min_flow_temp"] == 35

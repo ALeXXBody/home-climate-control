@@ -55,9 +55,8 @@ Companion hardware + firmware: **[home-climate-system](https://github.com/ALeXXB
 - Home Assistant 2024.1 or newer
 - [HACS](https://hacs.xyz/)
 - MQTT integration configured in Home Assistant
-- An OpenTherm source:
-  - a **Home Climate System** device (`*_gw` firmware builds), or
-  - an OTGW-firmware gateway publishing to MQTT
+- A **Home Climate System** device (ESP32/ESP8266 running the `*_gw`
+  firmware build — discovered automatically once it joins your MQTT broker)
 
 ## Install via HACS
 
@@ -66,7 +65,7 @@ Companion hardware + firmware: **[home-climate-system](https://github.com/ALeXXB
 3. **Add**, then download **Home Climate Control** from HACS → Integrations
 4. Restart Home Assistant
 5. Settings → Devices & services → **Add integration** → *Home Climate Control*
-   - Backend: HCS device or OTGW-firmware MQTT (a **Demo** backend is included for testing without hardware)
+   - Backend: **Home Climate System device** (auto-discovered) — a **Demo** mode is included for testing without hardware
    - Configure zones (name, room sensor, optional TRVs/window sensors)
 
 ## Sidebar panel

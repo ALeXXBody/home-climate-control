@@ -346,7 +346,7 @@ class HomeClimatePanel extends HTMLElement {
 
   async _populateBoilerCatalog() {
     const makeSel = this.shadowRoot.getElementById("hcc-bi-make");
-    if (!makeSel) return;
+    if (!makeSel || makeSel.options.length > 1) return; // already populated
     try {
       const cat = await this._hass.callWS({
         type: "home_climate_control/get_boiler_catalog",

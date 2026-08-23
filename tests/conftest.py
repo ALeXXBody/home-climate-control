@@ -85,10 +85,13 @@ def install_ha_stubs() -> None:
             self.context = {}
         async def async_set_unique_id(self, uid): pass
         def _abort_if_unique_id_configured(self): pass
-        async def async_show_form(self, **kw): return {"type": "form", **kw}
-        async def async_create_entry(self, **kw): return {"type": "create_entry", **kw}
-        async def async_abort(self, **kw): return {"type": "abort"}
+        def async_show_form(self, **kw): return {"type": "form", **kw}
+        def async_create_entry(self, **kw): return {"type": "create_entry", **kw}
+        def async_abort(self, **kw): return {"type": "abort"}
+    class _OptionsFlow(_ConfigFlow):
+        pass
     ce.ConfigFlow = _ConfigFlow
+    ce.OptionsFlow = _OptionsFlow
     ce.FlowResult = dict
     ce.SOURCE_USER = "user"
     ha.config_entries = ce
