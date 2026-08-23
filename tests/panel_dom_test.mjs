@@ -152,6 +152,27 @@ const pills = [...el.shadowRoot.querySelectorAll(".badge")].map((b) =>
 );
 check(pills.includes("up to date"), "up-to-date pill missing");
 check(!html.includes("Firmware is up to date"), "stale banner still rendered");
+check(
+  !html.includes("Add a personal token"),
+  "token box must stay hidden when not rate-limited"
+);
+// simulate a rate-limited status -> box appears
+el._refresh = async () => {}; // stop poller from restoring fixture status
+el._status = {
+  ...STATUS,
+  systems: [
+    {
+      entry_id: "e1",
+      update_info: { available: false, error: "x", rate_limited: true },
+    },
+  ],
+};
+el._render();
+const html2 = el.shadowRoot.innerHTML;
+check(
+  html2.includes("add a personal token"),
+  "token box missing when rate-limited"
+);
 
 // 2) catalog dropdown + preview exist
 check(!!el.shadowRoot.getElementById("hcc-board-sel"), "catalog dropdown missing");
