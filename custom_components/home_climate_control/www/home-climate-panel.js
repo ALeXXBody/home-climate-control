@@ -789,6 +789,17 @@ class HomeClimatePanel extends HTMLElement {
     this._refresh();
   }
 
+  /** Transient notice: auto-clears after ms (default 4s). */
+  _flashNotice(msg, ms = 4000) {
+    this._notice = msg;
+    this._render();
+    clearTimeout(this._noticeTimer);
+    this._noticeTimer = setTimeout(() => {
+      this._notice = null;
+      this._render();
+    }, ms);
+  }
+
   async _pingDevices() {
     if (!this._hass) return;
     try {

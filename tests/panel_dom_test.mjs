@@ -113,6 +113,14 @@ await new Promise((r) => setTimeout(r, 30));
 const flashCall = wsCalls.find((c) => c.type === "home_climate_control/flash_device");
 check(!!flashCall, "flash_device ws not called");
 check(flashCall?.catalog_id === "hcs-1.0.2-lolin_c3_mini", "wrong catalog id sent");
+check(
+  el._error === null || el._error === undefined,
+  "handler error set: " + el._error
+);
+check(
+  el.shadowRoot.querySelector(".notice")?.textContent.includes("Update command sent"),
+  "flash notice not shown"
+);
 
 // 4) catalog selection survives re-render
 const sel2 = el.shadowRoot.getElementById("hcc-board-sel");
