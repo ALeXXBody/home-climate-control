@@ -704,19 +704,7 @@ class HomeClimatePanel extends HTMLElement {
           <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
           <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
         </div>
-        ${
-          ui?.rate_limited || /rate limit/i.test(ui?.error || "")
-            ? `<details style="margin-top:8px" open>
-                <summary style="cursor:pointer;color:var(--warning-color,#f6ad55);font-size:.85rem">GitHub rate limit hit — add a personal token to raise it</summary>
-                <div style="display:flex;gap:6px;margin-top:6px">
-                  <input id="hcc-gh-token" type="password" placeholder="personal access token (no scopes needed)"
-                    style="flex:1;padding:6px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
-                  <button type="button" class="ghost" data-fw-action="save-token"
-                    style="padding:6px 12px">Save</button>
-                </div>
-              </details>`
-            : ""
-        }
+
       </div>
       ${banner}
       ${
@@ -797,13 +785,6 @@ class HomeClimatePanel extends HTMLElement {
           this._error = err?.message || String(err);
           this._render();
         });
-      return;
-    }
-    if (action === "save-token") {
-      const v = this.shadowRoot.getElementById("hcc-gh-token").value.trim();
-      this._hass.callWS({ type: "home_climate_control/set_github_token",
-        token: v || null })
-        .then(() => { this._flashNotice("Token saved."); });
       return;
     }
     if (action === "flash-all") return this._flashAllOutdated();
