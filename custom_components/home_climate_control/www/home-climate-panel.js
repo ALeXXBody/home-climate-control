@@ -739,7 +739,7 @@ class HomeClimatePanel extends HTMLElement {
         type: "home_climate_control/ping_devices",
       });
       this._status = { ...(this._status || {}), devices: res.devices };
-      this._notice = "Discovery ping sent.";
+      this._flashNotice("Discovery ping sent.");
       setTimeout(() => this._refresh(), 3000);
     } catch (err) {
       this._error = err?.message || String(err);
@@ -788,7 +788,10 @@ class HomeClimatePanel extends HTMLElement {
         node_id: nodeId,
         ...(selection === "__custom__" ? { url } : { catalog_id: selection }),
       });
-      this._notice = `Update command sent to ${nodeId}. It will report back after rebooting into the new firmware.`;
+      this._flashNotice(
+        `Update command sent to ${nodeId}. It will report back after rebooting into the new firmware.`,
+        8000
+      );
       setTimeout(() => this._refresh(), 90000);
     } catch (err) {
       this._error = err?.message || String(err);

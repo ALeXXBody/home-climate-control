@@ -14,6 +14,8 @@ import logging
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant, callback
+import aiohttp
+
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -113,7 +115,7 @@ class UpdateChecker:
             resp = await session.get(
                 RELEASES_API,
                 headers={"Accept": "application/vnd.github+json"},
-                timeout=aiohttp_client.DEFAULT_TIMEOUT,
+                timeout=aiohttp.ClientTimeout(total=10),
             )
             if resp.status != 200:
                 raise ConnectionError(f"GitHub returned {resp.status}")

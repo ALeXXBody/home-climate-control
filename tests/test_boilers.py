@@ -50,3 +50,41 @@ def test_update_version_compare():
     assert not is_newer("v0.9.2", "0.9.2")
     assert not is_newer(None, "0.9.2")
     assert not is_newer("garbage", "0.9.2")
+
+def test_update_checker_fetch_path():
+    """async_check end-to-end with mocked GitHub response."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from custom_components.home_climate_control.update_checker import (
+        UpdateChecker,
+    )
+
+    payload = {
+        "tag_name": "v1.0.2",
+        "name": "v1.0.2 — bug fixes",
+        "body": "- fix A",
+        "html_url": "https://example.com/rel",
+        "published_at": "2026-08-23T00:00:00Z",
+    }
+    resp = MagicMock()
+    resp.status = 200
+    resp.json = AsyncMock(return_value=payload)
+    session = MagicMock()
+    session.get = AsyncMock(return_value=resp)
+
+    hass = MagicMock()
+    uc = UpdateChecker(hass)
+    uc._outdated_devices = lambda latest: [
+        {"node_id": "n1", "version": "1.0.0"}
+    ]
+
+    with patch(
+        "custom_components.home_climate_control.update_checker.aiohttp_client"
+    ) as ac:
+        ac.async_get_clientsession.return_value = session
+        info = asyncio.run(uc.async_check())
+
+    assert info["available"] is True
+    assert info["latest_version"] == "1.0.2"
+    assert info["outdated_devices"][0]["node_id"] == "n1"
