@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1220" />
+      <stop offset="100%" stop-color="#1A2230" />
+    </linearGradient>
+
+    <!-- Badge Card Gradient -->
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1A2230" />
+      <stop offset="100%" stop-color="#0B1220" />
+    </linearGradient>
+
+    <!-- Flame Soft Glow -->
+    <filter id="flameGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <style>
+    .title { font-family: 'Manrope', 'Inter', 'Segoe UI', sans-serif; font-weight: 700; font-size: 52px; fill: #FFFFFF; }
+    .subtitle { font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 400; font-size: 26px; fill: #9FB3C8; }
+    .badge-text { font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 600; font-size: 15px; fill: #38BDF8; }
+    .telemetry-label { font-family: 'JetBrains Mono', monospace; font-size: 16px; fill: #9FB3C8; }
+    .telemetry-val { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; fill: #F59E0B; }
+    .telemetry-val-blue { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; fill: #38BDF8; }
+  </style>
+
+  <!-- Master Canvas Background -->
+  <rect width="1280" height="640" fill="url(#bannerBg)" />
+
+  <!-- Background Decorative Grid (Subtle) -->
+  <path d="M 0 160 L 1280 160 M 0 320 L 1280 320 M 0 480 L 1280 480" stroke="#2A364F" stroke-width="1" stroke-dasharray="8 8" opacity="0.3" />
+
+  <!-- LOGO BADGE TILE (220x220 px) -->
+  <g transform="translate(100, 150)">
+    <rect width="220" height="220" rx="44" fill="url(#cardBg)" stroke="#2A364F" stroke-width="2" />
+
+    <!-- Minimal Roofline -->
+    <path d="M 55 100 L 110 56 L 165 100" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Flame with Glow -->
+    <g filter="url(#flameGlow)">
+      <!-- Outer Flame -->
+      <path d="M 110 88 C 110 88, 146 122, 146 146 A 36 36 0 0 1 74 146 C 74 122, 110 88, 110 88 Z" fill="#F59E0B" />
+      <!-- Inner Core Highlight -->
+      <path d="M 110 110 C 110 110, 129 131, 129 146 A 19 19 0 0 1 91 146 C 91 131, 110 110, 110 110 Z" fill="#FFC454" />
+    </g>
+  </g>
+
+  <!-- BRANDING TEXT BLOCK -->
+  <g transform="translate(360, 215)">
+    <!-- Title -->
+    <text x="0" y="0" class="title">Home Climate Control</text>
+    
+    <!-- Tagline -->
+    <text x="0" y="44" class="subtitle">Save gas, stay comfortable.</text>
+
+    <!-- PILL BADGES -->
+    <g transform="translate(0, 80)">
+      <!-- Badge 1 -->
+      <rect x="0" y="0" width="160" height="36" rx="18" fill="#1A2230" stroke="#2A364F" stroke-width="1.5" />
+      <text x="80" y="23" text-anchor="middle" class="badge-text">OpenTherm Native</text>
+
+      <!-- Badge 2 -->
+      <rect x="172" y="0" width="200" height="36" rx="18" fill="#1A2230" stroke="#2A364F" stroke-width="1.5" />
+      <text x="272" y="23" text-anchor="middle" class="badge-text">Weather Compensation</text>
+
+      <!-- Badge 3 -->
+      <rect x="384" y="0" width="120" height="36" rx="18" fill="#1A2230" stroke="#2A364F" stroke-width="1.5" />
+      <text x="444" y="23" text-anchor="middle" class="badge-text">HACS Ready</text>
+    </g>
+  </g>
+
+  <!-- TELEMETRY / ENGINEERING STRIP (BOTTOM) -->
+  <g transform="translate(100, 500)">
+    <!-- Separator Line -->
+    <line x1="0" y1="0" x2="1080" y2="0" stroke="#2A364F" stroke-width="1.5" />
+
+    <!-- Telemetry Readouts -->
+    <g transform="translate(0, 42)">
+      <!-- Item 1 -->
+      <text x="0" y="0" class="telemetry-label">Outdoor: <tspan class="telemetry-val-blue">4.2°C</tspan></text>
+      <text x="240" y="0" class="telemetry-label">Target Flow: <tspan class="telemetry-val">41.5°C</tspan></text>
+      <text x="520" y="0" class="telemetry-label">Modulation: <tspan class="telemetry-val">28%</tspan></text>
+      <text x="780" y="0" class="telemetry-label">Status: <tspan class="telemetry-val" fill="#22C55E">Heating Gently</tspan></text>
+    </g>
+  </g>
+</svg>

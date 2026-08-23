@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1220" />
+      <stop offset="100%" stop-color="#1A2230" />
+    </linearGradient>
+
+    <!-- Flame Ambient Glow -->
+    <filter id="ambientGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Base Badge Tile -->
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)" />
+
+  <!-- Minimal Gable Roofline -->
+  <path d="M 128 230 L 256 128 L 384 230" 
+        fill="none" 
+        stroke="#FFFFFF" 
+        stroke-width="36" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
+
+  <!-- Flame Group with Ambient Glow -->
+  <g filter="url(#ambientGlow)">
+    <!-- Outer Flame -->
+    <path d="M 256 200 
+             C 256 200, 340 280, 340 336 
+             A 84 84 0 0 1 172 336 
+             C 172 280, 256 200, 256 200 Z" 
+          fill="#F59E0B" />
+
+    <!-- Inner Core Highlight -->
+    <path d="M 256 250 
+             C 256 250, 300 300, 300 336 
+             A 44 44 0 0 1 212 336 
+             C 212 300, 256 250, 256 250 Z" 
+          fill="#FFC454" />
+  </g>
+</svg>
