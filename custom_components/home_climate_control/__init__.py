@@ -61,6 +61,8 @@ def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
             rooms=rooms,
         )
 
+    raise ValueError(f"Unknown backend type: {backend_type!r}")
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .central import CentralController
@@ -82,7 +84,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),
-        "backend": entry.data.get(CONF_BACKEND, BACKEND_HCS),
+        "backend": backend,
+        "backend_type": entry.data.get(CONF_BACKEND, BACKEND_HCS),
+        "node_id": entry.data.get(CONF_NODE_ID, ""),
     }
 
     async_setup_websocket(hass)

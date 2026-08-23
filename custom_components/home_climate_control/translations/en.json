@@ -48,7 +48,9 @@
     "abort": {
       "already_configured": "This system is already configured"
     },
-    "error": {}
+    "error": {
+      "node_required": "Enter the HCS device node id (shown on the device web UI)."
+    }
   },
   "options": {
     "step": {

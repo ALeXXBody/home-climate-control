@@ -189,8 +189,8 @@ class UpdateChecker:
             )
             self._notified_tag = tag
             await self._store.async_save(
-            {"notified_tag": tag, "token": self._token}
-        )
+                {"notified_tag": tag, "token": self._token}
+            )
 
         if not any_outdated and self._notified_tag:
             from homeassistant.components import persistent_notification

@@ -101,7 +101,9 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
             {
                 "entry_id": entry_id,
                 "demo": bool(diag.get("demo")),
-                "backend": diag.get("backend") or data.get("backend"),
+                "backend": diag.get("backend")
+                or data.get("backend_type")
+                or getattr(data.get("backend"), "__class__", type("", (), {})).__name__,
                 "flow_setpoint": getattr(controller, "flow_setpoint", None),
                 "total_demand": getattr(controller, "total_demand", 0),
                 "active_zones": list(getattr(controller, "active_zone_names", [])),
@@ -206,10 +208,15 @@ async def ws_set_failsafe(
     msg: dict[str, Any],
 ) -> None:
     """Push connection-loss failsafe values to the HCS device (persisted there)."""
-    data = hass.data.get(DOMAIN, {})
-    entry_id = next(iter(data), None)
-    backend = data.get(entry_id, {}).get("backend") if entry_id else None
-    if backend is None or not hasattr(backend, "async_set_failsafe_cfg"):
+    backend = None
+    for data in hass.data.get(DOMAIN, {}).values():
+        if not isinstance(data, dict):
+            continue
+        cand = data.get("backend")
+        if cand is not None and hasattr(cand, "async_set_failsafe_cfg"):
+            backend = cand
+            break
+    if backend is None:
         connection.send_error(
             msg["id"], "no_backend", "Failsafe requires the Home Climate System backend"
         )

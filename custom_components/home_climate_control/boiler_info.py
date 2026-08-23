@@ -127,5 +127,13 @@ async def async_setup_boiler_info(hass: HomeAssistant, entry_id: str) -> BoilerI
 
 
 def get_boiler_info(hass: HomeAssistant) -> BoilerInfo | None:
-    entry_id = next(iter(hass.data.get(DOMAIN, {})), None)
-    return _ACTIVE.get(entry_id)
+    """Return boiler info for the first config entry that has one."""
+    store = hass.data.get(DOMAIN, {})
+    for entry_id, data in store.items():
+        if isinstance(data, dict) and "controller" in data:
+            info = _ACTIVE.get(entry_id)
+            if info is not None:
+                return info
+    if _ACTIVE:
+        return next(iter(_ACTIVE.values()))
+    return None

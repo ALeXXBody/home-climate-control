@@ -22,6 +22,12 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
+def _topic_for_node(node_id: str, key: str) -> str:
+    """Prefer the entry's node; fall back to wildcard if unknown."""
+    node = (node_id or "").strip()
+    return f"hcs/{node}/{key}" if node else f"hcs/+/{key}"
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -68,7 +74,6 @@ class BoilerDiagSensor(SensorEntity):
             text = (msg.payload or "").strip()
             if not text:
                 return
-            # derive raw values from the text where possible
             self._raw_asf = None
             self._raw_oem = None
             if "diagnostic code " in text:
@@ -80,10 +85,9 @@ class BoilerDiagSensor(SensorEntity):
             self.async_write_ha_state()
 
         self._sub = await mqtt.async_subscribe(
-            self.hass, "hcs/+/boiler_diag", on_message, 0
+            self.hass, _topic_for_node(self._node_hint, "boiler_diag"), on_message, 0
         )
 
-        # seed from any retained message already in local state cache
         state = self.hass.states.get(self.entity_id)
         if state is None:
             self.native_value = "unknown"
@@ -132,7 +136,7 @@ class FailsafeSensor(SensorEntity):
                 self.async_write_ha_state()
 
         self._sub = await mqtt.async_subscribe(
-            self.hass, "hcs/+/failsafe", on_message, 0
+            self.hass, _topic_for_node(self._node_hint, "failsafe"), on_message, 0
         )
 
     async def async_will_remove_from_hass(self) -> None:

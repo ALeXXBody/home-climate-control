@@ -102,3 +102,30 @@ def test_discovery_flow_triggered_once_per_node():
 
     mgr._on_discovery(msg)  # second announcement: no new card
     assert hass.config_entries.flow.async_init.call_count == 1
+
+
+def test_discovery_flow_skips_already_claimed_node():
+    """Boards already bound to a config entry must not re-trigger discovery."""
+    import json
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+    )
+
+    hass = MagicMock()
+    claimed = MagicMock()
+    claimed.data = {"node_id": "hcs-claimed"}
+    hass.config_entries.async_entries.return_value = [claimed]
+    tasks = []
+    hass.async_create_task = lambda coro: (tasks.append(coro), coro.close())[1]
+    mgr = FirmwareManager(hass)
+
+    msg = MagicMock()
+    msg.topic = "hcs/discovery/hcs-claimed"
+    msg.payload = json.dumps(
+        {"node_id": "hcs-claimed", "board": "d1_mini", "version": "1.0.2"}
+    )
+    mgr._on_discovery(msg)
+    assert hass.config_entries.flow.async_init.call_count == 0
+    assert "hcs-claimed" not in mgr._flowed_nodes

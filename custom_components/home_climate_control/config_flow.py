@@ -130,9 +130,14 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_discovery(self, discovery_info):
         """A new HCS board announced itself on MQTT — offer setup."""
-        node = (discovery_info or {}).get("node_id", "")
+        info = discovery_info or {}
+        node = info.get("node_id") or self.context.get("node_id") or ""
         self._data[CONF_NODE_ID] = node
+        self._data[CONF_BACKEND] = BACKEND_HCS
         self.context["title_placeholders"] = {"node": node}
+        if node:
+            await self.async_set_unique_id(f"hcs_{node}")
+            self._abort_if_unique_id_configured()
         return await self.async_step_hcs()
 
     async def async_step_hcs(
@@ -143,14 +148,26 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._data.update(user_input)
             self._data[CONF_BACKEND] = BACKEND_HCS
-            return await self.async_step_zones()
+            node = (user_input.get(CONF_NODE_ID) or "").strip()
+            if not node:
+                errors["base"] = "node_required"
+            else:
+                await self.async_set_unique_id(f"hcs_{node}")
+                self._abort_if_unique_id_configured()
+                return await self.async_step_zone()
+        suggested_node = self._data.get(CONF_NODE_ID) or ""
+        node_field = (
+            vol.Required(CONF_NODE_ID, default=suggested_node)
+            if suggested_node
+            else vol.Required(
+                CONF_NODE_ID,
+                description={"suggested_value": ""},
+            )
+        )
         schema = vol.Schema(
             {
                 vol.Required(CONF_NAME, default=NAME): str,
-                vol.Required(
-                    CONF_NODE_ID,
-                    description={"suggested_value": self._data.get(CONF_NODE_ID, "")},
-                ): str,
+                node_field: str,
                 vol.Required(CONF_MIN_FLOW, default=DEFAULT_MIN_FLOW_TEMP): vol.All(
                     vol.Coerce(float), vol.Range(min=20, max=90)
                 ),
@@ -170,7 +187,6 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "hint": "Native MQTT topics (hcs/<node>/…). The node id is shown on the device web UI and in its discovery payload."
             },
         )
-
 
     async def async_step_zone(
         self, user_input: dict[str, Any] | None = None

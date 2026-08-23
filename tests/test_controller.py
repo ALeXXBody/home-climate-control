@@ -295,3 +295,73 @@ def test_options_flow_preserves_zones():
     res = asyncio.run(flow.async_step_init({"min_flow_temp": 35}))
     assert res["data"]["zones"] == zones
     assert res["data"]["min_flow_temp"] == 35
+
+
+def test_config_flow_hcs_reaches_zone_step():
+    """Regression: hcs step must call async_step_zone (not the missing zones)."""
+    import asyncio
+    from custom_components.home_climate_control.config_flow import (
+        HomeClimateControlConfigFlow,
+    )
+    from custom_components.home_climate_control.const import (
+        BACKEND_HCS,
+        CONF_BACKEND,
+        CONF_NODE_ID,
+    )
+
+    flow = HomeClimateControlConfigFlow()
+    flow.context = {}
+    res = asyncio.run(
+        flow.async_step_hcs(
+            {
+                "name": "Test",
+                CONF_NODE_ID: "hcs-aabbcc",
+                "min_flow_temp": 25,
+                "max_flow_temp": 75,
+                "curve_coeff": 1.2,
+            }
+        )
+    )
+    assert res["type"] == "form"
+    assert res["step_id"] == "zone"
+    assert flow._data[CONF_BACKEND] == BACKEND_HCS
+    assert flow._data[CONF_NODE_ID] == "hcs-aabbcc"
+
+
+def test_config_flow_discovery_prefills_node():
+    import asyncio
+    from custom_components.home_climate_control.config_flow import (
+        HomeClimateControlConfigFlow,
+    )
+    from custom_components.home_climate_control.const import CONF_NODE_ID
+
+    flow = HomeClimateControlConfigFlow()
+    flow.context = {}
+    res = asyncio.run(flow.async_step_discovery({"node_id": "hcs-new"}))
+    assert flow._data[CONF_NODE_ID] == "hcs-new"
+    assert res["type"] == "form"
+    assert res["step_id"] == "hcs"
+
+
+def test_ws_failsafe_finds_backend_object():
+    """Failsafe must look up the backend *object*, not the type string."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.home_climate_control import websocket_api
+    from custom_components.home_climate_control.const import DOMAIN
+
+    hass = MagicMock()
+    backend = MagicMock()
+    backend.async_set_failsafe_cfg = AsyncMock()
+    hass.data = {
+        DOMAIN: {
+            "firmware_manager": object(),  # non-entry noise key
+            "entry-1": {"controller": object(), "backend": backend},
+        }
+    }
+    conn = MagicMock()
+    msg = {"id": 7, "enable": True, "flow": 42.0, "grace_min": 10}
+    asyncio.run(websocket_api.ws_set_failsafe(hass, conn, msg))
+    backend.async_set_failsafe_cfg.assert_awaited_once_with(True, 42.0, 10)
+    conn.send_result.assert_called_once()

@@ -83,8 +83,9 @@ class HcsMqttBackend(BoilerBackend):
                 self._hass, f"{self.base}/#", _dispatch, 0
             )
         )
+        # Global discovery ping — devices subscribe to hcs/discovery/ping
         await mqtt.async_publish(
-            self._hass, f"{self.base}/ping_discovery", "1", 0, False
+            self._hass, "hcs/discovery/ping", "1", 0, False
         )
         _LOGGER.info(
             "HCS backend subscribed to %s/# (commands under %s)",

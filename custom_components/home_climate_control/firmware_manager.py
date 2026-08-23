@@ -13,7 +13,7 @@ from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN
+from .const import CONF_NODE_ID, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -203,18 +203,21 @@ class FirmwareManager:
         if data.get("version") and self._hass:
             self._hass.async_create_task(self._trigger_update_check())
 
-        # HA discovery: surface a setup card for brand-new boards while no
-        # config entry exists yet (once per node).
+        # HA discovery: surface a setup card for boards that are not yet
+        # claimed by any config entry (once per node).
         try:
-            existing = [
-                e for e in self._hass.config_entries.async_entries(DOMAIN)
-            ]
-            if not existing and node not in self._flowed_nodes:
+            claimed = {
+                e.data.get(CONF_NODE_ID)
+                for e in self._hass.config_entries.async_entries(DOMAIN)
+                if getattr(e, "data", None)
+            }
+            if node not in claimed and node not in self._flowed_nodes:
                 self._flowed_nodes.add(node)
                 self._hass.async_create_task(
                     self._hass.config_entries.flow.async_init(
                         DOMAIN,
-                        context={"source": "discovery", "node_id": node},
+                        context={"source": "discovery"},
+                        data={"node_id": node},
                     )
                 )
         except Exception:  # noqa: BLE001 - stubbed hass in unit tests
@@ -252,13 +255,11 @@ class FirmwareManager:
     last_ota_url: str | None = None
 
     def _maybe_local_mirror(self, url: str) -> str:
-        """Serve GitHub release binaries over plain LAN HTTP when we have a
-        local copy — older firmware without TLS-capable OTA can then still
-        upgrade (interim bridge until first TLS-capable release)."""
+        """Serve GitHub release binaries over plain LAN HTTP when available."""
         marker = "/releases/download/"
         if marker not in url:
             return url
-        fname = url.rsplit("/", 1)[-1]          # firmware-<board>.bin
+        fname = url.rsplit("/", 1)[-1]  # firmware-<board>.bin
         if not fname.startswith("firmware-") or not fname.endswith(".bin"):
             return url
         local = Path(__file__).parent / "www" / "firmware" / fname
@@ -267,8 +268,7 @@ class FirmwareManager:
         try:
             from homeassistant.helpers.network import get_url
 
-            base = get_url(self.hass, allow_cloud=False,
-                           prefer_internal=True)
+            base = get_url(self.hass, allow_cloud=False, prefer_internal=True)
             mirrored = f"{base}/home_climate_control_static/firmware/{fname}"
             self.last_ota_url = mirrored
             _LOGGER.warning("OTA mirror engaged: %s -> %s", url, mirrored)
@@ -279,9 +279,9 @@ class FirmwareManager:
     async def async_trigger_ota(
         self, node_id: str, url: str
     ) -> dict[str, Any]:
+        """Tell device to pull firmware from URL (MQTT + HTTP fallback)."""
         url = self._maybe_local_mirror(url)
         self.last_ota_url = url
-        """Tell device to pull firmware from URL (MQTT + HTTP fallback)."""
         dev = self.devices.get(node_id)
         if not dev:
             return {"ok": False, "error": "unknown device"}
