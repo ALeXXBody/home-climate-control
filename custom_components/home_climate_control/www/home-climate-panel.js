@@ -103,9 +103,26 @@ class HomeClimatePanel extends HTMLElement {
         }
         * { box-sizing: border-box; }
         .wrap {
+          position: relative;
           max-width: 1100px;
           margin: 0 auto;
           padding: 16px 20px 40px;
+        }
+        .boiler-pic {
+          position: absolute;
+          top: -6px;
+          right: 0;
+          width: 120px;
+          text-align: center;
+          background: var(--secondary-background-color, #16181c);
+          border: 1px solid var(--divider-color, #2a2e33);
+          border-radius: 12px;
+          padding: 8px 8px 6px;
+        }
+        .boiler-pic img { width: 100%; height: auto; display: block; border-radius: 6px; }
+        .boiler-pic .bp-cap {
+          font-size: 0.78rem; color: var(--secondary-text-color, #bbb);
+          margin-top: 4px; line-height: 1.25;
         }
         header {
           display: flex;
@@ -313,6 +330,70 @@ class HomeClimatePanel extends HTMLElement {
     root
       .querySelector('[data-action="save-failsafe"]')
       ?.addEventListener("click", () => this._onSaveFailsafe());
+    root
+      .querySelector('[data-action="save-boiler-info"]')
+      ?.addEventListener("click", () => this._onSaveBoilerInfo());
+    this._populateBoilerCatalog();
+  }
+
+  async _populateBoilerCatalog() {
+    const makeSel = this.shadowRoot.getElementById("hcc-bi-make");
+    if (!makeSel) return;
+    try {
+      const cat = await this._hass.callWS({
+        type: "home_climate_control/get_boiler_catalog",
+      });
+      const sys = (this._status?.systems || [])[0] || {};
+      const bi = sys.boiler_info || {};
+      for (const mk of cat.makes) {
+        const o = document.createElement("option");
+        o.value = mk;
+        o.textContent = mk;
+        makeSel.appendChild(o);
+      }
+      makeSel.value = bi.make || "";
+      this._fillBoilerModels(cat, bi);
+      makeSel.addEventListener("change", () =>
+        this._fillBoilerModels(cat, null)
+      );
+    } catch (err) {
+      /* catalog unavailable */
+    }
+  }
+
+  _fillBoilerModels(cat, bi) {
+    const makeSel = this.shadowRoot.getElementById("hcc-bi-make");
+    const modelSel = this.shadowRoot.getElementById("hcc-bi-model");
+    const models =
+      (cat.models && cat.models[makeSel.value]) ||
+      (bi ? bi.models_available : []) ||
+      [];
+    modelSel.innerHTML = '<option value="">—</option>';
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      modelSel.appendChild(o);
+    }
+    if (bi) modelSel.value = bi.model || "";
+  }
+
+  async _onSaveBoilerInfo() {
+    const msg = this.shadowRoot.getElementById("hcc-bi-msg");
+    try {
+      await this._hass.callWS({
+        type: "home_climate_control/set_boiler_info",
+        make: this.shadowRoot.getElementById("hcc-bi-make").value || null,
+        model: this.shadowRoot.getElementById("hcc-bi-model").value || null,
+      });
+      if (msg) msg.textContent = "Saved";
+      this._refresh();
+    } catch (err) {
+      if (msg) msg.textContent = "Failed: " + (err?.message || String(err));
+    }
+    setTimeout(() => {
+      if (msg) msg.textContent = "";
+    }, 3000);
   }
 
   async _onSaveFailsafe() {
@@ -361,7 +442,7 @@ class HomeClimatePanel extends HTMLElement {
       case "settings":
         return this._settingsHtml(sys);
       default:
-        return this._overviewHtml(sys);
+        return `<div style="position:relative">${this._boilerPictureHtml(sys)}${this._overviewHtml(sys)}</div>`;
     }
   }
 
@@ -448,12 +529,31 @@ class HomeClimatePanel extends HTMLElement {
   }
 
   _settingsHtml(sys) {
+    const bi = sys?.boiler_info || {};
+    const detected = bi.detected_make
+      ? `<p class="sub">Detected from boiler MemberID ${bi.member_id ?? "?"}: <strong>${this._esc(bi.detected_make)}</strong></p>`
+      : `<p class="sub">No MemberID received yet — select manually.</p>`;
     return `
       <div class="grid">
         <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div></div>
         <div class="card"><h3>Min flow</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit">°C</span></div></div>
         <div class="card"><h3>Max flow</h3><div class="metric">${this._fmt(sys.max_flow)}<span class="unit">°C</span></div></div>
         <div class="card"><h3>Entry</h3><div class="sub">${this._esc(sys.entry_id || "")}</div></div>
+      </div>
+      <div class="card">
+        <h3>Your boiler</h3>
+        ${detected}
+        <label>Manufacturer</label>
+        <select id="hcc-bi-make" data-role="bi-make" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+          <option value="">— auto-detected —</option>
+        </select>
+        <label style="margin-top:8px">Model</label>
+        <select id="hcc-bi-model" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+          <option value="">—</option>
+        </select>
+        <button class="ghost" type="button" data-action="save-boiler-info"
+          style="margin-top:10px;padding:6px 14px">Save selection</button>
+        <span id="hcc-bi-msg" style="margin-left:8px;font-size:.85rem"></span>
       </div>
       <div class="card">
         <h3>Connection-loss failsafe</h3>
@@ -712,6 +812,21 @@ class HomeClimatePanel extends HTMLElement {
    * Boiler diagnostics banner: reads the HCS device's boiler_diag sensor
    * entity (plain English fault text). Hidden when healthy/unknown.
    */
+  /**
+   * Boiler picture card, top-right of the overview: image + maker/model
+   * caption underneath. Hidden when no boiler info is available.
+   */
+  _boilerPictureHtml(sys) {
+    const bi = sys?.boiler_info;
+    if (!bi || (!bi.make && !bi.detected_make)) return "";
+    const make = bi.make || bi.detected_make || "";
+    const model = bi.model || "";
+    return `<div class="boiler-pic">
+      ${bi.image ? `<img src="${bi.image}" alt="${this._esc(make)}">` : ""}
+      <div class="bp-cap">${this._esc(make)}${model ? `<br>${this._esc(model)}` : ""}</div>
+    </div>`;
+  }
+
   _boilerDiagBanner() {
     if (!this._hass?.states) return "";
     const entry = Object.entries(this._hass.states).find(([id]) =>

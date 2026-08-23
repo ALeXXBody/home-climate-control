@@ -29,6 +29,8 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_set_zone)
     websocket_api.async_register_command(hass, ws_set_failsafe)
+    websocket_api.async_register_command(hass, ws_get_boiler_catalog)
+    websocket_api.async_register_command(hass, ws_set_boiler_info)
     websocket_api.async_register_command(hass, ws_list_devices)
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
@@ -39,6 +41,15 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
 
 def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
     store = hass.data.get(DOMAIN, {})
+    boiler_info = None
+    try:
+        from .boiler_info import get_boiler_info
+
+        bi = get_boiler_info(hass)
+        if bi is not None:
+            boiler_info = bi.as_dict()
+    except Exception:  # noqa: BLE001
+        boiler_info = None
     systems: list[dict[str, Any]] = []
 
     for entry_id, data in store.items():
@@ -90,6 +101,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                 "min_flow": getattr(controller, "min_flow", None),
                 "max_flow": getattr(controller, "max_flow", None),
                 "boiler": diag,
+                "boiler_info": boiler_info,
                 "zones": zones_out,
             }
         )
@@ -174,8 +186,7 @@ async def ws_set_zone(
         vol.Required("flow"): vol.Coerce(float),
         vol.Required("grace_min"): vol.Coerce(int),
     }
-)
-@websocket_api.async_response
+)@websocket_api.async_response
 async def ws_set_failsafe(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
@@ -310,3 +321,42 @@ async def ws_firmware_catalog(
 ) -> None:
     mgr = await async_setup_firmware_manager(hass)
     connection.send_result(msg["id"], {"catalog": mgr.catalog})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/get_boiler_catalog"}
+)
+@websocket_api.async_response
+async def ws_get_boiler_catalog(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Manufacturer/model catalog for the panel dropdowns."""
+    from .boilers import catalog_payload
+
+    connection.send_result(msg["id"], catalog_payload())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_boiler_info",
+        vol.Optional("make"): str,
+        vol.Optional("model"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_set_boiler_info(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Persist the manually selected boiler make/model."""
+    from .boiler_info import get_boiler_info
+
+    bi = get_boiler_info(hass)
+    if bi is None:
+        connection.send_error(msg["id"], "not_ready", "Boiler info not set up")
+        return
+    await bi.async_set_selection(msg.get("make"), msg.get("model"))
+    connection.send_result(msg["id"], {"ok": True, "info": bi.as_dict()})

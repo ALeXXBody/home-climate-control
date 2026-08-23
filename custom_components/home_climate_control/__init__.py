@@ -91,8 +91,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_register_panel(hass)
 
     from .firmware_manager import async_setup_firmware_manager
+    from .boiler_info import async_setup_boiler_info
 
     await async_setup_firmware_manager(hass)
+    hass.data[DOMAIN][entry.entry_id]["boiler_info"] = (
+        await async_setup_boiler_info(hass, entry.entry_id)
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, ["climate", "sensor"])
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
