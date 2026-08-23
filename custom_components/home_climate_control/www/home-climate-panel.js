@@ -15,6 +15,7 @@ class HomeClimatePanel extends HTMLElement {
     this._notice = null;
     this._busy = {};
     this._poll = null;
+    this._selectedBoardId = null;
   }
 
   set hass(hass) {
@@ -333,8 +334,12 @@ class HomeClimatePanel extends HTMLElement {
     root
       .querySelector('[data-action="save-boiler-info"]')
       ?.addEventListener("click", () => this._onSaveBoilerInfo());
-    this.shadowRoot.getElementById("hcc-board-sel")
-      ?.addEventListener("change", () => this._renderBoardPreview());
+    const bsel = this.shadowRoot.getElementById("hcc-board-sel");
+    bsel?.addEventListener("change", () => {
+      this._selectedBoardId = bsel.value;
+      this._renderBoardPreview();
+    });
+    if (this._selectedBoardId) bsel.value = this._selectedBoardId;
     this._renderBoardPreview();
     this._populateBoilerCatalog();
   }
@@ -581,7 +586,7 @@ class HomeClimatePanel extends HTMLElement {
 
   _firmwareHtml() {
     const devices = this._status?.devices || [];
-    const catalog = this._status?.firmware_catalog || [];
+    let catalog = [...(this._status?.firmware_catalog || [])];
     const online = devices.filter((d) => d.online).length;
     const ui = this._status?.systems?.[0]?.update_info || null;
     const outdatedIds = new Set(
@@ -647,9 +652,15 @@ class HomeClimatePanel extends HTMLElement {
       })
       .join("");
 
+    if (this._selectedBoardId) {
+      // keep the user's choice sticky across periodic re-renders
+      const wanted = catalog.find((c) => c.id === this._selectedBoardId);
+      if (wanted) catalog = [wanted, ...catalog.filter((c) => c !== wanted)];
+    }
     const boardOptions = catalog
       .map(
-        (c) => `<option value="${this._esc(c.id)}">${this._esc(c.title)}</option>`
+        (c) =>
+          `<option value="${this._esc(c.id)}"${c.id === this._selectedBoardId ? " selected" : ""}>${this._esc(c.title)}</option>`
       )
       .join("");
 
@@ -688,6 +699,13 @@ class HomeClimatePanel extends HTMLElement {
           <img alt="" style="max-width:320px;width:100%;border-radius:10px">
           <p class="sub" style="margin-top:6px"></p>
         </div>
+        <label style="display:block;margin-top:10px;font-size:.85rem">Flash this image to a device</label>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <input id="hcc-cat-node" placeholder="node id (hcs-…)"
+            style="flex:1;padding:6px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+          <button type="button" class="ghost" data-fw-action="flash-catalog"
+            style="padding:6px 12px">Flash</button>
+        </div>
       </div>
 `;
   }
@@ -713,6 +731,33 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "check-updates") {
       this._hass.callWS({ type: "home_climate_control/check_updates" })
         .then(() => this._refresh());
+      return;
+    }
+    if (action === "flash-catalog") {
+      const cid = this.shadowRoot.getElementById("hcc-board-sel").value;
+      const node =
+        this.shadowRoot.getElementById("hcc-cat-node").value.trim();
+      if (!node) {
+        this._error = "Enter the target device node id (e.g. hcs-aabbccddeeff).";
+        this._render();
+        return;
+      }
+      this._hass
+        .callWS({
+          type: "home_climate_control/flash_device",
+          node_id: node,
+          catalog_id: cid,
+        })
+        .then(() => {
+          this._flashNotice(
+            `Update command sent to ${node}. The device downloads and reboots (~90 s).`,
+            8000
+          );
+        })
+        .catch((err) => {
+          this._error = err?.message || String(err);
+          this._render();
+        });
       return;
     }
     if (action === "save-token") {
