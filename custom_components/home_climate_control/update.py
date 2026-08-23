@@ -50,6 +50,24 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_fw_{entry_id}"
         self._in_progress = False
+        self._attr_entity_picture = self._brand_icon_url()
+
+    def _brand_icon_url(self) -> str | None:
+        """Absolute URL of the bundled brand icon for the Updates card."""
+        from pathlib import Path
+
+        if not (Path(__file__).parent / "brand" / "icon.png").is_file():
+            return None
+        try:
+            from homeassistant.helpers.network import get_url
+
+            base = get_url(self.hass, allow_cloud=False, prefer_internal=True)
+            return (
+                f"{base}/home_climate_control_static/"
+                f"brand/icon.png"
+            )
+        except Exception:  # noqa: BLE001
+            return None
 
     @property
     def installed_version(self) -> str | None:
