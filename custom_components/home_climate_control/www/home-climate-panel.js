@@ -760,29 +760,58 @@ class HomeClimatePanel extends HTMLElement {
   async _flashDevice(nodeId) {
     const devices = this._status?.devices || [];
     const catalog = this._status?.firmware_catalog || [];
-    const selection = this._selectedFirmware(nodeId, devices, catalog);
-    if (!selection) return;
     const dev = devices.find((d) => d.node_id === nodeId);
-    const item = catalog.find((c) => c.id === selection);
-
-    let url, label;
-    if (selection === "__custom__") {
-      url = prompt("Firmware .bin URL:");
-      if (!url) return;
-      label = url.split("/").pop();
-    } else {
-      url = item?.url;
-      label = item?.title || selection;
-    }
-    if (!confirm(
-      `Flash "${label}" to ${dev?.name || nodeId}?\n\nThe device downloads firmware over HTTP and reboots (~60 s). Do not power it off during the update.`
-    )) return;
-
-    this._busy[nodeId] = true;
-    this._notice = null;
-    this._error = null;
-    this._render();
     try {
+      let selection = this._selectedFirmware(nodeId, devices, catalog);
+
+      // Fallback: always resolve something from the device's board
+      if (!selection && dev?.board) {
+        const match = catalog.find((c) => c.board === dev.board);
+        if (match) selection = match.id;
+      }
+      if (!selection) {
+        this._error =
+          "No firmware image matches this device's board" +
+          (dev?.board ? ` ('${dev.board}')` : "") + ".";
+        this._render();
+        return;
+      }
+      const item = catalog.find((c) => c.id === selection);
+      let url, label;
+      if (selection === "__custom__") {
+        url = prompt("Firmware .bin URL:");
+        if (!url) return;
+        label = url.split("/").pop();
+      } else {
+        url = item?.url;
+        label = item?.title || selection;
+      }
+
+      // Two-click inline confirmation (dialog-free, works everywhere)
+      const btn = this.shadowRoot.querySelector(
+        `[data-fw-action="flash"][data-node="${nodeId}"]`
+      );
+      if (btn && btn.dataset.arm !== "1") {
+        btn.dataset.arm = "1";
+        btn.dataset.origText = btn.textContent;
+        btn.textContent = "Confirm flash?";
+        setTimeout(() => {
+          if (btn.isConnected) {
+            btn.dataset.arm = "";
+            btn.textContent = btn.dataset.origText || "Flash";
+          }
+        }, 5000);
+        return;
+      }
+      if (btn) {
+        btn.dataset.arm = "";
+        btn.textContent = btn.dataset.origText || "Flash";
+      }
+
+      this._busy[nodeId] = true;
+      this._notice = null;
+      this._error = null;
+      this._render();
       await this._hass.callWS({
         type: "home_climate_control/flash_device",
         node_id: nodeId,
@@ -797,11 +826,12 @@ class HomeClimatePanel extends HTMLElement {
       this._error = err?.message || String(err);
     } finally {
       delete this._busy[nodeId];
-      this._refresh();
+      this._render();
     }
   }
 
   async _rebootDevice(nodeId) {
+    if (!confirm(`Reboot ${nodeId}?`)) return;
     if (!confirm(`Reboot ${nodeId}?`)) return;
     try {
       await this._hass.callWS({
