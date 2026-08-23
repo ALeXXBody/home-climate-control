@@ -36,11 +36,20 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
     from .boiler.demo import DemoOtgwBackend
+    from .boiler.hcs_mqtt import HcsMqttBackend
     from .boiler.otgw_mqtt import OtgwMqttBackend
 
     backend_type = entry.data.get(CONF_BACKEND, BACKEND_OTGW_MQTT)
     min_flow = opts.get("min_flow_temp", DEFAULT_MIN_FLOW_TEMP)
     max_flow = opts.get("max_flow_temp", DEFAULT_MAX_FLOW_TEMP)
+
+    if backend_type == "hcs_native":
+        return HcsMqttBackend(
+            hass,
+            node_id=entry.data.get(CONF_OTGW_NODE_ID, "hcs-device"),
+            min_flow=min_flow,
+            max_flow=max_flow,
+        )
 
     if backend_type == BACKEND_DEMO:
         rooms: dict[str, float] = {}

@@ -56,7 +56,7 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Choose backend: Demo OTGW or real OTGW MQTT."""
+        """Choose backend: HCS device, classic OTGW gateway, or demo."""
         if user_input is not None:
             backend = user_input[CONF_BACKEND]
             self._data[CONF_BACKEND] = backend
@@ -70,7 +70,7 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_BACKEND, default=BACKEND_DEMO): vol.In(
                     {
-                        BACKEND_DEMO: "Demo OTGW (no hardware — for testing)",
+                        BACKEND_DEMO: "Demo (no hardware — for testing)",
                         BACKEND_OTGW_MQTT: "Real OTGW via MQTT",
                     }
                 ),
@@ -140,14 +140,16 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             self._data.update(user_input)
-            # devices publish an OTGW-compat mirror under this fixed node id
             self._data[CONF_BACKEND] = BACKEND_HCS
-            self._data[CONF_OTGW_PREFIX] = "OTGW"
-            self._data[CONF_OTGW_NODE_ID] = "hcs-device"
+            self._data["hcs_prefix"] = "hcs"
             return await self.async_step_zones()
         schema = vol.Schema(
             {
                 vol.Required(CONF_NAME, default=NAME): str,
+                vol.Required(
+                    CONF_OTGW_NODE_ID,
+                    description={"suggested_value": "hcs-device"},
+                ): str,
                 vol.Required(CONF_MIN_FLOW, default=DEFAULT_MIN_FLOW_TEMP): vol.All(
                     vol.Coerce(float), vol.Range(min=20, max=90)
                 ),
@@ -164,14 +166,14 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "hint": "Your HCS device is discovered automatically over MQTT — no node ids to type."
+                "hint": "Native MQTT topics (hcs/<node>/…). The node id is shown on the device web UI and in its discovery payload."
             },
         )
 
     async def async_step_otgw(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Real OTGW MQTT connection settings."""
+        """Classic OTGW-gateway MQTT connection settings."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -207,7 +209,7 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_zone(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Add heating zones for real OTGW setup."""
+        """Add heating zones."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
