@@ -697,8 +697,10 @@ class HomeClimatePanel extends HTMLElement {
     return `
       <div class="card zone" style="margin-bottom:16px">
         <div>
-          <div class="zone-title">Devices</div>
-          <div class="zone-meta">${devices.length} device${devices.length === 1 ? "" : "s"} online — boards announce via MQTT every 30 s; powered-off boards are hidden until they return</div>
+          <div class="zone-title">Boiler gateway${devices.length === 1 ? "" : "s"}</div>
+          <div class="zone-meta">${devices.length === 1
+            ? "This board bridges Home Assistant to your boiler (OpenTherm). It announces itself on MQTT — power it off and it hides until it returns."
+            : `${devices.length} gateways online — boards announce via MQTT every 30 s; powered-off boards are hidden until they return`}</div>
         </div>
         <div class="controls">
           <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
@@ -711,8 +713,8 @@ class HomeClimatePanel extends HTMLElement {
         devices.length
           ? `<div class="zones">${deviceCards}</div>`
           : (this._status?.devices || []).length
-          ? `<div class="empty card">No HCS devices online right now.<p class="sub">Powered-off boards are hidden — they reappear automatically within seconds of being switched on.</p></div>`
-          : `<div class="empty card">No HCS devices discovered yet.<p class="sub">Power on a device with Home Climate System firmware; it announces itself on MQTT topic <code>hcs/discovery/&lt;node&gt;</code>.</p></div>`
+          ? `<div class="empty card">Gateway offline.<p class="sub">Your board is powered off or unreachable — it reappears here within seconds of coming back.</p></div>`
+          : `<div class="empty card">No boiler gateway found yet.<p class="sub">Flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on — it announces itself on MQTT (<code>hcs/discovery/&lt;node&gt;</code>) and appears here automatically.</p></div>`
       }
       <h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Firmware catalog</h3>
       <div class="card fw-cat">

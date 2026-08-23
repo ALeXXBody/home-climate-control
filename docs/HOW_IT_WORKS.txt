@@ -1,0 +1,233 @@
+================================================================================
+HOME CLIMATE CONTROL (HCC) - HOW THE APP WORKS
+================================================================================
+A plain-language walkthrough of the Home Assistant custom integration in
+custom_components/home_climate_control/, based on the actual code.
+
+--------------------------------------------------------------------------------
+1. WHAT IT IS
+--------------------------------------------------------------------------------
+Home Climate Control turns Home Assistant into the brain of a whole-home
+heating system. It sits between:
+
+  [TRV valves / room sensors] <--> [HASS entities] <--> [HCC controller]
+                                                              |
+                                                       [Boiler gateway]
+                                                (ESP32/ESP8266 "Home Climate
+                                                 System" boards, OpenTherm
+                                                 to the boiler)
+
+MISSION (in priority order):
+  1. Burn the MINIMUM amount of gas while keeping every room exactly as
+     warm as the customer asked. Everything else serves this.
+  2. Per-room temperature control (one climate entity per room): presets,
+     window-open interlocks, external sensors.
+  3. Drive the boiler through an ESP gateway board (OpenTherm bridge):
+     discovery, status, remote firmware updates from the sidebar panel.
+
+NOTE ON MULTIPLE BOARDS: almost every home has ONE boiler and needs ONE
+gateway board. Several board models are supported purely to give customers
+hardware choice (what they can buy/flash), not because the design expects
+many boards. All multi-device handling exists to make first-time setup and
+a dead-board swap painless - the app never depends on having a fleet.
+
+--------------------------------------------------------------------------------
+2. STARTUP FLOW (__init__.py)
+--------------------------------------------------------------------------------
+When HA loads a config entry, async_setup_entry() does, in order:
+
+  1. Loads stored config (rooms list, options) into hass.data[DOMAIN].
+  2. Creates the CentralController (one per entry) - the control-loop brain.
+  3. Sets up WebSocket API commands (websocket_api.py).
+  4. Starts FirmwareManager - MQTT fleet manager for HCS boards.
+  5. Starts UpdateChecker   - polls GitHub for new firmware releases.
+  6. Starts BoilerInfo      - which boiler make/model is attached.
+  7. Forwards setup to platforms:
+       climate.py -> one ZoneClimateEntity per configured room
+       sensor.py  -> diagnostic sensors (outdoor temp, flow setpoint, ...)
+  8. Registers the sidebar panel + static file server (panel.py):
+       /home-climate                -> the panel web component
+       /home_climate_control_static -> files from www/ (panel JS,
+                                       board photos, brand icon)
+
+Unloading reverses everything: controller timer stops, MQTT subscriptions
+are cancelled.
+
+--------------------------------------------------------------------------------
+3. ROOMS = CLIMATE ENTITIES (zone.py, climate.py)
+--------------------------------------------------------------------------------
+Each room becomes one ZoneClimateEntity (an HA "climate." entity):
+
+  * Required part : a TRV climate entity (the valve that does the work).
+  * Optional parts: external temperature sensor (wall thermometer);
+                    window/door binary sensors (safety interlock).
+
+Temperature source priority:
+  external sensor -> if absent, the TRV's own current_temperature.
+
+User-facing controls per room:
+  - target temperature (setpoint)
+  - HVAC modes: HEAT / OFF
+  - presets with offsets (const.py PRESET_OFFSETS):
+      away -4.0 | eco -2.0 | comfort +0.5 | boost +2.0 degrees
+
+The entity feeds state into the CentralController; it never talks to the
+boiler itself.
+
+--------------------------------------------------------------------------------
+4. THE CONTROL LOOP (central.py, heating_curve.py, pid.py)
+--------------------------------------------------------------------------------
+CentralController runs async_control_step() on a repeating tick.
+
+Inputs each tick:
+  - outdoor temperature (user-selected weather/sensor entity)
+  - every room's current temp + target temp (+ preset offsets applied)
+
+Step 1 - Weather compensation (heating_curve.flow_for_outdoor):
+    base_flow = room_setpoint + CURVE_COEFF * (setpoint - outdoor_temp)
+    scaled against DESIGN_OUTDOOR_TEMP (-10 C), clamped to boiler min/max
+    flow limits (default 25..75 C). Underfloor systems get a lower max
+    flow and slower sampling (UNDERFLOOR_* constants).
+
+Step 2 - Trim by demand (pid.py):
+    A PID loop nudges the flow target based on aggregate room error.
+    Kp=12, Ki=0.15, Kd=0, integral clamped to +/-15 C contribution,
+    60 s sample time, anti-windup via reset/clamp.
+
+Step 3 - Low-load duty cycling (const.py):
+    If required modulation < boiler minimum modulation (default 20%),
+    continuous running would make the boiler short-cycle on its own
+    thermostat logic. HCC duty-cycles instead: min 600 s ON, then min
+    600 s OFF.
+
+Output: a flow-temperature setpoint sent to the boiler backend; on real
+hardware that path goes through the HCS gateway board over MQTT.
+
+Window open: any wired door/window sensor opening forces that room's
+demand off until closed (safety + energy saving).
+
+--------------------------------------------------------------------------------
+5. THE ESP FLEET: DISCOVERY & STATUS (firmware_manager.py)
+--------------------------------------------------------------------------------
+HCS boards speak a small MQTT protocol:
+
+  hcs/discovery/<node_id>   board announces JSON:
+                            {node_id, name, board, version, ip, ...}
+  hcs/discovery/ping        HCC broadcasts "1"; boards re-announce
+  hcs/<node>/online         retained LWT: "online"/"offline"
+  hcs/<node>/set/ota_url    HCC tells a board to flash this URL
+  hcs/<node>/set/reboot     reboot command
+  hcs/+/boiler_member       boiler identity broadcast (boiler_info.py)
+
+FirmwareManager subscribes to hcs/discovery/+ and hcs/+/online and keeps
+in-memory HcsDevice records {version, ip, online, last_seen, ...}.
+
+Anti-ghost-device design (hard-won, three iterations):
+  * On start everything is marked offline - trust nothing.
+  * A 5-second "grace window" discards retained replays AND wipes them
+    from the broker (publishes empty retained payloads). Without this a
+    board powered off weeks ago still looks alive, because BOTH the
+    discovery topic and the LWT topic hold stale retained messages.
+  * After grace a fresh ping goes out; live boards answer within seconds.
+  * Devices silent for DEVICE_TTL (600 s) are pruned from the list.
+  * LWT "offline" marks a device dead instantly; a seen_lwt_offline latch
+    stops stale discovery payloads resurrecting it.
+
+The panel shows only devices currently online.
+
+--------------------------------------------------------------------------------
+6. OTA FIRMWARE UPDATES (firmware_manager.py, update_checker.py, update.py)
+--------------------------------------------------------------------------------
+Catalog: DEFAULT_CATALOG lists every supported board model (D1 mini,
+LOLIN C3/S2 mini, ESP32-S3-Zero, ... plus "-gw" gateway variants) with the
+latest release URL, a model label and a product photo.
+
+UpdateChecker:
+  - Fetches the latest GitHub release (releases/latest API) every ~6 h.
+  - Optional personal-access token raises the API rate limit.
+  - Post-install cooldown (180 s) suppresses re-checks while boards
+    reboot, so HA does not spam "update available" toasts mid-flash.
+  - Results feed an HA-native Update entity (update.py) so firmware shows
+    up in Settings -> Updates like any other update. Its icon is served
+    as an origin-relative URL from /home_climate_control_static/brand/.
+
+Installing:
+  websocket flash_device
+    -> FirmwareManager.async_trigger_ota(node, url)
+    -> local mirror check (_maybe_local_mirror): GitHub release binaries
+       are copied into www/firmware/ and served over plain LAN HTTP when
+       possible (boards often have poor DNS/TLS).
+    -> MQTT publish ota_url + HTTP POST fallback to the board's /api/ota
+    -> board downloads, flashes (ESP-IDF OTA partitioning), reboots and
+       announces its new version within ~90 s.
+
+--------------------------------------------------------------------------------
+7. THE SIDEBAR PANEL (panel.py, www/home-climate-panel.js)
+--------------------------------------------------------------------------------
+A single-file web component registered as an HA sidebar panel
+("Home Climate", mdi:home-thermometer). Tabs:
+
+  Rooms    - cards per room (temp, setpoint, presets, window state),
+             driven by hass.states.
+  Boiler   - detected make/model, boiler member info, diagnostics.
+  Firmware - device list (online only; online / up-to-date / outdated
+             badges), firmware catalog card (board dropdown left, real
+             product photo right), flash/reboot buttons, scan-now.
+
+Panel <-> integration communication uses WebSocket commands defined in
+websocket_api.py, e.g.:
+    home_climate_control/get_status
+    home_climate_control/ping_devices
+    home_climate_control/flash_device
+    home_climate_control/set_github_token
+The JS polls get_status every 5 s. DOM behaviour is covered by
+tests/panel_dom_test.mjs (node-based smoke gates).
+
+Static assets (board photos, brand icon, mirrored firmware bins) are
+served unauthenticated from /home_climate_control_static/*, registered in
+panel.py via StaticPathConfig.
+
+Brand images live in brand/ (icon/logo @1x/@2x). Since HA 2026.3 the
+built-in brands proxy serves these locally for integration UI surfaces
+(Settings->Updates, HACS after its frontend catches up).
+
+--------------------------------------------------------------------------------
+8. BOILER IDENTITY (boiler_info.py, boilers.py)
+--------------------------------------------------------------------------------
+HCS gateway boards broadcast their attached boiler on hcs/+/boiler_member
+(a member id number). boilers.py maps member ids -> makes -> models;
+BoilerInfo stores the selection on the entry, exposes it to the panel and
+picks a product image from www/boilers/ via image_url_for().
+
+--------------------------------------------------------------------------------
+9. PERSISTENCE & CONFIG
+--------------------------------------------------------------------------------
+* Entry data/options: rooms (legacy storage key "zones" kept for compat),
+  TRV/temp/window entity ids per room, curve coefficient, boiler min
+  modulation, underfloor flag, outdoor sensor entity.
+* UpdateChecker persists {notified_tag, token} so it does not re-notify.
+* BoilerInfo persists make/model selection.
+* FirmwareManager is in-memory only by design: truth is rebuilt from live
+  MQTT within seconds of every start.
+
+--------------------------------------------------------------------------------
+10. TESTING & RELEASES
+--------------------------------------------------------------------------------
+* tests/conftest.py stubs homeassistant.* so pytest runs bare-metal:
+    .venv/bin/python -m pytest tests/ -q          (~70 tests)
+* Panel DOM gates (no browser needed):
+    node tests/panel_dom_test.mjs
+* Releases: bump manifest.json version -> tag vX.Y.Z -> GitHub release.
+  HACS serves the repo; users update through HACS + restart HA.
+
+--------------------------------------------------------------------------------
+11. KEY DESIGN RULES WORTH REMEMBERING
+--------------------------------------------------------------------------------
+* Room = TRV + optional external temp sensor + optional window sensors.
+  The HCS ESP module is a boiler gateway only - never part of a room.
+* One boiler, one gateway board is the normal case; every flow must feel
+  natural with exactly one board plugged in.
+* Never trust retained MQTT state for liveness; probe and expire.
+* The update entity must not poll during OTA; cooldown owns notification
+  silence so users do not get spammed while boards reboot.
+* Panel is a single JS file with no build step; keep it that way.

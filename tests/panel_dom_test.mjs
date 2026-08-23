@@ -116,6 +116,7 @@ check(
 // 1b) offline boards are NOT rendered — only online devices appear
 check(!html.includes("hcs-offline"), "offline device rendered on firmware page");
 check(html.includes("hcs-test"), "online device missing from firmware page");
+check(html.includes("Boiler gateway"), "gateway-centric section title missing");
 check(
   !html.includes("Ghost Board"),
   "offline device card rendered"
