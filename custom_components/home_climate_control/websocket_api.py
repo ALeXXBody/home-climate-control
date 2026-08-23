@@ -157,6 +157,9 @@ async def ws_get_status(
     msg: dict[str, Any],
 ) -> None:
     await async_setup_firmware_manager(hass)
+    _mgr = get_firmware_manager(hass)
+    if _mgr is not None:
+        await _mgr.async_refresh_catalog()  # TTL-gated no-op when fresh
     connection.send_result(msg["id"], _collect_status(hass))
 
 
@@ -247,6 +250,7 @@ async def ws_list_devices(
     msg: dict[str, Any],
 ) -> None:
     mgr = await async_setup_firmware_manager(hass)
+    await mgr.async_refresh_catalog()  # TTL-gated no-op when fresh
     connection.send_result(
         msg["id"],
         {"devices": mgr.list_devices(), "catalog": mgr.catalog},

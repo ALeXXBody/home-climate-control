@@ -144,8 +144,11 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         catalog = {}
         from .firmware_manager import DEFAULT_CATALOG
 
-        for item in DEFAULT_CATALOG:
-            catalog[item["board"]] = item
+        # Live catalog first (newest release wins per board), bundled
+        # entries as offline fallback.
+        items = list(getattr(mgr, "catalog", []) or []) + list(DEFAULT_CATALOG)
+        for item in items:
+            catalog.setdefault(item["board"], item)
 
         outdated = list(uc.info.get("outdated_devices") or [])
         if not outdated:

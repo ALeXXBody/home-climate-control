@@ -553,6 +553,29 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
+  static _verTuple(v) {
+    return String(v || "")
+      .replace(/^[vV]+/, "")
+      .split(".")
+      .map((n) => {
+        const m = String(n).match(/^\d+/);
+        return m ? parseInt(m[0], 10) : 0;
+      });
+  }
+
+  /** True when semver a > b (device should be offered an update). */
+  static _verNewer(a, b) {
+    const A = HomeClimatePanel._verTuple(a);
+    const B = HomeClimatePanel._verTuple(b);
+    const len = Math.max(A.length, B.length);
+    for (let i = 0; i < len; i++) {
+      const x = A[i] || 0;
+      const y = B[i] || 0;
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
+
   _settingsHtml(sys) {
     const bi = sys?.boiler_info || {};
     const detected = bi.detected_make
@@ -654,7 +677,10 @@ class HomeClimatePanel extends HTMLElement {
     const deviceCards = devices
       .map((d) => {
         const match = catalog.find((c) => c.board === d.board) || null;
-        const update = match && match.version !== d.version ? match : null;
+        const update =
+          match && HomeClimatePanel._verNewer(match.version, d.version)
+            ? match
+            : null;
         const label = (c) =>
           HomeClimatePanel._modelLabel(c) +
           (String(c.board || "").endsWith("_gw") ? " · gateway" : "");

@@ -24,7 +24,13 @@ AVAILABILITY_TOPIC = "hcs/+/online"  # devices publish retained LWT here
 # Drop devices not seen for this long (seconds)
 STALE_AFTER = 120
 
-# Bundled / published firmware catalog (GitHub releases or manual URLs)
+RELEASES_API = (
+    "https://api.github.com/repos/ALeXXBody/home-climate-system/releases"
+)
+CATALOG_TTL_S = 3600  # refresh published releases at most hourly
+_FIRMWARE_ASSET_RE = None  # compiled lazily to keep import light
+
+# Bundled offline fallback: last release whose assets were baked in here.
 _RELEASE = "https://github.com/ALeXXBody/home-climate-system/releases/download/v1.0.2"
 DEFAULT_CATALOG: list[dict[str, str]] = [
     {
@@ -115,6 +121,85 @@ DEFAULT_CATALOG: list[dict[str, str]] = [
 ]
 
 
+def _firmware_asset_re():
+    global _FIRMWARE_ASSET_RE
+    if _FIRMWARE_ASSET_RE is None:
+        import re
+
+        _FIRMWARE_ASSET_RE = re.compile(r"^firmware-([A-Za-z0-9_]+)\.bin$")
+    return _FIRMWARE_ASSET_RE
+
+
+def catalog_from_releases(
+    releases: list[dict], base: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Build a firmware catalog from GitHub /releases JSON.
+
+    Newest release first; every ``firmware-<board>.bin`` asset becomes an
+    entry whose version comes from the release tag. Metadata (model,
+    description, image) is inherited from the bundled ``base`` entries by
+    board; unknown boards get sensible defaults. Base entries whose
+    (board, version) pair is already covered are not duplicated, so the
+    bundled list remains an offline fallback only.
+    """
+    meta_by_board: dict[str, dict] = {}
+    for b in base or []:
+        meta_by_board.setdefault(b.get("board", ""), b)
+
+    out: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    asset_re = _firmware_asset_re()
+    for rel in releases or []:
+        if not isinstance(rel, dict) or rel.get("draft") or rel.get("prerelease"):
+            continue
+        tag = str(rel.get("tag_name") or "").strip()
+        ver = tag.lstrip("vV")
+        if not ver:
+            continue
+        title_name = rel.get("name") or tag
+        published = str(rel.get("published_at") or "")
+        for asset in rel.get("assets") or []:
+            name = str(asset.get("name") or "")
+            m = asset_re.match(name)
+            if not m:
+                continue
+            board = m.group(1)
+            if (board, ver) in seen:
+                continue
+            seen.add((board, ver))
+            meta = meta_by_board.get(board, {})
+            model = meta.get("model") or board.replace("_", " ")
+            gw = board.endswith("_gw")
+            plain = board[:-3] if gw else board
+            pretty_model = meta.get("model") or (
+                plain.replace("_", " ") + (" (gateway)" if gw else "")
+            )
+            out.append(
+                {
+                    "id": f"hcs-{ver}-{board}",
+                    "version": ver,
+                    "board": board,
+                    "description": meta.get("description", ""),
+                    "image": meta.get("image", "")
+                    or f"/home_climate_control_static/boards/photos/{plain}.png",
+                    "model": model,
+                    "title": f"HCS {ver} — {pretty_model}",
+                    "url": asset.get("browser_download_url")
+                    or asset.get("url", ""),
+                    "notes": meta.get("notes", "")
+                    or f"Published {published[:10]}" if published else "",
+                }
+            )
+    # offline fallback: bundled entries not covered by any fetched release
+    merged = list(out)
+    for b in base or []:
+        key = (b.get("board"), b.get("version"))
+        if key not in seen:
+            merged.append(b)
+            seen.add(key)
+    return merged
+
+
 def catalog_item(catalog: list[dict[str, str]], catalog_id: str) -> dict | None:
     for item in catalog:
         if item.get("id") == catalog_id:
@@ -154,6 +239,7 @@ class FirmwareManager:
         self._flowed_nodes: set[str] = set()
         self._unsub = None
         self.catalog: list[dict[str, str]] = list(DEFAULT_CATALOG)
+        self._catalog_at: float = 0.0
 
     def _in_grace(self) -> bool:
         return time.monotonic() < self._grace_until
@@ -202,7 +288,40 @@ class FirmwareManager:
         # + ignored; the post-grace ping re-triggers them within seconds)
         await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)
         self.hass.async_create_task(self._post_grace_ping())
+        self.hass.async_create_task(self.async_refresh_catalog(force=True))
         _LOGGER.info("Firmware manager listening on %s+", DISCOVERY_PREFIX)
+
+    async def async_refresh_catalog(self, force: bool = False) -> None:
+        """Pull the published-release catalog from GitHub (TTL-gated).
+
+        Never raises: on failure the last known catalog (bundled fallback)
+        stays active so the Firmware tab keeps working offline.
+        """
+        import asyncio
+
+        now = time.monotonic()
+        if not force and now - self._catalog_at < CATALOG_TTL_S:
+            return
+        try:
+            session = async_get_clientsession(self._hass)
+            async with asyncio.timeout(20):
+                resp = await session.get(
+                    RELEASES_API,
+                    headers={"Accept": "application/vnd.github+json"},
+                )
+                resp.raise_for_status()
+                releases = await resp.json()
+            entries = catalog_from_releases(releases, DEFAULT_CATALOG)
+            if entries:
+                self.catalog = entries
+                self._catalog_at = now
+                versions = sorted({e["version"] for e in entries}, reverse=True)
+                _LOGGER.info(
+                    "Firmware catalog refreshed from releases (%s)", versions[0]
+                )
+        except Exception:  # noqa: BLE001
+            self._catalog_at = now  # back off even on failure
+            _LOGGER.debug("Firmware catalog fetch failed", exc_info=True)
 
     @callback
     def _on_availability(self, msg) -> None:

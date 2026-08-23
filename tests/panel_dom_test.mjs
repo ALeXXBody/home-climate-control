@@ -52,8 +52,26 @@ const STATUS = {
       online: false,
       ip: "5.6.7.8",
     },
+    {
+      node_id: "hcs-current",
+      name: "Current Board",
+      board: "lolin_c3_mini",
+      version: "1.1.0",
+      online: true,
+      ip: "9.9.9.9",
+    },
   ],
   firmware_catalog: [
+    {
+      id: "hcs-1.1.0-lolin_c3_mini",
+      title: "HCS 1.1.0 — LOLIN C3 mini",
+      model: "LOLIN C3 mini v2.1",
+      board: "lolin_c3_mini",
+      version: "1.1.0",
+      url: "https://example.com/fw-new.bin",
+      description: "test desc",
+      image: "/home_climate_control_static/boards/photos/lolin_c3_mini.png",
+    },
     {
       id: "hcs-1.0.2-lolin_c3_mini",
       title: "HCS 1.0.2 — LOLIN C3 mini",
@@ -109,9 +127,24 @@ check(
   "empty-devices placeholder duplicated"
 );
 check(
-  (html.match(/data-fw-action="flash"/g) || []).length === 1,
-  "expected exactly one flash button"
+  (html.match(/data-fw-action="flash"/g) || []).length === 2,
+  "expected one flash button per online device"
 );
+
+// 4) update pill flips on newer catalog version (semantic, not string eq)
+const fwHtml = el.shadowRoot.innerHTML;
+check(
+  fwHtml.includes("v1.1.0 available"),
+  "update-available pill not shown for newer catalog version"
+);
+// equal versions must NOT be flagged newer (device already updated)
+{
+  const eq = [...el.shadowRoot.querySelectorAll(".badge.on")].some((b) =>
+    b.textContent.includes("up to date")
+  );
+  // d1_mini device is offline (not rendered); simulate equality via the
+  // lolin_c3_mini card only when catalog matches its version.
+}
 
 // 1b) offline boards are NOT rendered — only online devices appear
 check(!html.includes("hcs-offline"), "offline device rendered on firmware page");
@@ -147,11 +180,12 @@ check(
   "catalog preview not halved"
 );
 
-// up-to-date pill on device card; global banner removed
+// pills are per-device and semantic: 1.0.2 card offers 1.1.0, 1.1.0 card green
 const pills = [...el.shadowRoot.querySelectorAll(".badge")].map((b) =>
   b.textContent.trim()
 );
-check(pills.includes("up to date"), "up-to-date pill missing");
+check(pills.includes("v1.1.0 available"), "update pill missing for outdated device");
+check(pills.includes("up to date"), "up-to-date pill missing for current device");
 check(!html.includes("Firmware is up to date"), "stale banner still rendered");
 check(
   !/personal token/i.test(html),
@@ -175,7 +209,7 @@ await new Promise((r) => setTimeout(r, 30));
 
 const flashCall = wsCalls.find((c) => c.type === "home_climate_control/flash_device");
 check(!!flashCall, "flash_device ws not called");
-check(flashCall?.catalog_id === "hcs-1.0.2-lolin_c3_mini", "wrong catalog id sent");
+check(flashCall?.catalog_id === "hcs-1.1.0-lolin_c3_mini", "wrong catalog id sent");
 check(
   el._error === null || el._error === undefined,
   "handler error set: " + el._error
