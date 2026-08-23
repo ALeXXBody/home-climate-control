@@ -1,0 +1,27 @@
+{
+  "name": "home-climate-control",
+  "version": "1.0.0",
+  "description": "<p align=\"center\">   <img src=\"docs/branding/banner-1280.png\" alt=\"Home Climate Control\" width=\"640\"> </p>",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ALeXXBody/home-climate-control.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ALeXXBody/home-climate-control/issues"
+  },
+  "homepage": "https://github.com/ALeXXBody/home-climate-control#readme",
+  "dependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

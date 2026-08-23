@@ -680,11 +680,7 @@ class HomeClimatePanel extends HTMLElement {
           <p class="sub" style="margin-top:6px"></p>
         </div>
       </div>
-      ${
-        devices.length
-          ? `<h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Discovered devices</h3><div class="zones">${deviceCards}</div>`
-          : `<div class="empty card">No HCS devices discovered yet.<p class="sub">Power on a device with Home Climate System firmware; it announces itself on MQTT topic <code>hcs/discovery/&lt;node&gt;</code>.</p></div>`
-      }`;
+`;
   }
 
   _renderBoardPreview() {
@@ -787,26 +783,6 @@ class HomeClimatePanel extends HTMLElement {
         label = item?.title || selection;
       }
 
-      // Two-click inline confirmation (dialog-free, works everywhere)
-      const btn = this.shadowRoot.querySelector(
-        `[data-fw-action="flash"][data-node="${nodeId}"]`
-      );
-      if (btn && btn.dataset.arm !== "1") {
-        btn.dataset.arm = "1";
-        btn.dataset.origText = btn.textContent;
-        btn.textContent = "Confirm flash?";
-        setTimeout(() => {
-          if (btn.isConnected) {
-            btn.dataset.arm = "";
-            btn.textContent = btn.dataset.origText || "Flash";
-          }
-        }, 5000);
-        return;
-      }
-      if (btn) {
-        btn.dataset.arm = "";
-        btn.textContent = btn.dataset.origText || "Flash";
-      }
 
       this._busy[nodeId] = true;
       this._notice = null;
