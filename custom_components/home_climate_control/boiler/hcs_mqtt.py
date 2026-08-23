@@ -60,6 +60,11 @@ class HcsMqttBackend(BoilerBackend):
         self._ch_active: bool | None = None
         self._fault_text: str | None = None
         self._commanded_setpoint: float | None = None
+        # custom 1-Wire probes (role=custom): name -> celsius
+        self._custom: dict[str, float] = {}
+        # last sensors snapshot (list of dicts from board)
+        self._sensors_snapshot: list[dict] = []
+        self._sensors_listeners: list = []
 
         self._unsubs: list = []
 
@@ -101,6 +106,47 @@ class HcsMqttBackend(BoilerBackend):
     # --- telemetry dispatch --------------------------------------------------
     @callback
     def _on_value(self, key: str, payload: str) -> None:
+        # custom leaves: x/<name>
+        if key.startswith("x/"):
+            name = key[2:].strip()
+            if name:
+                v = _f(payload)
+                if v is not None:
+                    self._custom[name] = v
+                    for cb in list(self._sensors_listeners):
+                        try:
+                            cb()
+                        except Exception:  # noqa: BLE001
+                            pass
+            return
+        if key == "sensors":
+            # retained JSON snapshot from the board
+            text = (payload or "").strip()
+            try:
+                import json
+                data = json.loads(text) if text else {}
+                devices = data.get("devices") if isinstance(data, dict) else data
+                if isinstance(devices, list):
+                    self._sensors_snapshot = devices
+                    # refresh custom map from snapshot (role==custom)
+                    for d in devices:
+                        if not isinstance(d, dict):
+                            continue
+                        if d.get("role") == "custom" and d.get("name"):
+                            t = d.get("temp_c")
+                            if t is not None:
+                                try:
+                                    self._custom[str(d["name"])] = float(t)
+                                except (TypeError, ValueError):
+                                    pass
+                    for cb in list(self._sensors_listeners):
+                        try:
+                            cb()
+                        except Exception:  # noqa: BLE001
+                            pass
+            except Exception:  # noqa: BLE001
+                pass
+            return
         if "/" in key or key in ("online", "ping_discovery"):
             return  # set-topics & LWT noise
         text = (payload or "").strip()
@@ -169,11 +215,29 @@ class HcsMqttBackend(BoilerBackend):
     @property
     def fault_text(self): return self._fault_text
 
+    def custom_sensors(self) -> dict:
+        return dict(self._custom)
+
+    def sensors_snapshot(self) -> list:
+        return list(self._sensors_snapshot)
+
+    def add_sensors_listener(self, cb) -> None:
+        if cb not in self._sensors_listeners:
+            self._sensors_listeners.append(cb)
+
+    def remove_sensors_listener(self, cb) -> None:
+        try:
+            self._sensors_listeners.remove(cb)
+        except ValueError:
+            pass
+
     def diagnostics(self) -> dict:
         data = super().diagnostics()
         data.update(
             commanded_setpoint=self._commanded_setpoint,
             pressure_bar=self._pressure,
             fault_text=self._fault_text,
+            custom_sensors=dict(self._custom),
+            probes=list(self._sensors_snapshot),
         )
         return data

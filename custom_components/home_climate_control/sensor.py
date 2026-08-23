@@ -40,6 +40,13 @@ async def async_setup_entry(
     hass.data[DOMAIN][entry.entry_id]["boiler_diag_sensor"] = sensor
     hass.data[DOMAIN][entry.entry_id]["failsafe_sensor"] = fs_sensor
     async_add_entities([sensor, fs_sensor])
+    # Dynamic custom 1-Wire probes (role=custom on the gateway)
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    backend = data.get("backend") or getattr(data.get("controller"), "backend", None)
+    if backend is not None:
+        mgr = ProbeManager(hass, entry, backend, async_add_entities)
+        data["probe_manager"] = mgr
+        mgr.start()
 
 
 class BoilerDiagSensor(SensorEntity):
@@ -144,3 +151,126 @@ class FailsafeSensor(SensorEntity):
             self._sub()
             self._sub = None
         await super().async_will_remove_from_hass()
+
+
+class CustomProbeSensor(SensorEntity):
+    """Named custom 1-Wire probe published by an HCS gateway (role=custom)."""
+
+    _attr_should_poll = False
+    _attr_device_class = "temperature"
+    _attr_native_unit_of_measurement = "°C"
+    _attr_state_class = "measurement"
+    _attr_icon = "mdi:thermometer"
+
+    def __init__(self, entry_id: str, node_hint: str, name: str, backend) -> None:
+        self._entry_id = entry_id
+        self._node_hint = node_hint
+        self._probe_name = name
+        self._backend = backend
+        self._attr_name = f"Probe {name.replace('_', ' ').title()}"
+        self._attr_unique_id = f"{DOMAIN}_x_{entry_id}_{name}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="Home Climate Control",
+            manufacturer="Home Climate Control",
+        )
+        self._native: float | None = None
+        customs = getattr(backend, "custom_sensors", lambda: {})()
+        if name in customs:
+            self._native = customs[name]
+
+    @property
+    def native_value(self):
+        return self._native
+
+    @property
+    def extra_state_attributes(self):
+        return {"probe_name": self._probe_name, "source": "hcs_1wire"}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        @callback
+        def _refresh() -> None:
+            customs = getattr(self._backend, "custom_sensors", lambda: {})()
+            v = customs.get(self._probe_name)
+            if v is not None:
+                self._native = v
+                self.async_write_ha_state()
+
+        add = getattr(self._backend, "add_sensors_listener", None)
+        if callable(add):
+            add(_refresh)
+            self._unsub = lambda: getattr(
+                self._backend, "remove_sensors_listener", lambda cb: None
+            )(_refresh)
+        else:
+            self._unsub = None
+        # also subscribe live x/<name> topic as a belt-and-braces path
+        topic = _topic_for_node(self._node_hint, f"x/{self._probe_name}")
+
+        @callback
+        def on_message(msg) -> None:
+            try:
+                self._native = float((msg.payload or "").strip())
+                self.async_write_ha_state()
+            except (TypeError, ValueError):
+                pass
+
+        self._sub = await mqtt.async_subscribe(self.hass, topic, on_message, 0)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if getattr(self, "_unsub", None):
+            self._unsub()
+        if getattr(self, "_sub", None):
+            self._sub()
+        await super().async_will_remove_from_hass()
+
+
+class ProbeManager:
+    """Watches the board sensors snapshot and adds custom probe entities."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        backend,
+        async_add_entities: AddEntitiesCallback,
+    ) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.backend = backend
+        self._add = async_add_entities
+        self._known: dict[str, CustomProbeSensor] = {}
+
+    def start(self) -> None:
+        add = getattr(self.backend, "add_sensors_listener", None)
+        if callable(add):
+            add(self._on_snapshot)
+        # seed from current snapshot
+        self._on_snapshot()
+
+    @callback
+    def _on_snapshot(self) -> None:
+        snap = getattr(self.backend, "sensors_snapshot", lambda: [])()
+        customs = getattr(self.backend, "custom_sensors", lambda: {})()
+        names = set()
+        for d in snap or []:
+            if isinstance(d, dict) and d.get("role") == "custom" and d.get("name"):
+                names.add(str(d["name"]))
+        # also pick up any live custom values even if snapshot lags
+        names |= set(customs.keys())
+        new = []
+        for name in sorted(names):
+            if name in self._known:
+                continue
+            ent = CustomProbeSensor(
+                self.entry.entry_id,
+                self.entry.data.get("node_id", ""),
+                name,
+                self.backend,
+            )
+            self._known[name] = ent
+            new.append(ent)
+        if new:
+            self._add(new)

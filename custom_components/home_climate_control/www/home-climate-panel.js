@@ -573,6 +573,9 @@ class HomeClimatePanel extends HTMLElement {
         ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
           ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
         </div>` : ""}
+        ${(sys.probes && sys.probes.length) ? `<div class="card"><h3>1-Wire probes</h3>
+          ${sys.probes.map(p => `<p class="sub"><strong>${this._esc((p.addr || "").slice(-8) || "?")}</strong>: ${p.temp_c != null ? this._esc(p.temp_c) + "°C" : "—"} · ${this._esc(p.health || "?")} · ${this._esc(p.role || "none")}${p.name ? " · " + this._esc(p.name) : ""}</p>`).join("")}
+        </div>` : ""}
         <div class="card"><h3>Entry</h3><div class="sub">${this._esc(sys.entry_id || "")}</div></div>
       </div>
       <div class="card">

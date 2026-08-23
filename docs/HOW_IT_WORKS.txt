@@ -249,3 +249,17 @@ Hot-water burns count too - it is house gas either way. Steps longer than
 Daily kWh buckets and the running total persist across restarts
 (Store "home_climate_control_gasmeter", last 14 days kept) and appear on
 the panel's Boiler tab as "Gas (est.)".
+
+15. 1-WIRE PROBES (gateway firmware + HA custom entities)
+------------------------------------------------------------------------------
+The ESP gateway auto-detects DS18B20 probes on its 1-Wire bus. Each probe is
+health-checked every poll (presence, stuck +85 °C trap, implausible jumps).
+The user assigns a use per probe in the gateway portal:
+
+  outdoor  -> feeds weather compensation (overrides OT MsgID 27 when fresh)
+  return   -> backfills return-water (overrides OT MsgID 25 when fresh)
+  custom   -> named sensor published as hcs/<node>/x/<name> and exposed as
+              a HA temperature entity by HCC
+
+A retained hcs/<node>/sensors JSON snapshot lists every probe with role,
+health, and temperature for the panel's Boiler tab.
