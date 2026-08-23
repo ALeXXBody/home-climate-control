@@ -120,6 +120,8 @@ class FirmwareManager:
     """Tracks HCS devices from MQTT discovery messages."""
 
     def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
+        self._check_task = None
         self.hass = hass
         self.devices: dict[str, HcsDevice] = {}
         self._unsub = None
@@ -177,8 +179,37 @@ class FirmwareManager:
         dev.last_seen = datetime.now(timezone.utc).isoformat()
         self.devices[node] = dev
 
+        # Audit follow-up: the update checker runs once at HA startup and can
+        # race device discovery. Re-check (debounced) whenever a device
+        # announces or updates its version so the banner is never stale.
+        if data.get("version") and self._hass:
+            self._hass.async_create_task(self._trigger_update_check())
+
     def list_devices(self) -> list[dict[str, Any]]:
         return [d.to_dict() for d in self.devices.values()]
+
+    async def _trigger_update_check(self) -> None:
+        """Debounced re-check so discovery bursts cause one run."""
+        import asyncio
+
+        from .update_checker import get_update_checker
+
+        uc = get_update_checker(self._hass)
+        if uc is None:
+            return
+        if self._check_task:
+            return  # already pending
+        self._check_task = asyncio.ensure_future(self._debounced_check(uc))
+
+    async def _debounced_check(self, uc) -> None:
+        import asyncio
+
+        await asyncio.sleep(5)
+        self._check_task = None
+        try:
+            await uc.async_check()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("update re-check failed", exc_info=True)
 
     async def async_ping(self) -> None:
         await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)

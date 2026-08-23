@@ -665,6 +665,7 @@ class HomeClimatePanel extends HTMLElement {
         </div>
         <div class="controls">
           <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
+          <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
         </div>
       </div>
       ${banner}
@@ -680,6 +681,11 @@ class HomeClimatePanel extends HTMLElement {
   _onFwAction(el) {
     const action = el.getAttribute("data-fw-action");
     if (action === "ping") return this._pingDevices();
+    if (action === "check-updates") {
+      this._hass.callWS({ type: "home_climate_control/check_updates" })
+        .then(() => this._refresh());
+      return;
+    }
     if (action === "flash-all") return this._flashAllOutdated();
     const nodeId = el.getAttribute("data-node");
     if (!nodeId) return;
