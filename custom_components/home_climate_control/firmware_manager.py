@@ -160,6 +160,26 @@ class FirmwareManager:
             self._unsub()
             self._unsub = None
 
+    DEVICE_TTL = 600  # seconds; boards announce every ~30 s when online
+
+    def _prune_stale(self) -> None:
+        """Forget boards that stopped announcing.
+
+        Retained discovery messages otherwise keep powered-off boards listed
+        forever. Live boards re-announce within seconds, so pruning is safe;
+        a board that powers back on re-registers instantly.
+        """
+        now = datetime.now(timezone.utc)
+        for node in list(self.devices):
+            dev = self.devices[node]
+            try:
+                seen = datetime.fromisoformat(dev.last_seen)
+            except (ValueError, TypeError):
+                continue
+            if (now - seen).total_seconds() > self.DEVICE_TTL:
+                _LOGGER.debug("pruning stale device %s", node)
+                del self.devices[node]
+
     @callback
     def _on_discovery(self, msg) -> None:
         try:
@@ -196,6 +216,7 @@ class FirmwareManager:
         dev.online = True
         dev.last_seen = datetime.now(timezone.utc).isoformat()
         self.devices[node] = dev
+        self._prune_stale()
 
         # Re-check (debounced) when a device announces a version — but skip
         # during post-install cooldown so reboot churn does not thrash HA.

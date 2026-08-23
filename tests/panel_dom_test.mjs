@@ -44,6 +44,14 @@ const STATUS = {
       online: true,
       ip: "1.2.3.4",
     },
+    {
+      node_id: "hcs-offline",
+      name: "Ghost Board",
+      board: "d1_mini",
+      version: "1.0.0",
+      online: false,
+      ip: "5.6.7.8",
+    },
   ],
   firmware_catalog: [
     {
@@ -93,6 +101,14 @@ check(
 check(
   (html.match(/data-fw-action="flash"/g) || []).length === 1,
   "expected exactly one flash button"
+);
+
+// 1b) offline boards are NOT rendered — only online devices appear
+check(!html.includes("hcs-offline"), "offline device rendered on firmware page");
+check(html.includes("hcs-test"), "online device missing from firmware page");
+check(
+  !html.includes("Ghost Board"),
+  "offline device card rendered"
 );
 
 // 2) catalog dropdown + preview exist

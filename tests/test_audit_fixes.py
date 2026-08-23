@@ -227,3 +227,38 @@ def test_update_entity_no_progress_feature_and_stable_latest():
     # Force installed_version via mgr empty → None, so set a stub
     type(ent).installed_version = property(lambda self: "1.0.2")
     assert ent.latest_version == "1.0.2"
+
+
+def test_firmware_manager_prunes_stale_devices():
+    """Powered-off boards must not stay listed; live ones re-register."""
+    from datetime import datetime, timedelta, timezone
+    import json as _json
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+        HcsDevice,
+    )
+
+    hass = MagicMock()
+    hass.config_entries.async_entries.return_value = []
+    hass.async_create_task = lambda c: (c.close() if hasattr(c, "close") else None)
+    mgr = FirmwareManager(hass)
+
+    old = HcsDevice(node_id="hcs-old", online=False)
+    old.last_seen = (
+        datetime.now(timezone.utc) - timedelta(hours=2)
+    ).isoformat()
+    fresh = HcsDevice(node_id="hcs-fresh")
+    fresh.last_seen = datetime.now(timezone.utc).isoformat()
+    mgr.devices = {"hcs-old": old, "hcs-fresh": fresh}
+
+    msg = MagicMock()
+    msg.topic = "hcs/discovery/hcs-fresh"
+    msg.payload = _json.dumps(
+        {"node_id": "hcs-fresh", "board": "d1_mini", "version": "1.0.2"}
+    )
+    mgr._on_discovery(msg)
+
+    assert "hcs-old" not in mgr.devices
+    assert "hcs-fresh" in mgr.devices

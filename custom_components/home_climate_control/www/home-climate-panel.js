@@ -592,7 +592,9 @@ class HomeClimatePanel extends HTMLElement {
   }
 
   _firmwareHtml() {
-    const devices = this._status?.devices || [];
+    // Only currently-online boards — a powered-off module re-registers
+    // within seconds of coming back, so no need to keep dead cards around.
+    const devices = (this._status?.devices || []).filter((d) => d.online);
     let catalog = [...(this._status?.firmware_catalog || [])];
     const online = devices.filter((d) => d.online).length;
     const ui = this._status?.systems?.[0]?.update_info || null;
@@ -675,7 +677,7 @@ class HomeClimatePanel extends HTMLElement {
       <div class="card zone" style="margin-bottom:16px">
         <div>
           <div class="zone-title">Devices</div>
-          <div class="zone-meta">${online} online / ${devices.length} known — devices announce via MQTT discovery every 30 s</div>
+          <div class="zone-meta">${devices.length} device${devices.length === 1 ? "" : "s"} online — boards announce via MQTT every 30 s; powered-off boards are hidden until they return</div>
         </div>
         <div class="controls">
           <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
@@ -695,6 +697,8 @@ class HomeClimatePanel extends HTMLElement {
       ${
         devices.length
           ? `<div class="zones">${deviceCards}</div>`
+          : (this._status?.devices || []).length
+          ? `<div class="empty card">No HCS devices online right now.<p class="sub">Powered-off boards are hidden — they reappear automatically within seconds of being switched on.</p></div>`
           : `<div class="empty card">No HCS devices discovered yet.<p class="sub">Power on a device with Home Climate System firmware; it announces itself on MQTT topic <code>hcs/discovery/&lt;node&gt;</code>.</p></div>`
       }
       <h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Firmware catalog</h3>
