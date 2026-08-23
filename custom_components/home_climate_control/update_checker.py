@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from homeassistant.components import persistent_notification
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.event import async_track_time_interval
@@ -132,6 +131,8 @@ class UpdateChecker:
 
         # One-time HA notification per new release
         if any_outdated and tag != self._notified_tag:
+            from homeassistant.components import persistent_notification
+
             persistent_notification.async_create(
                 self.hass,
                 f"Firmware {tag} is available for "
