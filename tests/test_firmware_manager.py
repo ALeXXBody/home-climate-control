@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import pytest
 
 from custom_components.home_climate_control.firmware_manager import (
@@ -62,3 +63,42 @@ def test_board_guard_logic(dev_board: str, img_board: str, should_block: bool) -
         and bool(dev.board)
     )
     assert blocked is should_block
+
+
+def test_discovery_flow_triggered_once_per_node():
+    """New board announcement surfaces an HA discovery card exactly once."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+    )
+
+    hass = MagicMock()
+    hass.config_entries.async_entries.return_value = []
+    tasks = []
+
+    def _capture(coro):
+        tasks.append(coro)
+        coro.close()
+        return None
+
+    hass.async_create_task = _capture
+    mgr = FirmwareManager(hass)
+
+    msg = MagicMock()
+    msg.topic = "hcs/discovery/hcs-new1"
+    msg.payload = json.dumps(
+        {"node_id": "hcs-new1", "board": "lolin_c3_mini", "version": "1.0.2"}
+    )
+
+    class _HcsDevice:
+        pass
+
+    # reuse the manager's own handler
+    mgr._on_discovery(msg)
+    assert "hcs-new1" in mgr._flowed_nodes
+    assert hass.config_entries.flow.async_init.call_count == 1
+
+    mgr._on_discovery(msg)  # second announcement: no new card
+    assert hass.config_entries.flow.async_init.call_count == 1

@@ -141,6 +141,7 @@ class FirmwareManager:
         self._check_task = None
         self.hass = hass
         self.devices: dict[str, HcsDevice] = {}
+        self._flowed_nodes: set[str] = set()
         self._unsub = None
         self.catalog: list[dict[str, str]] = list(DEFAULT_CATALOG)
 
@@ -201,6 +202,23 @@ class FirmwareManager:
         # announces or updates its version so the banner is never stale.
         if data.get("version") and self._hass:
             self._hass.async_create_task(self._trigger_update_check())
+
+        # HA discovery: surface a setup card for brand-new boards while no
+        # config entry exists yet (once per node).
+        try:
+            existing = [
+                e for e in self._hass.config_entries.async_entries(DOMAIN)
+            ]
+            if not existing and node not in self._flowed_nodes:
+                self._flowed_nodes.add(node)
+                self._hass.async_create_task(
+                    self._hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={"source": "discovery", "node_id": node},
+                    )
+                )
+        except Exception:  # noqa: BLE001 - stubbed hass in unit tests
+            pass
 
     def list_devices(self) -> list[dict[str, Any]]:
         return [d.to_dict() for d in self.devices.values()]

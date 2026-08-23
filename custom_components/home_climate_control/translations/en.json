@@ -39,6 +39,10 @@
           "trv_climates": "TRV climate entities",
           "add_another": "Add another zone after this one"
         }
+      },
+      "discovery": {
+        "title": "New Home Climate System device found",
+        "description": "Board **{node}** announced itself on MQTT. Confirm to adopt it — zones are configured on the next screen."
       }
     },
     "abort": {

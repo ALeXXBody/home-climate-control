@@ -128,6 +128,13 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(step_id="demo", data_schema=schema)
 
+    async def async_step_discovery(self, discovery_info):
+        """A new HCS board announced itself on MQTT — offer setup."""
+        node = (discovery_info or {}).get("node_id", "")
+        self._data[CONF_NODE_ID] = node
+        self.context["title_placeholders"] = {"node": node}
+        return await self.async_step_hcs()
+
     async def async_step_hcs(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -140,7 +147,10 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required(CONF_NAME, default=NAME): str,
-                vol.Required(CONF_NODE_ID): str,
+                vol.Required(
+                    CONF_NODE_ID,
+                    description={"suggested_value": self._data.get(CONF_NODE_ID, "")},
+                ): str,
                 vol.Required(CONF_MIN_FLOW, default=DEFAULT_MIN_FLOW_TEMP): vol.All(
                     vol.Coerce(float), vol.Range(min=20, max=90)
                 ),
