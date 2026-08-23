@@ -76,10 +76,71 @@ def install_ha_stubs() -> None:
     selector = _mod("homeassistant.helpers.selector")
     selector.EntitySelector = lambda *a, **k: str
     selector.EntitySelectorConfig = lambda **k: k
+    ce = _mod("homeassistant.config_entries")
+    class _ConfigFlow:
+        def __init_subclass__(cls, domain=None, **kw): 
+            cls.DOMAIN = domain
+            super().__init_subclass__(**kw)
+        def __init__(self): 
+            self.context = {}
+        async def async_set_unique_id(self, uid): pass
+        def _abort_if_unique_id_configured(self): pass
+        async def async_show_form(self, **kw): return {"type": "form", **kw}
+        async def async_create_entry(self, **kw): return {"type": "create_entry", **kw}
+        async def async_abort(self, **kw): return {"type": "abort"}
+    ce.ConfigFlow = _ConfigFlow
+    ce.FlowResult = dict
+    ce.SOURCE_USER = "user"
+    ha.config_entries = ce
     entity_platform = _mod("homeassistant.helpers.entity_platform")
     entity_platform.AddEntitiesCallback = object
     aiohttp_client = _mod("homeassistant.helpers.aiohttp_client")
     aiohttp_client.async_get_clientsession = MagicMock()
+
+    # components submodules used by the integration
+    comp = _mod("homeassistant.components")
+    comp_sensor = _mod("homeassistant.components.sensor")
+    class _SensorDeviceClass:
+        temperature = "temperature"
+        humidity = "humidity"
+    comp_sensor.SensorDeviceClass = _SensorDeviceClass
+    comp_sensor.SensorEntity = object
+    comp.persistent_notification = _mod(
+        "homeassistant.components.persistent_notification")
+    comp.persistent_notification.async_create = MagicMock()
+    comp.frontend = _mod("homeassistant.components.frontend")
+    comp.frontend.async_register_built_in_panel = MagicMock()
+    ha.components = comp
+    comp.sensor = comp_sensor
+    comp.persistent_notification = comp.persistent_notification
+    comp.frontend = comp.frontend
+    comp_panel_custom = _mod("homeassistant.components.panel_custom")
+    comp_panel_custom.async_register_panel = MagicMock()
+    comp.panel_custom = comp_panel_custom
+
+    wsapi = _mod("homeassistant.components.websocket_api")
+    wsapi.websocket_command = lambda schema: (lambda fn: fn)
+    wsapi.async_response = lambda fn: fn
+    wsapi.register_command = MagicMock()
+    class _ActiveConnection:  # noqa: D401
+        pass
+    wsapi.ActiveConnection = _ActiveConnection
+    ha.websocket_api = wsapi
+    comp.websocket_api = wsapi
+
+    comp_http = _mod("homeassistant.components.http")
+    class _StaticPathConfig:
+        def __init__(self, url_path, path, cache_headers=True):
+            self.url_path = url_path; self.path = path; self.cache_headers = cache_headers
+    comp_http.StaticPathConfig = _StaticPathConfig
+    ha.http_view = comp_http
+    comp.http = comp_http
+
+    dr = _mod("homeassistant.helpers.device_registry")
+    class _DeviceInfo(dict):
+        def __init__(self, **kw): super().__init__(**kw)
+    dr.DeviceInfo = _DeviceInfo
+    helpers.device_registry = dr
     storage = _mod("homeassistant.helpers.storage")
     class _Store:
         def __init__(self, *a, **k): pass

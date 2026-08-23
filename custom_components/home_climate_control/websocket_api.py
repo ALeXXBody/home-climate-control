@@ -197,7 +197,8 @@ async def ws_set_zone(
         vol.Required("flow"): vol.Coerce(float),
         vol.Required("grace_min"): vol.Coerce(int),
     }
-)@websocket_api.async_response
+)
+@websocket_api.async_response
 async def ws_set_failsafe(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,

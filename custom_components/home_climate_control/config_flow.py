@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     BACKEND_DEMO,
+    BACKEND_HCS,
     BACKEND_OTGW_MQTT,
     CONF_BACKEND,
     CONF_OTGW_NODE_ID,
@@ -61,6 +62,8 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_BACKEND] = backend
             if backend == BACKEND_DEMO:
                 return await self.async_step_demo()
+            if backend == BACKEND_HCS:
+                return await self.async_step_hcs()
             return await self.async_step_otgw()
 
         schema = vol.Schema(
@@ -129,6 +132,41 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(step_id="demo", data_schema=schema)
+
+    async def async_step_hcs(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Native Home Climate System device — discovered automatically."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            self._data.update(user_input)
+            # devices publish an OTGW-compat mirror under this fixed node id
+            self._data[CONF_BACKEND] = BACKEND_HCS
+            self._data[CONF_OTGW_PREFIX] = "OTGW"
+            self._data[CONF_OTGW_NODE_ID] = "hcs-device"
+            return await self.async_step_zones()
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_NAME, default=NAME): str,
+                vol.Required(CONF_MIN_FLOW, default=DEFAULT_MIN_FLOW_TEMP): vol.All(
+                    vol.Coerce(float), vol.Range(min=20, max=90)
+                ),
+                vol.Required(CONF_MAX_FLOW, default=DEFAULT_MAX_FLOW_TEMP): vol.All(
+                    vol.Coerce(float), vol.Range(min=30, max=95)
+                ),
+                vol.Required(CONF_CURVE, default=DEFAULT_CURVE_COEFF): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.2, max=3.5)
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="hcs",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "hint": "Your HCS device is discovered automatically over MQTT — no node ids to type."
+            },
+        )
 
     async def async_step_otgw(
         self, user_input: dict[str, Any] | None = None

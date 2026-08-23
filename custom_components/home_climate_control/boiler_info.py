@@ -75,7 +75,8 @@ class BoilerInfo:
             if detected and changed and not self.make:
                 self.make = detected
                 self.model = models_for_make(detected)[0] if models_for_make(detected) else None
-                await self.async_save()
+                # sync @callback context: schedule the save instead of awaiting
+                self.hass.async_create_task(self.async_save())
             if changed:
                 _LOGGER.info("Boiler memberID %s detected (%s)", mid, detected)
 

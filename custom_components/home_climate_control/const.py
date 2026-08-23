@@ -76,8 +76,11 @@ CONTROL_LOOP_SECONDS = 60
 # --- Backend selection -------------------------------------------------------
 CONF_BACKEND = "backend"
 BACKEND_OTGW_MQTT = "otgw_mqtt"
+BACKEND_HCS = "hcs_native"
 BACKEND_DEMO = "demo"
-BACKENDS = [BACKEND_DEMO, BACKEND_OTGW_MQTT]
+# BACKEND_HCS reuses the OTGW-MQTT backend (devices publish an OTGW-compat
+# mirror under node id "hcs-device") — it exists so setup reads correctly.
+BACKENDS = [BACKEND_DEMO, BACKEND_HCS, BACKEND_OTGW_MQTT]
 
 # --- MQTT (OTGW-firmware) ----------------------------------------------------
 CONF_OTGW_PREFIX = "otgw_prefix"
