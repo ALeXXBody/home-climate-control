@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING
 
 from .const import (
     BACKEND_DEMO,
+    BACKEND_HCS,
     CONF_BACKEND,
+    CONF_NODE_ID,
     CONF_ZONES,
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,

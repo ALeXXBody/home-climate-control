@@ -238,3 +238,35 @@ async def test_central_with_demo_backend_commands_flow():
     assert demo.ch_active is True or demo._ch_enabled is True
     assert ctrl.flow_setpoint is not None
     assert 25 <= ctrl.flow_setpoint <= 75
+
+
+@pytest.mark.asyncio
+async def test_build_backend_factory():
+    """Regression: _build_backend must resolve for every backend type."""
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control import _build_backend
+    from custom_components.home_climate_control.const import (
+        BACKEND_DEMO,
+        BACKEND_HCS,
+        CONF_BACKEND,
+        CONF_NODE_ID,
+    )
+
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.data = {}
+    entry.options = {}
+    opts = {}
+
+    # default (no backend key) -> native HCS backend, must not raise NameError
+    be = _build_backend(hass, entry, opts)
+    assert be is not None
+
+    entry.data = {CONF_BACKEND: BACKEND_HCS, CONF_NODE_ID: "hcs-test"}
+    be = _build_backend(hass, entry, opts)
+    assert be is not None
+
+    entry.data = {CONF_BACKEND: BACKEND_DEMO}
+    be = _build_backend(hass, entry, opts)
+    assert be is not None
