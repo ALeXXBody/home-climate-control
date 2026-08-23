@@ -3,14 +3,14 @@
     "step": {
       "user": {
         "title": "Home Climate Control",
-        "description": "Choose how to connect the boiler. Use **Demo OTGW** to test the app without hardware.",
+        "description": "Connect a **Home Climate System** device (ESP32/ESP8266 with HCS firmware), or pick **Demo** to explore without hardware.",
         "data": {
           "backend": "Boiler connection"
         }
       },
       "demo": {
-        "title": "Demo OTGW",
-        "description": "Creates a simulated OpenTherm gateway with outdoor temperature, boiler flame/modulation, and two rooms (Living Room + Bedroom). No MQTT or hardware required. Open the **Home Climate** sidebar after setup.",
+        "title": "Demo",
+        "description": "Creates a simulated boiler with outdoor temperature, flame/modulation, and two rooms (Living Room + Bedroom). No MQTT or hardware required. Open the **Home Climate** sidebar after setup.",
         "data": {
           "name": "Name",
           "min_flow_temp": "Minimum flow temperature (°C)",
@@ -18,13 +18,12 @@
           "curve_coeff": "Heating curve coefficient"
         }
       },
-      "otgw": {
-        "title": "OTGW via MQTT",
-        "description": "Connect to your OpenTherm Gateway (OTGW-firmware MQTT). Outdoor temperature is read from the boiler outdoor sensor.",
+      "hcs": {
+        "title": "Home Climate System device",
+        "description": "{hint}",
         "data": {
           "name": "Name",
-          "otgw_prefix": "MQTT top topic (prefix)",
-          "otgw_node_id": "OTGW node id (e.g. otgw-AABBCCDDEEFF)",
+          "node_id": "Device node id (e.g. hcs-aabbccddeeff)",
           "min_flow_temp": "Minimum flow temperature (°C)",
           "max_flow_temp": "Maximum flow temperature (°C)",
           "curve_coeff": "Heating curve coefficient"

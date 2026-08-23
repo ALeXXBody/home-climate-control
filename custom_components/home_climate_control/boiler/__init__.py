@@ -1,7 +1,7 @@
 """Boiler backend package."""
 
 from .base import BoilerBackend
-from .demo import DemoOtgwBackend
-from .otgw_mqtt import OtgwMqttBackend
+from .demo import DemoBoilerBackend
+from .hcs_mqtt import HcsMqttBackend
 
-__all__ = ["BoilerBackend", "DemoOtgwBackend", "OtgwMqttBackend"]
+__all__ = ["BoilerBackend", "DemoBoilerBackend", "HcsMqttBackend"]

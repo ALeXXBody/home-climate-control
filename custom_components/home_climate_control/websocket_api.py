@@ -210,7 +210,7 @@ async def ws_set_failsafe(
     backend = data.get(entry_id, {}).get("backend") if entry_id else None
     if backend is None or not hasattr(backend, "async_set_failsafe_cfg"):
         connection.send_error(
-            msg["id"], "no_backend", "Failsafe requires an OTGW-MQTT backend"
+            msg["id"], "no_backend", "Failsafe requires the Home Climate System backend"
         )
         return
     await backend.async_set_failsafe_cfg(

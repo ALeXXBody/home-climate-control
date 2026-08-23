@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from home_climate_control.boiler.base import BoilerBackend
-from home_climate_control.boiler.otgw_mqtt import OtgwMqttBackend
+from home_climate_control.boiler.hcs_mqtt import HcsMqttBackend
 from home_climate_control.central import CentralController
 from home_climate_control.heating_curve import flow_for_outdoor
 
@@ -95,12 +95,11 @@ class FakeZone:
 
 
 @pytest.mark.asyncio
-async def test_otgw_topics():
+async def test_hcs_topics():
     hass = MagicMock()
-    be = OtgwMqttBackend(hass, prefix="OTGW", node_id="otgw-ABC", min_flow=25, max_flow=75)
-    assert be._value_topic("outside_temp") == "OTGW/outsidetemperature"
-    assert be._value_topic("flow_temp") == "OTGW/boilertemperature"
-    assert be._cmd_topic("ctrlsetpt") == "OTGW/set/otgw-ABC/ctrlsetpt"
+    be = HcsMqttBackend(hass, prefix="hcs", node_id="hcs-ABC", min_flow=25, max_flow=75)
+    assert be.base == "hcs/hcs-ABC"
+    assert be._cmd_topic("flow_setpoint") == "hcs/hcs-ABC/set/flow_setpoint"
 
 
 @pytest.mark.asyncio
@@ -109,12 +108,12 @@ async def test_otgw_set_flow_clamps_and_publishes():
 
     mqtt.async_publish = AsyncMock()
     hass = MagicMock()
-    be = OtgwMqttBackend(hass, prefix="OTGW", node_id="node1", min_flow=30, max_flow=60)
+    be = HcsMqttBackend(hass, prefix="hcs", node_id="node1", min_flow=30, max_flow=60)
     await be.async_set_flow_setpoint(99.0)
     assert be._commanded_setpoint == 60.0
     mqtt.async_publish.assert_awaited()
     args = mqtt.async_publish.await_args
-    assert args.args[1] == "OTGW/set/node1/ctrlsetpt"
+    assert args.args[1] == "hcs/node1/set/flow_setpoint"
     assert args.args[2] == "60.0"
 
 
@@ -181,9 +180,9 @@ async def test_central_uses_worst_zone_pid():
 
 @pytest.mark.asyncio
 async def test_demo_backend_heats_when_ch_on():
-    from home_climate_control.boiler.demo import DemoOtgwBackend
+    from home_climate_control.boiler.demo import DemoBoilerBackend
 
-    demo = DemoOtgwBackend(25, 75, outdoor=5.0, rooms={"Living Room": 18.0})
+    demo = DemoBoilerBackend(25, 75, outdoor=5.0, rooms={"Living Room": 18.0})
     await demo.async_start()
     await demo.async_set_ch_enabled(True)
     await demo.async_set_flow_setpoint(55.0)
@@ -212,9 +211,9 @@ async def test_demo_backend_heats_when_ch_on():
 
 @pytest.mark.asyncio
 async def test_demo_backend_idle_when_ch_off():
-    from home_climate_control.boiler.demo import DemoOtgwBackend
+    from home_climate_control.boiler.demo import DemoBoilerBackend
 
-    demo = DemoOtgwBackend(25, 75, outdoor=5.0, rooms={"Bedroom": 19.0})
+    demo = DemoBoilerBackend(25, 75, outdoor=5.0, rooms={"Bedroom": 19.0})
     await demo.async_start()
     await demo.async_set_ch_enabled(False)
     demo._last_tick -= 60
@@ -225,10 +224,10 @@ async def test_demo_backend_idle_when_ch_off():
 
 @pytest.mark.asyncio
 async def test_central_with_demo_backend_commands_flow():
-    from home_climate_control.boiler.demo import DemoOtgwBackend
+    from home_climate_control.boiler.demo import DemoBoilerBackend
 
     hass = MagicMock()
-    demo = DemoOtgwBackend(25, 75, outdoor=0.0, rooms={"Living Room": 17.0})
+    demo = DemoBoilerBackend(25, 75, outdoor=0.0, rooms={"Living Room": 17.0})
     ctrl = CentralController(
         hass, demo, curve_coeff=1.2, design_outdoor=-10, min_flow=25, max_flow=75
     )

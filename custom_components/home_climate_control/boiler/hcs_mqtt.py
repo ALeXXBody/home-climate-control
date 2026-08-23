@@ -3,9 +3,9 @@
 Telemetry:  hcs/<node>/<key>          (e.g. hcs/hcs-aabbcc/outdoor_temp)
 Commands:   hcs/<node>/set/<cmd>      (e.g. hcs/hcs-aabbcc/set/flow_setpoint)
 
-This is the first-class path for HCS devices — no OTGW compatibility layer
-involved. The firmware publishes every value here natively (and *additionally*
-mirrors a subset to OTGW-style subjects for legacy integrations).
+This is the first-class and ONLY MQTT contract of HCS devices. The firmware
+publishes every value here natively; there is no third-party gateway in the
+path.
 """
 
 from __future__ import annotations

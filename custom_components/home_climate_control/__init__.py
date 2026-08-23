@@ -7,15 +7,11 @@ from typing import TYPE_CHECKING
 
 from .const import (
     BACKEND_DEMO,
-    BACKEND_OTGW_MQTT,
     CONF_BACKEND,
-    CONF_OTGW_NODE_ID,
-    CONF_OTGW_PREFIX,
     CONF_ZONES,
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
-    DEFAULT_OTGW_PREFIX,
     DEMO_DEFAULT_OUTDOOR,
     DOMAIN,
 )
@@ -35,18 +31,17 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
-    from .boiler.demo import DemoOtgwBackend
+    from .boiler.demo import DemoBoilerBackend
     from .boiler.hcs_mqtt import HcsMqttBackend
-    from .boiler.otgw_mqtt import OtgwMqttBackend
 
-    backend_type = entry.data.get(CONF_BACKEND, BACKEND_OTGW_MQTT)
+    backend_type = entry.data.get(CONF_BACKEND, BACKEND_HCS)
     min_flow = opts.get("min_flow_temp", DEFAULT_MIN_FLOW_TEMP)
     max_flow = opts.get("max_flow_temp", DEFAULT_MAX_FLOW_TEMP)
 
-    if backend_type == "hcs_native":
+    if backend_type == BACKEND_HCS:
         return HcsMqttBackend(
             hass,
-            node_id=entry.data.get(CONF_OTGW_NODE_ID, "hcs-device"),
+            node_id=entry.data.get(CONF_NODE_ID, ""),
             min_flow=min_flow,
             max_flow=max_flow,
         )
@@ -57,20 +52,12 @@ def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
             name = z.get("name")
             if name:
                 rooms[name] = float(z.get("demo_start_temp", 18.0))
-        return DemoOtgwBackend(
+        return DemoBoilerBackend(
             min_flow,
             max_flow,
             outdoor=float(entry.data.get("demo_outdoor", DEMO_DEFAULT_OUTDOOR)),
             rooms=rooms,
         )
-
-    return OtgwMqttBackend(
-        hass,
-        prefix=entry.data.get(CONF_OTGW_PREFIX, DEFAULT_OTGW_PREFIX),
-        node_id=entry.data.get(CONF_OTGW_NODE_ID, ""),
-        min_flow=min_flow,
-        max_flow=max_flow,
-    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -93,7 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),
-        "backend": entry.data.get(CONF_BACKEND, BACKEND_OTGW_MQTT),
+        "backend": entry.data.get(CONF_BACKEND, BACKEND_HCS),
     }
 
     async_setup_websocket(hass)

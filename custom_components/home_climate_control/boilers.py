@@ -9,7 +9,7 @@ Member-ID table sources:
   - SAT project "Boiler compatibility list" (github.com/Alexwijn/SAT
     discussion #21) and its comment thread
   - Laxilef/OTGateway issue reports (Viessmann = 33 confirmed)
-  - OTGW community tables
+  - community compatibility lists
 
 Images: the panel looks up `www/boilers/<make>_<model>.<ext>` first, then
 `www/boilers/<make>.<ext>`, then falls back to `generic.svg`. Drop your own

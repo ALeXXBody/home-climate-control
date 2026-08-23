@@ -28,7 +28,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the boiler diagnostic sensor from a config entry."""
-    node_hint = entry.data.get("otgw_node", "")
+    node_hint = entry.data.get("node_id", "")
     sensor = BoilerDiagSensor(entry.entry_id, node_hint)
     fs_sensor = FailsafeSensor(entry.entry_id, node_hint)
     hass.data[DOMAIN][entry.entry_id]["boiler_diag_sensor"] = sensor

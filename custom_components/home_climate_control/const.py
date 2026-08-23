@@ -75,25 +75,18 @@ CONTROL_LOOP_SECONDS = 60
 
 # --- Backend selection -------------------------------------------------------
 CONF_BACKEND = "backend"
-BACKEND_OTGW_MQTT = "otgw_mqtt"
-BACKEND_HCS = "hcs_native"
+BACKEND_HCS = "hcs"
 BACKEND_DEMO = "demo"
-# BACKEND_HCS reuses the OTGW-MQTT backend (devices publish an OTGW-compat
-# mirror under node id "hcs-device") — it exists so setup reads correctly.
-BACKENDS = [BACKEND_DEMO, BACKEND_HCS, BACKEND_OTGW_MQTT]
+BACKENDS = [BACKEND_DEMO, BACKEND_HCS]
 
-# --- MQTT (OTGW-firmware) ----------------------------------------------------
-CONF_OTGW_PREFIX = "otgw_prefix"
-CONF_OTGW_NODE_ID = "otgw_node_id"
-DEFAULT_OTGW_PREFIX = "OTGW"
+# --- MQTT (Home Climate System device) ---------------------------------------
+CONF_NODE_ID = "node_id"
 DEMO_UNIQUE_ID = "hcc_demo"
 DEMO_DEFAULT_OUTDOOR = 5.0
 DEMO_DEFAULT_ROOMS = (
     ("Living Room", 18.5, 21.0),
     ("Bedroom", 17.0, 19.0),
 )
-# Node id defaults to the gateway hostname pattern published by otgw-firmware,
-# e.g. "otgw-AABBCCDDEEFF". User must confirm it in config flow.
 CONF_OUTDOOR_SENSOR = "outdoor_sensor"
 
 CONF_ZONES = "zones"
@@ -103,26 +96,7 @@ CONF_ZONE_WINDOW_SENSORS = "window_sensors"
 CONF_ZONE_TRV_CLIMATES = "trv_climates"
 CONF_ZONE_IS_UNDERFLOOR = "underfloor"
 
-# Telemetry subjects published by otgw-firmware under <prefix>/
+# Telemetry subjects on the native hcs/<node> bus (informational only):
 # (docs/api/MQTT.md "OpenTherm Numeric Values" + status flags).
-OTGW_TOPIC_MAP = {
-    "control_setpoint": "controlsetpoint",
-    "room_setpoint": "roomsetpoint",
-    "room_temp": "roomtemperature",
-    "modulation_level": "relmodlvl",
-    "max_modulation": "maxrelmodlvl",
-    "flow_temp": "boilertemperature",
-    "return_temp": "returnwatertemperature",
-    "dhw_temp": "dhwtemperature",
-    "outside_temp": "outsidetemperature",
-    "ch_pressure": "chwaterpressure",
-    "flame": "flamestatus",      # ON/OFF
-    "ch_active": "chmodus",      # ON/OFF
-    "dhw_active": "dhwmode",     # ON/OFF
-}
-
 # Command subjects under <prefix>/set/<node-id>/<command> (MQTTstuff.ino setcmds).
-OTGW_CMD_FLOW_SETPOINT = "ctrlsetpt"   # CS=<temp>
-OTGW_CMD_MAX_MODULATION = "maxmodulation"  # MM=<level>
-OTGW_CMD_CH_ENABLE = "chenable"        # CH=on/off
 

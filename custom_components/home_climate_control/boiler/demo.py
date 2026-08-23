@@ -2,7 +2,7 @@
 
 Simulates outdoor temperature, boiler flow/return/modulation/flame, and
 simple room thermal dynamics so the sidebar app and climate entities can
-be tested without an OTGW.
+be tested without hardware.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from .base import BoilerBackend
 _LOGGER = logging.getLogger(__name__)
 
 
-class DemoOtgwBackend(BoilerBackend):
-    """Virtual OTGW + rooms for development and UI testing."""
+class DemoBoilerBackend(BoilerBackend):
+    """Virtual boiler + rooms for development and UI testing."""
 
     def __init__(
         self,
@@ -48,7 +48,7 @@ class DemoOtgwBackend(BoilerBackend):
         self._started = True
         self._last_tick = time.monotonic()
         _LOGGER.info(
-            "Demo OTGW started (outdoor=%.1f °C, rooms=%s)",
+            "Demo boiler started (outdoor=%.1f °C, rooms=%s)",
             self._outdoor,
             list(self._rooms),
         )

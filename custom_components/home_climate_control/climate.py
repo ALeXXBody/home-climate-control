@@ -32,7 +32,7 @@ async def async_setup_entry(
         )
 
     async_add_entities(entities, update_before_add=False)
-    # Real OTGW: wire HA sensors. Demo: rooms are driven by DemoOtgwBackend.
+    # Real backend: wire HA sensors. Demo: rooms are driven by DemoBoilerBackend.
     if any(z.temp_sensor_entity for z in entities):
         wire_zone_sensors(hass, entry, entities)
     await controller.async_start()
