@@ -31,6 +31,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_failsafe)
     websocket_api.async_register_command(hass, ws_get_boiler_catalog)
     websocket_api.async_register_command(hass, ws_set_boiler_info)
+    websocket_api.async_register_command(hass, ws_check_updates)
     websocket_api.async_register_command(hass, ws_list_devices)
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
@@ -50,6 +51,15 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
             boiler_info = bi.as_dict()
     except Exception:  # noqa: BLE001
         boiler_info = None
+    update_info = None
+    try:
+        from .update_checker import get_update_checker
+
+        uc = get_update_checker(hass)
+        if uc is not None:
+            update_info = uc.info
+    except Exception:  # noqa: BLE001
+        update_info = None
     systems: list[dict[str, Any]] = []
 
     for entry_id, data in store.items():
@@ -102,6 +112,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                 "max_flow": getattr(controller, "max_flow", None),
                 "boiler": diag,
                 "boiler_info": boiler_info,
+                "update_info": update_info,
                 "zones": zones_out,
             }
         )
@@ -360,3 +371,23 @@ async def ws_set_boiler_info(
         return
     await bi.async_set_selection(msg.get("make"), msg.get("model"))
     connection.send_result(msg["id"], {"ok": True, "info": bi.as_dict()})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/check_updates"}
+)
+@websocket_api.async_response
+async def ws_check_updates(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Force an immediate firmware-update check against GitHub releases."""
+    from .update_checker import get_update_checker
+
+    uc = get_update_checker(hass)
+    if uc is None:
+        connection.send_error(msg["id"], "not_ready", "Checker not started")
+        return
+    info = await uc.async_check()
+    connection.send_result(msg["id"], {"ok": True, "info": info})

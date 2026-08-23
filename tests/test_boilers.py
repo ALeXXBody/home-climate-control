@@ -36,3 +36,17 @@ def test_catalog_payload_shape():
     assert isinstance(p["makes"], list) and p["makes"]
     assert str(33) in p["member_map"]
     assert set(p["models"].keys()) == set(BOILER_CATALOG.keys())
+
+
+def test_update_version_compare():
+    from custom_components.home_climate_control.update_checker import (
+        is_newer,
+        version_tuple,
+    )
+
+    assert version_tuple("v0.9.2") == (0, 9, 2)
+    assert is_newer("v0.10.0", "0.9.2")
+    assert is_newer("1.0", "0.99.9")
+    assert not is_newer("v0.9.2", "0.9.2")
+    assert not is_newer(None, "0.9.2")
+    assert not is_newer("garbage", "0.9.2")

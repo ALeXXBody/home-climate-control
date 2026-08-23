@@ -92,8 +92,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     from .firmware_manager import async_setup_firmware_manager
     from .boiler_info import async_setup_boiler_info
+    from .update_checker import async_setup_update_checker
 
     await async_setup_firmware_manager(hass)
+    await async_setup_update_checker(hass)
     hass.data[DOMAIN][entry.entry_id]["boiler_info"] = (
         await async_setup_boiler_info(hass, entry.entry_id)
     )

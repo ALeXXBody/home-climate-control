@@ -580,6 +580,32 @@ class HomeClimatePanel extends HTMLElement {
     const devices = this._status?.devices || [];
     const catalog = this._status?.firmware_catalog || [];
     const online = devices.filter((d) => d.online).length;
+    const ui = this._status?.systems?.[0]?.update_info || null;
+    const outdatedIds = new Set(
+      (ui?.outdated_devices || []).map((d) => d.node_id)
+    );
+
+    let banner = "";
+    if (ui?.error) {
+      banner = `<div class="card placeholder"><p class="sub">Update check failed: ${this._esc(ui.error)}</p></div>`;
+    } else if (ui?.available) {
+      banner = `
+      <div class="card" style="border-color:var(--warning-color,#f6ad55)">
+        <h3>New firmware ${this._esc(ui.latest_tag)} available</h3>
+        <p class="sub">${this._esc(outdatedIds.size)} device(s) outdated —
+          update from the list below, or</p>
+        <button type="button" data-fw-action="flash-all"
+          style="padding:6px 16px;margin:6px 0">Update all outdated</button>
+        <details style="margin-top:6px">
+          <summary style="cursor:pointer;color:var(--secondary-text-color,#aaa);font-size:.9rem">Changelog (${this._esc(ui.title || ui.latest_tag)})</summary>
+          <pre style="white-space:pre-wrap;font-size:.85rem;color:var(--primary-text-color,#ddd);max-height:260px;overflow:auto;background:var(--secondary-background-color,#141414);padding:10px;border-radius:8px">${this._esc(ui.changelog || "—")}</pre>
+          ${ui.url ? `<a href="${this._esc(ui.url)}" target="_blank" rel="noopener" style="font-size:.85rem">Release page ↗</a>` : ""}
+        </details>
+      </div>`;
+    } else if (ui && !ui.error) {
+      banner = `<div class="card placeholder"><p class="sub">Firmware is up to date
+        (${this._esc(ui.latest_tag || "no releases found")}).</p></div>`;
+    }
 
     const deviceCards = devices
       .map((d) => {
@@ -641,6 +667,7 @@ class HomeClimatePanel extends HTMLElement {
           <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
         </div>
       </div>
+      ${banner}
       ${
         devices.length
           ? `<div class="zones">${deviceCards}</div>`
@@ -653,11 +680,26 @@ class HomeClimatePanel extends HTMLElement {
   _onFwAction(el) {
     const action = el.getAttribute("data-fw-action");
     if (action === "ping") return this._pingDevices();
+    if (action === "flash-all") return this._flashAllOutdated();
     const nodeId = el.getAttribute("data-node");
     if (!nodeId) return;
     if (action === "open") return this._openOtaPage(nodeId);
     if (action === "reboot") return this._rebootDevice(nodeId);
     if (action === "flash") return this._flashDevice(nodeId);
+  }
+
+  async _flashAllOutdated() {
+    const ui = this._status?.systems?.[0]?.update_info;
+    const targets = (ui?.outdated_devices || []).map((d) => d.node_id);
+    for (const nodeId of targets) {
+      try {
+        await this._flashDevice(nodeId);
+      } catch (err) {
+        /* keep flashing the rest */
+      }
+      await new Promise((r) => setTimeout(r, 30000)); // device reboots + re-announces
+    }
+    this._refresh();
   }
 
   async _pingDevices() {
