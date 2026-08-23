@@ -114,7 +114,9 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
     def in_progress(self) -> bool:
         return self._in_progress
 
-    async def async_install(self) -> None:
+    async def async_install(
+        self, previous_version: str | None = None, options: dict | None = None
+    ) -> None:
         """Flash every outdated device with its matching board image."""
         mgr = self._mgr()
         uc = self._checker()
@@ -147,6 +149,16 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         finally:
             self._in_progress = False
             self.async_write_ha_state()
+            # clear the persistent notification once the flash batch is sent
+            from homeassistant.components import persistent_notification
+
+            tag = uc.info.get("latest_tag")
+            if tag:
+                persistent_notification.async_dismiss(
+                    self.hass, f"{DOMAIN}_fw_{tag}"
+                )
+            uc.info["available"] = False
+            uc.info["outdated_devices"] = []
 
     @property
     def release_notes(self) -> str | None:

@@ -159,9 +159,15 @@ class UpdateChecker:
             self._notified_tag = tag
             await self._store.async_save({"notified_tag": tag})
 
-        _LOGGER.info(
-            "Firmware check: latest=%s outdated=%d", tag, len(outdated)
-        )
+        if not any_outdated and self._notified_tag:
+            from homeassistant.components import persistent_notification
+
+            persistent_notification.async_dismiss(
+                self.hass, f"{DOMAIN}_fw_{self._notified_tag}"
+            )
+            self._notified_tag = None
+
+        _LOGGER.info("Firmware check: latest=%s outdated=%d", tag, len(outdated))
         return self.info
 
 

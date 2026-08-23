@@ -154,6 +154,11 @@ def install_ha_stubs() -> None:
         def __init__(self, **kw): super().__init__(**kw)
     dr.DeviceInfo = _DeviceInfo
     helpers.device_registry = dr
+
+    net_helper = _mod("homeassistant.helpers.network")
+    net_helper.get_url = lambda hass, prefer_internal=False: (
+        "http://192.168.50.20:8123")
+    helpers.network = net_helper
     storage = _mod("homeassistant.helpers.storage")
     class _Store:
         def __init__(self, *a, **k): pass

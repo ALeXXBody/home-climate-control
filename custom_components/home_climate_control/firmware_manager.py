@@ -230,9 +230,33 @@ class FirmwareManager:
     async def async_ping(self) -> None:
         await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)
 
+    def _maybe_local_mirror(self, url: str) -> str:
+        """Serve GitHub release binaries over plain LAN HTTP when we have a
+        local copy — older firmware without TLS-capable OTA can then still
+        upgrade (interim bridge until first TLS-capable release)."""
+        marker = "/releases/download/"
+        if marker not in url:
+            return url
+        fname = url.rsplit("/", 1)[-1]          # firmware-<board>.bin
+        if not fname.startswith("firmware-") or not fname.endswith(".bin"):
+            return url
+        local = Path(__file__).parent / "www" / "firmware" / fname
+        if not local.is_file():
+            return url
+        try:
+            from homeassistant.helpers.network import get_url
+
+            base = get_url(self.hass, prefer_internal=True)
+            mirrored = f"{base}/home_climate_control_static/firmware/{fname}"
+            _LOGGER.info("OTA mirror: %s -> %s", url, mirrored)
+            return mirrored
+        except Exception:  # noqa: BLE001
+            return url
+
     async def async_trigger_ota(
         self, node_id: str, url: str
     ) -> dict[str, Any]:
+        url = self._maybe_local_mirror(url)
         """Tell device to pull firmware from URL (MQTT + HTTP fallback)."""
         dev = self.devices.get(node_id)
         if not dev:
