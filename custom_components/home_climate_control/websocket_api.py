@@ -32,6 +32,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_boiler_catalog)
     websocket_api.async_register_command(hass, ws_set_boiler_info)
     websocket_api.async_register_command(hass, ws_check_updates)
+    websocket_api.async_register_command(hass, ws_set_github_token)
     websocket_api.async_register_command(hass, ws_list_devices)
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
@@ -390,5 +391,28 @@ async def ws_check_updates(
     if uc is None:
         connection.send_error(msg["id"], "not_ready", "Checker not started")
         return
-    info = await uc.async_check()
+    info = await uc.async_check(force=True)
     connection.send_result(msg["id"], {"ok": True, "info": info})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_github_token",
+        vol.Optional("token"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_set_github_token(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Store an optional personal access token (raises the API rate limit)."""
+    from .update_checker import get_update_checker
+
+    uc = get_update_checker(hass)
+    if uc is None:
+        connection.send_error(msg["id"], "not_ready", "Checker not started")
+        return
+    await uc.async_set_token(msg.get("token"))
+    connection.send_result(msg["id"], {"ok": True})

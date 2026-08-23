@@ -11,6 +11,7 @@ devices (from their retained discovery JSON), and exposes:
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant, callback
@@ -54,17 +55,22 @@ def is_newer(candidate: str | None, current: str | None) -> bool:
 
 
 class UpdateChecker:
+    MIN_CHECK_INTERVAL_S = 600  # never hammer the API more often than this
+
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
         self.info: dict = {"available": False}
         self._store = Store(hass, _STORE_VERSION, f"{DOMAIN}/update_checker")
         self._notified_tag: str | None = None
+        self._token: str | None = None
+        self._last_fetch: float = 0.0
         self._unsub = None
         self._unsub_delay = None
 
     async def async_start(self) -> None:
         data = await self._store.async_load() or {}
         self._notified_tag = data.get("notified_tag")
+        self._token = data.get("token")
         # Delayed startup check: retained MQTT discovery needs a moment to
         # populate device versions — an immediate check always saw zero
         # devices and reported "up to date" until the next 6h tick.
@@ -76,6 +82,13 @@ class UpdateChecker:
         self._unsub_delay = async_call_later(self.hass, 15, _delayed_first)
         self._unsub = async_track_time_interval(
             self.hass, self._on_interval, CHECK_INTERVAL
+        )
+
+    async def async_set_token(self, token: str | None) -> None:
+        """Optional personal access token — raises the API rate limit."""
+        self._token = token or None
+        await self._store.async_save(
+            {"notified_tag": self._notified_tag, "token": self._token}
         )
 
     async def async_stop(self) -> None:
@@ -109,21 +122,39 @@ class UpdateChecker:
                 )
         return out
 
-    async def async_check(self) -> dict:
+    async def async_check(self, force: bool = False) -> dict:
+        now = time.monotonic()
+        if not force and now - self._last_fetch < self.MIN_CHECK_INTERVAL_S:
+            return self.info
+
         session = aiohttp_client.async_get_clientsession(self.hass)
+        headers = {"Accept": "application/vnd.github+json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         try:
             resp = await session.get(
                 RELEASES_API,
-                headers={"Accept": "application/vnd.github+json"},
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
             )
+            if resp.status == 403:
+                raise RateLimit("GitHub rate limit reached — it will clear "
+                                "automatically; optionally add a personal "
+                                "access token in the panel")
             if resp.status != 200:
                 raise ConnectionError(f"GitHub returned {resp.status}")
             data = await resp.json()
+        except RateLimit as err:
+            _LOGGER.debug("update check rate-limited")
+            self.info = {**self.info, "available": False,
+                         "error": str(err), "rate_limited": True}
+            return self.info
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Update check failed: %s", err)
             self.info = {**self.info, "available": False, "error": str(err)}
             return self.info
+        finally:
+            self._last_fetch = time.monotonic()
 
         tag = data.get("tag_name") or ""
         body = (data.get("body") or "").strip()
@@ -157,7 +188,9 @@ class UpdateChecker:
                 notification_id=f"{DOMAIN}_fw_{tag}",
             )
             self._notified_tag = tag
-            await self._store.async_save({"notified_tag": tag})
+            await self._store.async_save(
+            {"notified_tag": tag, "token": self._token}
+        )
 
         if not any_outdated and self._notified_tag:
             from homeassistant.components import persistent_notification
@@ -169,6 +202,10 @@ class UpdateChecker:
 
         _LOGGER.info("Firmware check: latest=%s outdated=%d", tag, len(outdated))
         return self.info
+
+
+class RateLimit(ConnectionError):
+    """Raised when GitHub answers 403."""
 
 
 _ACTIVE: UpdateChecker | None = None
