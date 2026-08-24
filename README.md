@@ -1,16 +1,17 @@
 # Home Climate Control
 
-Home Assistant custom component for multi-zone heating control.
+Home Assistant custom component for multi-zone heating control that minimises gas use.
 
 **Software** (this repo) · companion **hardware/firmware**:  
 [home-climate-system](https://github.com/ALeXXBody/home-climate-system)
 
-**Goal:** respect room and TRV heat requests while minimising gas use via
-OpenTherm weather compensation and the lowest workable flow temperature.
+**Goal:** respect room and TRV heat requests while minimising gas use via OpenTherm
+weather compensation, learned behaviour, and the lowest workable flow temperature.
 
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
+| **Current version** | v1.1.1 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -18,15 +19,55 @@ OpenTherm weather compensation and the lowest workable flow temperature.
 
 | Name | What it is |
 |---|---|
-| **Home Climate Control** | This software — HA custom integration |
-| **Home Climate System** | Hardware + ESP32/ESP8266 firmware (separate repo) |
+| **Home Climate Control** | This software — HA custom integration + sidebar app |
+| **Home Climate System** | Hardware + ESP32/ESP8266 boiler-gateway firmware (separate repo) |
+
+## Features
+
+### Control core
+
+- **Weather-compensated heating curve** — flow setpoint tracks outdoor temperature;
+  lowest workable curve wins
+- **PID flow boost** with anti-windup when rooms lag behind schedule
+- **Auto-tuning heating curve** — learns the comfort-driven coefficient from real
+  recovery behaviour instead of manual trial-and-error
+- **Smart setbacks** — night/Away setbacks learn *per room* how fast it recovers,
+  so pre-heat lead time is calculated, not guessed
+- **CycleGuard** — adaptive burner rest window + minimum-on floor; protects the
+  boiler from short-cycling at low load
+
+### Metering & diagnostics
+
+- **Estimated gas accounting** from boiler telemetry (modulation × time) — no gas
+  meter required
+- **Boiler auto-detection** — reads the OpenTherm MemberID and identifies make/model
+- **Custom 1-Wire probes** — auto-detected DS18B20 sensors exposed as selectable
+  HA entities with user-defined roles
+
+### Boards & OTA
+
+- **Board tab** — live two-way replica of the ESP Control page inside the sidebar app
+  (CH/DHW toggles, DHW setpoint, flow setpoint, max-modulation slider)
+- **Two-way settings sync** with boards running firmware v1.2.0+
+- **Firmware tab** — dynamic catalog tracking GitHub releases; sha256-verified
+  self-refreshing LAN mirror; OTA progress bar, failure notifications and
+  post-reboot success detection
+
+### Zones
+
+- Zone climate entities with presets, heat/off
+- Window/door sensor pause
+- TRV demand respect — zones only call for heat when their TRVs actually ask
 
 ## Requirements
 
 - Home Assistant 2024.1 or newer
 - [HACS](https://hacs.xyz/) (recommended)
 - MQTT integration configured in Home Assistant
-- OpenTherm Gateway with MQTT (e.g. OTGW-firmware), **or** later a Home Climate System device
+- One of:
+  - **OpenTherm Gateway** with MQTT (e.g. OTGW-firmware), or
+  - a **Home Climate System** board (DIYLess OT shield + ESP8266/ESP32, see the
+    [home-climate-system](https://github.com/ALeXXBody/home-climate-system) repo)
 - Boiler outdoor temperature sensor (weather compensation)
 
 ## Install via HACS (custom repository)
@@ -87,15 +128,17 @@ as `outsidetemperature`.
 ## Sidebar app
 
 After the integration is set up, a **Home Climate** item appears in the Home Assistant
-sidebar (icon: thermometer home). Full-screen UI for:
+sidebar (icon: thermometer home). Full-screen UI:
 
-| Tab | Status |
+| Tab | Content |
 |---|---|
 | Overview | Boiler / outdoor / flow / demand + zone summary |
 | Zones | Set temperature, heat/off, presets |
-| Floor plan | Placeholder (coming later) |
-| Firmware | Placeholder (HCS device flash later) |
-| Settings | Curve / flow limits (read-only; edit via Configure) |
+| Board | Live control of a connected HCS board (replica of its web UI) |
+| Firmware | Catalog, mirror status, flash boards over-the-air with progress |
+| Settings | Curve / flow limits, boiler info, board settings |
+
+The panel footer shows the running integration version.
 
 ## Demo mode (no hardware)
 
@@ -106,18 +149,17 @@ When adding the integration, choose **Demo OTGW**. That creates:
 - No MQTT or real sensors required
 
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
-and flow setpoint change. Perfect for testing the UI before firmware/board work.
+and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v0.3.0)
+## Status (v1.1.1)
 
-- Config flow: **Demo OTGW** or real OTGW MQTT
-- Zone climate entities (presets, window pause, TRV demand respect)
-- Central controller: weather-compensated heating curve + PID flow boost
-- Boiler backends: demo simulator + OTGW-firmware MQTT
-- **Sidebar panel** + WebSocket API (`home_climate_control/get_status`, `set_zone`)
+- Backends: demo simulator · OTGW-firmware MQTT · native HCS board (MQTT)
+- Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard
+- Metering: estimated gas accounting · boiler MemberID detection · 1-Wire probe entities
+- Boards: live Board tab · two-way settings sync · OTA with progress/success detection
 
-Not yet: low-load duty cycling, auto-tune, underfloor profiles, floor plan, firmware flasher,
-native Home Climate System device backend.
+Planned next: per-room heat-rate calibration (°C/h room models), temp-slope
+open-window detection, floor plan view.
 
 ## Run tests (local venv)
 
