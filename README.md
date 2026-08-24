@@ -11,7 +11,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.2.0 |
+| **Current version** | v1.2.1 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -163,7 +163,9 @@ sidebar (icon: thermometer home). Full-screen UI:
 | Firmware | Catalog, mirror status, flash boards over-the-air with progress |
 | Settings | Curve / flow limits, boiler info, board settings |
 
-The panel footer shows the running integration version.
+The header shows a live **boiler link pill** (green *Boiler connected* /
+red *Boiler disconnected* / amber with the board's diagnostic text) and the
+footer shows the running integration version.
 
 ## Demo mode (no hardware)
 
@@ -176,7 +178,7 @@ When adding the integration, choose **Demo mode**. That creates:
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
 and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v1.2.0)
+## Status (v1.2.1)
 
 - Backends: demo simulator · native HCS board (MQTT)
 - Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·

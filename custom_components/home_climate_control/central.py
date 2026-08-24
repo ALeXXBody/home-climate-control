@@ -473,4 +473,5 @@ class CentralController:
             data["gas"] = self.gas.as_dict()
         data["cycle_guard"] = self.cycleguard.as_dict()
         data.update(self.backend.diagnostics())
+        data["boiler_connected"] = getattr(self.backend, "connected", True)
         return data

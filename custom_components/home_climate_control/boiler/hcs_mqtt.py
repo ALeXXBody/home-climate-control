@@ -59,6 +59,7 @@ class HcsMqttBackend(BoilerBackend):
         self._flame: bool | None = None
         self._ch_active: bool | None = None
         self._fault_text: str | None = None
+        self._last_rx_mono: float | None = None
         self._commanded_setpoint: float | None = None
         # custom 1-Wire probes (role=custom): name -> celsius
         self._custom: dict[str, float] = {}
@@ -106,6 +107,13 @@ class HcsMqttBackend(BoilerBackend):
     # --- telemetry dispatch --------------------------------------------------
     @callback
     def _on_value(self, key: str, payload: str) -> None:
+        # Any real telemetry leaf doubles as a liveness heartbeat; set/*
+        # echoes and discovery pings do not count.
+        import time as _t
+
+        if not key.startswith("set/") and key != "ping_discovery":
+            self._last_rx_mono = _t.monotonic()
+
         # custom leaves: x/<name>
         if key.startswith("x/"):
             name = key[2:].strip()
@@ -147,6 +155,11 @@ class HcsMqttBackend(BoilerBackend):
             except Exception:  # noqa: BLE001
                 pass
             return
+        # Any real telemetry leaf doubles as a liveness heartbeat; set/*
+        # echoes and discovery pings do not count.
+        import time as _t
+
+        self._last_rx_mono = _t.monotonic()
         if "/" in key or key in ("online", "ping_discovery"):
             return  # set-topics & LWT noise
         text = (payload or "").strip()
@@ -215,6 +228,18 @@ class HcsMqttBackend(BoilerBackend):
     @property
     def fault_text(self): return self._fault_text
 
+    CONNECTED_STALE_S = 300  # silent board for 5 min = disconnected
+
+    @property
+    def connected(self):
+        """True while board telemetry is fresh, False once stale,
+        None before the very first message arrives."""
+        if self._last_rx_mono is None:
+            return None
+        import time as _t
+
+        return (_t.monotonic() - self._last_rx_mono) <= self.CONNECTED_STALE_S
+
     def custom_sensors(self) -> dict:
         return dict(self._custom)
 
@@ -237,6 +262,7 @@ class HcsMqttBackend(BoilerBackend):
             commanded_setpoint=self._commanded_setpoint,
             pressure_bar=self._pressure,
             fault_text=self._fault_text,
+            connected=self.connected,
             custom_sensors=dict(self._custom),
             probes=list(self._sensors_snapshot),
         )

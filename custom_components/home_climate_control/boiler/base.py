@@ -61,6 +61,12 @@ class BoilerBackend(ABC):
     @abstractmethod
     def ch_active(self) -> bool | None: ...
 
+    @property
+    def connected(self) -> bool:
+        """Backends without a link notion (demo, plain switch) are always
+        considered connected."""
+        return True
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "outdoor_temp": self.outdoor_temp,

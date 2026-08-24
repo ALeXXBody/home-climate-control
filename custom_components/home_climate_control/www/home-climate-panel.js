@@ -312,6 +312,18 @@ class HomeClimatePanel extends HTMLElement {
           overflow: hidden;
           text-overflow: ellipsis;
         }
+        .hdr-ok {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 12px;
+          border-radius: 14px;
+          font-size: 0.82rem;
+          color: #9fdcb1;
+          background: rgba(76, 175, 80, 0.14);
+          border: 1px solid rgba(76, 175, 80, 0.40);
+          white-space: nowrap;
+        }
         .floor-head {
           font-size: 0.85rem;
           font-weight: 600;
@@ -504,7 +516,7 @@ class HomeClimatePanel extends HTMLElement {
         <header>
           <img class="hcc-logo" src="/home_climate_control_static/brand/icon.png" alt="Home Climate Control logo">
           <h1>Home Climate ${sys?.demo ? '<span class="badge heat" style="font-size:0.7rem;vertical-align:middle">DEMO</span>' : ""}</h1>
-          ${this._boilerDiagBanner()}
+          ${this._boilerPillHtml(sys)}
           <button class="ghost refresh" type="button" data-action="refresh">Refresh</button>
         </header>
         <nav class="tabs">
@@ -1616,21 +1628,44 @@ class HomeClimatePanel extends HTMLElement {
     </div>`;
   }
 
-  _boilerDiagBanner() {
-    /* Compact header pill (sits left of Refresh): shows the boiler's
-       plain-English diagnostic text when it reports anything unusual. */
+  _boilerPillHtml(sys) {
+    /* Header pill, always visible once the backend reports a link state:
+       red   = boiler disconnected (no telemetry for 5 min)
+       amber = connected but diagnostic text reports something
+       green = connected, no faults
+       (hidden only before any state is known at all) */
     if (!this._hass?.states) return "";
+    const conn = this._status?.systems?.[0]?.boiler?.boiler_connected;
+
+    // Diagnostic text from the board's boiler_diag sensor, if any.
+    let text = "";
     const entry = Object.entries(this._hass.states).find(([id]) =>
       id.endsWith("_boiler_diagnostic")
     );
-    if (!entry) return "";
-    const st = entry[1];
-    const text = String(st.state ?? "");
-    if (!text || text === "unknown" || text === "no faults") return "";
-    return `<span class="hdr-alert" title="Boiler diagnostic: ${this._esc(text)}">
-      <ha-icon icon="mdi:fire-alert" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
-      <span class="hdr-alert-txt">${this._esc(text)}</span>
-    </span>`;
+    if (entry) {
+      const t = String(entry[1].state ?? "");
+      if (t && t !== "unknown" && t !== "no faults") text = t;
+    }
+
+    if (conn === false) {
+      return `<span class="hdr-alert" title="No boiler telemetry received recently — check the board and the OpenTherm wiring">
+        <ha-icon icon="mdi:fire-off" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
+        <span class="hdr-alert-txt">Boiler disconnected</span>
+      </span>`;
+    }
+    if (text) {
+      return `<span class="hdr-alert" title="Boiler diagnostic: ${this._esc(text)}">
+        <ha-icon icon="mdi:fire-alert" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
+        <span class="hdr-alert-txt">${this._esc(text)}</span>
+      </span>`;
+    }
+    if (conn === true) {
+      return `<span class="hdr-ok" title="Boiler is responding on the bus">
+        <ha-icon icon="mdi:fire" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
+        <span class="hdr-ok-txt">Boiler connected</span>
+      </span>`;
+    }
+    return "";
   }
 }
 

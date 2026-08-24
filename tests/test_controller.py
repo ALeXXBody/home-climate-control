@@ -365,3 +365,39 @@ def test_ws_failsafe_finds_backend_object():
     asyncio.run(websocket_api.ws_set_failsafe(hass, conn, msg))
     backend.async_set_failsafe_cfg.assert_awaited_once_with(True, 42.0, 10)
     conn.send_result.assert_called_once()
+
+
+# ---------------------------------------------- boiler link state (pill)
+
+@pytest.mark.asyncio
+async def test_hcs_backend_connected_tracks_freshness():
+    from unittest.mock import MagicMock
+    import time as _t
+
+    from custom_components.home_climate_control.boiler.hcs_mqtt import HcsMqttBackend
+
+    be = HcsMqttBackend(MagicMock(), prefix="hcs", node_id="n1",
+                        min_flow=25, max_flow=75)
+    # nothing received yet -> unknown
+    assert be.connected is None
+    be._last_rx_mono = _t.monotonic()          # fresh heartbeat
+    assert be.connected is True
+    be._last_rx_mono = _t.monotonic() - 601    # silent for 10 min
+    assert be.connected is False
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_expose_boiler_connected():
+    hass = MagicMock()
+    backend = FakeBackend()
+    ctrl = CentralController(
+        hass, backend, curve_coeff=1.2, design_outdoor=-10, min_flow=25, max_flow=75
+    )
+    d = ctrl.diagnostics()
+    assert d["boiler_connected"] is True  # demo/switch backends always up
+
+
+def test_demo_backend_reports_connected():
+    from custom_components.home_climate_control.boiler.demo import DemoBoilerBackend
+
+    assert DemoBoilerBackend.__mro__ and hasattr(DemoBoilerBackend, "connected")
