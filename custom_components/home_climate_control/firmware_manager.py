@@ -185,6 +185,7 @@ def catalog_from_releases(
                     or f"/home_climate_control_static/boards/photos/{plain}.png",
                     "model": model,
                     "title": f"HCS {ver} — {pretty_model}",
+                    "sha256": str(asset.get("digest") or ""),
                     "size": str(asset.get("size") or ""),
                     "url": asset.get("browser_download_url")
                     or asset.get("url", ""),
@@ -678,26 +679,44 @@ class FirmwareManager:
             return fname
         return None
 
-    def _expected_mirror_size(self, url: str, fname: str) -> int | None:
-        """Asset size from the live catalog (newest release wins)."""
+    def _expected_mirror_meta(self, url: str, fname: str) -> dict:
+        """Expected asset size/sha256 from the live catalog (newest wins)."""
         board = fname[len("firmware-"):-len(".bin")]
         for item in self.catalog:
             if item.get("url") == url or item.get("board") == board:
                 try:
-                    return int(item.get("size") or "")
+                    size = int(item.get("size") or "")
                 except (TypeError, ValueError):
-                    continue
-        return None
+                    size = None
+                sha = str(item.get("sha256") or "")
+                if sha.startswith("sha256:"):
+                    sha = sha.split(":", 1)[1]
+                return {"size": size or None, "sha256": sha or None}
+        return {"size": None, "sha256": None}
 
     async def _async_refresh_mirror(
-        self, url: str, local: Path, expected_size: int | None
+        self, url: str, local: Path, meta: dict
     ) -> None:
-        """Re-download the cached release image when stale/missing."""
+        """Re-download the cached release image when stale/missing.
+
+        Staleness is judged by sha256 when the release provides one,
+        falling back to byte size; a same-size rebuild can no longer
+        masquerade as fresh.
+        """
+        import hashlib
+
         try:
-            stale = not local.is_file() or (
-                expected_size is not None
-                and local.stat().st_size != expected_size
-            )
+            want_sha = meta.get("sha256")
+            want_size = meta.get("size")
+            stale = True
+            if local.is_file():
+                data = local.read_bytes()
+                if want_sha:
+                    stale = hashlib.sha256(data).hexdigest() != want_sha
+                elif want_size is not None:
+                    stale = len(data) != want_size
+                else:
+                    stale = False
             if not stale:
                 return
             import asyncio
@@ -709,6 +728,8 @@ class FirmwareManager:
                     data = await resp.read()
             if len(data) < 65536:
                 raise ValueError(f"asset suspiciously small ({len(data)}B)")
+            if want_sha and hashlib.sha256(data).hexdigest() != want_sha:
+                raise ValueError("downloaded asset fails sha256 verification")
             tmp = local.with_name(local.name + ".tmp")
             tmp.write_bytes(data)
             tmp.replace(local)
@@ -731,7 +752,7 @@ class FirmwareManager:
         if not fname:
             return url
         local = self.MIRROR_DIR / fname
-        await self._async_refresh_mirror(url, local, self._expected_mirror_size(url, fname))
+        await self._async_refresh_mirror(url, local, self._expected_mirror_meta(url, fname))
         if not local.is_file():
             return url  # nothing cached, let the board try GitHub itself
         try:
