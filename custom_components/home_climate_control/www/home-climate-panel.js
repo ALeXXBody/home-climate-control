@@ -708,6 +708,7 @@ class HomeClimatePanel extends HTMLElement {
     const zones = sys.zones || [];
     const cal = sys.boiler?.calibration || {};
     const rates = sys.boiler?.setbacks?.rooms || {};
+    const dts = sys.boiler?.deadtime?.rooms || {};
     if (!zones.length) {
       return `<div class="card empty">No rooms configured. Add rooms (TRV + optional temp sensor) in the integration setup.</div>`;
     }
@@ -718,6 +719,7 @@ class HomeClimatePanel extends HTMLElement {
             const heat =
               String(z.hvac_action).includes("heat") || z.hvac_action === "heating";
             const rate = rates[z.name]?.warm_rate;
+            const dt = dts[z.name]?.minutes;
             const calHere = cal.active && cal.zone === z.name;
             return `
           <div class="card zone">
@@ -727,6 +729,7 @@ class HomeClimatePanel extends HTMLElement {
                 ${this._fmt(z.current_temperature)}°C → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C
                 · demand ${Math.round((z.demand_level || 0) * 100)}%
                 ${rate ? ` · <span title="Learned warm-up rate">warms ${rate} °C/h</span>` : ""}
+                ${dt != null ? ` · <span title="Learned boiler-to-room response delay">responds in ~${dt} min</span>` : ""}
                 ${z.trv ? ` · TRV ${this._esc(z.trv)}` : ""}
                 ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (z.temp_source === "trv" ? " · temp from TRV" : "")}
                 ${(z.window_sensors || []).length

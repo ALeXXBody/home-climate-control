@@ -47,6 +47,7 @@ class CentralController:
         self.autotune = autotune
         self.setbacks = None
         self.gas = None
+        self.deadtime = None
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
@@ -232,8 +233,28 @@ class CentralController:
             self._ch_on = ch_state
             if ch_state:
                 _LOGGER.info("CH on (%s)", _reason)
+                # Dead-time stopwatches: rooms demanding at this instant are
+                # timed until their temperature starts to move.
+                if self.deadtime is not None:
+                    import time as _time
+
+                    temps = {}
+                    for z in demanding:
+                        t = (
+                            getattr(z, "current_temperature", None)
+                            or getattr(z, "_current_temp", None)
+                        )
+                        if t is not None:
+                            temps[z.name] = t
+                    self.deadtime.arm(
+                        [z.name for z in demanding],
+                        ts=_time.time(),
+                        temps=temps,
+                    )
             else:
                 _LOGGER.info("CH off (%s)", _reason)
+                if self.deadtime is not None:
+                    self.deadtime.disarm_all()
 
         if not ch_state and not self._ch_on:
             # Fully at rest: no demand honoured this tick.
@@ -321,6 +342,8 @@ class CentralController:
             data["autotune"] = self.autotune.as_dict()
         if self.setbacks is not None:
             data["setbacks"] = self.setbacks.as_dict()
+        if self.deadtime is not None:
+            data["deadtime"] = self.deadtime.as_dict()
         data["calibration"] = self.calibration.as_dict()
         if self.gas is not None:
             data["gas"] = self.gas.as_dict()

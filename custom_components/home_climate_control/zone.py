@@ -282,6 +282,20 @@ class ZoneClimateEntity(ClimateEntity):
                 self.hass.async_create_task(
                     self.coordinator.finish_calibration(result)
                 )
+        # Dead-time stopwatch: samples are checked against the armed heat
+        # start; a confirmed rise closes the measurement for this room.
+        estimator = getattr(self.coordinator, "deadtime", None)
+        if (
+            estimator is not None
+            and temperature is not None
+            and not self._window_open
+        ):
+            import time as _t
+
+            try:
+                estimator.observe(self.name, _t.time(), temperature)
+            except Exception:  # noqa: BLE001
+                pass
         # Slope-based window detection (rooms without contact sensors):
         # a fast temperature drop trips the same pause a door sensor would.
         if self._slope_detector is not None and temperature is not None:
