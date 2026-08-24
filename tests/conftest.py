@@ -76,6 +76,13 @@ def install_ha_stubs() -> None:
     selector = _mod("homeassistant.helpers.selector")
     selector.EntitySelector = lambda *a, **k: str
     selector.EntitySelectorConfig = lambda **k: k
+    selector.SelectSelector = lambda *a, **k: str
+    selector.SelectSelectorConfig = lambda **k: k
+    selector.SelectOptionDict = lambda **k: k
+    selector.SelectSelectorMode = types.SimpleNamespace(DROPDOWN="dropdown")
+    selector.NumberSelector = lambda *a, **k: str
+    selector.NumberSelectorConfig = lambda **k: k
+    selector.NumberSelectorMode = types.SimpleNamespace(BOX="box")
     ce = _mod("homeassistant.config_entries")
     class _ConfigFlow:
         def __init_subclass__(cls, domain=None, **kw): 

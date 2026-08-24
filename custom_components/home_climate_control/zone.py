@@ -85,6 +85,15 @@ class ZoneClimateEntity(ClimateEntity):
         self._trv_entity: str | None = trvs[0] if trvs else None
         self._temp_sensor = zone_cfg.get("temp_sensor") or None
         self._window_sensors: list[str] = _as_list(zone_cfg.get("window_sensors"))
+        # House-model fields: which floor the room sits on and how its heat
+        # is controlled (smart = addressable TRV, manual = hand-turned valve
+        # HCC can only observe).
+        try:
+            self.floor: int = max(0, int(zone_cfg.get("floor", 0) or 0))
+        except (TypeError, ValueError):
+            self.floor = 0
+        control = str(zone_cfg.get("heat_control", "smart") or "smart").lower()
+        self.heater_control: str = control if control in ("smart", "manual") else "smart"
         # Rooms without physical sensors get slope-based detection instead:
         # an abnormally fast temperature drop pauses heat just like a
         # tripped door sensor would.
@@ -150,6 +159,8 @@ class ZoneClimateEntity(ClimateEntity):
             "demand_level": round(self._demand, 3),
             "pid_flow_contribution": round(self._pid_output, 2),
             "window_open": self._window_open,
+            "floor": self.floor,
+            "heater_control": self.heater_control,
             "slope_window_detect": self._slope_detector is not None,
             "slope_window_active": (
                 self._slope_detector.open if self._slope_detector else False

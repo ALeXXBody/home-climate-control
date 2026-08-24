@@ -12,7 +12,13 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
-from .const import CONF_ZONE_NAME, CONF_ZONES, DOMAIN
+from .const import (
+    CONF_ZONE_FLOOR,
+    CONF_ZONE_HEAT_CONTROL,
+    CONF_ZONE_NAME,
+    CONF_ZONES,
+    DOMAIN,
+)
 from .firmware_manager import (
     async_setup_firmware_manager,
     catalog_item,
@@ -107,6 +113,8 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                     "preset_mode": getattr(zone, "preset_mode", "none"),
                     "demand_level": getattr(zone, "demand_level", lambda: 0)(),
                     "window_open": getattr(zone, "paused", lambda: False)(),
+                    "floor": getattr(zone, "floor", 0),
+                    "heat_control": getattr(zone, "heater_control", "smart"),
                     "window_sensors": list(
                         getattr(zone, "window_sensor_entities", []) or []
                     ),
@@ -302,11 +310,38 @@ def validate_zone_name(names: list[str | None], new_name: str) -> str | None:
     return None
 
 
+FLOOR_MAX = 30
+HEAT_CONTROLS = ("smart", "manual")
+
+
+def validate_zone_update(
+    names: list[str | None],
+    *,
+    new_name: str | None = None,
+    floor: int | None = None,
+    heat_control: str | None = None,
+) -> str | None:
+    """Validate any combination of room edits; error string or None."""
+    if new_name is None and floor is None and heat_control is None:
+        return "Nothing to change"
+    if new_name is not None:
+        err = validate_zone_name(names, new_name)
+        if err:
+            return err
+    if floor is not None and not (0 <= int(floor) <= FLOOR_MAX):
+        return f"Floor must be between 0 and {FLOOR_MAX}"
+    if heat_control is not None and heat_control not in HEAT_CONTROLS:
+        return "heat_control must be 'smart' or 'manual'"
+    return None
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/rename_zone",
         vol.Required("zone"): str,
-        vol.Required("new_name"): str,
+        vol.Optional("new_name"): str,
+        vol.Optional("floor"): vol.All(vol.Coerce(int), vol.Range(min=0, max=FLOOR_MAX)),
+        vol.Optional("heat_control"): vol.In(HEAT_CONTROLS),
     }
 )
 @websocket_api.async_response
@@ -315,27 +350,48 @@ async def ws_rename_zone(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Rename a room: updates options (entry reloads) and migrates learning."""
+    """Update a room: rename and/or set floor / heater-control type.
+
+    Any rename migrates learned history to the new key first; the options
+    update reloads platforms so changes apply live.
+    """
     entry, names = _zone_entry_and_names(hass, msg["zone"])
     if entry is None:
         connection.send_error(msg["id"], "not_found", "Unknown zone")
         return
-    err = validate_zone_name([n for n in names if n != msg["zone"]], msg["new_name"])
+
+    new_name = (msg.get("new_name") or "").strip() or None
+    floor = msg.get("floor")
+    heat_control = msg.get("heat_control")
+    err = validate_zone_update(
+        [n for n in names if n != msg["zone"]],
+        new_name=new_name,
+        floor=floor,
+        heat_control=heat_control,
+    )
     if err is not None:
         connection.send_error(msg["id"], "invalid_name", err)
         return
 
     controller = hass.data[DOMAIN][entry.entry_id]["controller"]
     zones_cfg = list(entry.options.get(CONF_ZONES, []))
-    new_zones = [
-        {**z, CONF_ZONE_NAME: msg["new_name"].strip()}
-        if z.get(CONF_ZONE_NAME) == msg["zone"]
-        else z
-        for z in zones_cfg
-    ]
+    new_zones = []
+    for z in zones_cfg:
+        if z.get(CONF_ZONE_NAME) != msg["zone"]:
+            new_zones.append(z)
+            continue
+        z = dict(z)
+        if new_name:
+            z[CONF_ZONE_NAME] = new_name
+        if floor is not None:
+            z[CONF_ZONE_FLOOR] = int(floor)
+        if heat_control is not None:
+            z[CONF_ZONE_HEAT_CONTROL] = heat_control
+        new_zones.append(z)
     new_options = {**entry.options, CONF_ZONES: new_zones}
     # Migrate learned history before the reload swaps the entity out.
-    controller.rename_zone_learning(msg["zone"], msg["new_name"].strip())
+    if new_name:
+        controller.rename_zone_learning(msg["zone"], new_name)
     hass.config_entries.async_update_entry(entry, options=new_options)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 

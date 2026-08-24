@@ -312,6 +312,14 @@ class HomeClimatePanel extends HTMLElement {
           overflow: hidden;
           text-overflow: ellipsis;
         }
+        .floor-head {
+          font-size: 0.85rem;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          opacity: 0.65;
+          margin: 14px 2px 8px;
+        }
         .tabs {
           display: flex;
           gap: 4px;
@@ -545,6 +553,17 @@ class HomeClimatePanel extends HTMLElement {
         this._setZone(id, { preset_mode: el.value });
       });
     });
+    root.querySelectorAll("[data-zone-floor]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const zoneName = el.getAttribute("data-zone-name");
+        if (zoneName) {
+          this._adminZone("rename_zone", {
+            zone: zoneName,
+            floor: parseInt(el.value, 10),
+          });
+        }
+      });
+    });
     root.querySelectorAll("[data-fw-action]").forEach((el) => {
       el.addEventListener("click", () => this._onFwAction(el));
     });
@@ -739,38 +758,62 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
+  static FLOOR_LABEL = (f) =>
+    f === 0 ? "Ground floor" : `${f}${f === 1 ? "st" : f === 2 ? "nd" : f === 3 ? "rd" : "th"} floor`;
+
   _zonesHtml(sys, compact = false) {
     const zones = sys.zones || [];
-    const cal = sys.boiler?.calibration || {};
-    const rates = sys.boiler?.setbacks?.rooms || {};
-    const dts = sys.boiler?.deadtime?.rooms || {};
-    const health = sys.boiler?.health?.rooms || {};
-    const insul = sys.boiler?.insulation?.rooms || {};
     if (!zones.length) {
       return `<div class="card empty">No rooms configured. Add rooms (TRV + optional temp sensor) in the integration setup.</div>`;
     }
+    const ctx = {
+      compact,
+      cal: sys.boiler?.calibration || {},
+      rates: sys.boiler?.setbacks?.rooms || {},
+      dts: sys.boiler?.deadtime?.rooms || {},
+      health: sys.boiler?.health?.rooms || {},
+      insul: sys.boiler?.insulation?.rooms || {},
+    };
+    // Group rooms by floor (0 = ground); stable order inside each floor.
+    const byFloor = new Map();
+    for (const z of zones) {
+      const f = Number.isFinite(z.floor) ? z.floor : 0;
+      if (!byFloor.has(f)) byFloor.set(f, []);
+      byFloor.get(f).push(z);
+    }
+    const floors = [...byFloor.keys()].sort((a, b) => a - b);
+    return floors
+      .map((f) => `
+        ${compact ? "" : `<div class="floor-head">${HomeClimatePanel.FLOOR_LABEL(f)}</div>`}
+        <div class="zones">
+          ${byFloor.get(f).map((z) => this._zoneCard(z, ctx)).join("")}
+        </div>`)
+      .join("");
+  }
+
+  _zoneCard(z, ctx) {
+    const { compact, cal, rates, dts, health, insul } = ctx;
+    const heat =
+      String(z.hvac_action).includes("heat") || z.hvac_action === "heating";
+    const rate = rates[z.name]?.warm_rate;
+    const dt = dts[z.name]?.minutes;
+    const ins = insul[z.name];
+    const manual = z.heat_control === "manual";
+    const calHere = cal.active && cal.zone === z.name;
     return `
-      <div class="zones">
-        ${zones
-          .map((z) => {
-            const heat =
-              String(z.hvac_action).includes("heat") || z.hvac_action === "heating";
-            const rate = rates[z.name]?.warm_rate;
-            const dt = dts[z.name]?.minutes;
-            const ins = insul[z.name];
-            const calHere = cal.active && cal.zone === z.name;
-            return `
           <div class="card zone">
             <div>
               <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
               <div class="zone-meta">
-                ${this._fmt(z.current_temperature)}°C → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C
+                <span title="${manual ? "Valve turned by hand — HCC observes only" : "Addressable TRV — HCC commands it"}"
+                  style="opacity:.85">${manual ? "✋ Manual radiator" : "⚡ Smart TRV"}</span>
+                · ${this._fmt(z.current_temperature)}°C → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C
                 · demand ${Math.round((z.demand_level || 0) * 100)}%
                 ${rate ? ` · <span title="Learned warm-up rate">warms ${rate} °C/h</span>` : ""}
                 ${dt != null ? ` · <span title="Learned boiler-to-room response delay">responds in ~${dt} min</span>` : ""}
                 ${ins?.label ? ` · <span title="Heat-loss factor k=${ins.k} of the indoor-outdoor gap per hour, learned from cool-downs">insulation: ${this._esc(ins.label)}</span>` : ""}
-                ${z.trv ? ` · TRV ${this._esc(z.trv)}` : ""}
-                ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (z.temp_source === "trv" ? " · temp from TRV" : "")}
+                ${!manual && z.trv ? ` · TRV ${this._esc(z.trv)}` : ""}
+                ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (z.temp_source === "trv" && !manual ? " · temp from TRV" : "")}
                 ${(z.window_sensors || []).length
                   ? ` · window ${this._esc((z.window_sensors || []).join(", "))}`
                   : ""}
@@ -794,6 +837,18 @@ class HomeClimatePanel extends HTMLElement {
                 <button type="button" ${cal.active ? "disabled" : ""} data-zone-action="calibrate"
                   data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
+                <button type="button" class="ghost" data-zone-action="control"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="${manual ? "This room has a hand-turned valve; click if it actually has a smart TRV" : "Click if this radiator's valve is turned by hand (HCC will observe only)"}">${manual ? "✋ Manual" : "⚡ Smart TRV"}</button>
+                <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
+                  title="Which floor is this room on?">
+                  ${[0, 1, 2, 3]
+                    .map(
+                      (f) =>
+                        `<option value="${f}" ${(Number.isFinite(z.floor) ? z.floor : 0) === f ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`
+                    )
+                    .join("")}
+                </select>
                 <button type="button" class="ghost" data-zone-action="rename"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Rename this room">✎</button>
@@ -816,9 +871,6 @@ class HomeClimatePanel extends HTMLElement {
             </div>`
             }
           </div>`;
-          })
-          .join("")}
-      </div>`;
   }
 
   static OTA_ACTIVE = new Set(["starting", "downloading", "rebooting"]);
@@ -1478,6 +1530,18 @@ class HomeClimatePanel extends HTMLElement {
       const newName = prompt(`Rename "${zoneName}" to:`, zoneName);
       if (!newName || newName.trim() === zoneName) return;
       this._adminZone("rename_zone", { zone: zoneName, new_name: newName.trim() });
+    }
+    if (action === "control") {
+      const zoneName = el.getAttribute("data-zone-name");
+      const now = el.getAttribute("data-now") || "smart";
+      if (!zoneName) return;
+      const next = now === "manual" ? "smart" : "manual";
+      const msg =
+        next === "manual"
+          ? `Mark "${zoneName}" as a manual radiator?\n\nHCC will observe its temperature but the valve is turned by hand.`
+          : `Mark "${zoneName}" as smart-TRV controlled?`;
+      if (!confirm(msg)) return;
+      this._adminZone("rename_zone", { zone: zoneName, heat_control: next });
     }
     if (action === "remove") {
       const zoneName = el.getAttribute("data-zone-name");

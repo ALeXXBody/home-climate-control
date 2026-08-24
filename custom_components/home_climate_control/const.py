@@ -97,7 +97,11 @@ CONF_ZONES = "zones"  # options key (legacy name; UI says "Rooms")
 CONF_ZONE_NAME = "name"
 CONF_ZONE_TEMP_SENSOR = "temp_sensor"  # optional external wall sensor
 CONF_ZONE_WINDOW_SENSORS = "window_sensors"
-CONF_ZONE_TRV_CLIMATES = "trv_climates"  # required: one climate entity (TRV)
+CONF_ZONE_TRV_CLIMATES = "trv_climates"  # one or more climate entities (TRV)
+CONF_ZONE_FLOOR = "floor"  # int: 0 = ground floor, 1 = first floor, ...
+CONF_ZONE_HEAT_CONTROL = "heat_control"  # smart | manual
+HEAT_CONTROL_SMART = "smart"    # addressable TRV: HCC commands it
+HEAT_CONTROL_MANUAL = "manual"  # hand-turned valve: HCC observes only
 CONF_ZONE_IS_UNDERFLOOR = "underfloor"
 
 # Telemetry subjects on the native hcs/<node> bus (informational only):

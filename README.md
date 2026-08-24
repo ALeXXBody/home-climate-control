@@ -11,7 +11,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.1.9 |
+| **Current version** | v1.2.0 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -73,8 +73,13 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
   self-refreshing LAN mirror; OTA progress bar, failure notifications and
   post-reboot success detection
 
-### Zones
+### Zones — a model of your house
 
+- Rooms carry a **floor** (0 = ground, 1, 2, …) and a **heater-control type**:
+  - ⚡ **Smart TRV** — an addressable valve HCC commands directly
+  - ✋ **Manual radiator** — hand-turned valve; HCC observes temperature only
+- Zones tab groups room cards under floor headers; floor and control type are
+  editable per card without re-running setup
 - Zone climate entities with presets, heat/off
 - **Rename & remove rooms from the panel** — ✎ renames (learned history
   carries over), 🗑 removes the card; changes apply live via options reload
@@ -171,11 +176,11 @@ When adding the integration, choose **Demo mode**. That creates:
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
 and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v1.1.9)
+## Status (v1.2.0)
 
 - Backends: demo simulator · native HCS board (MQTT)
 - Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·
-  per-room bootstrap calibration
+  per-room bootstrap calibration · house model (floors + heater-control types)
 - Metering: estimated gas accounting · boiler MemberID detection · 1-Wire probe entities
 - Boards: live Board tab · two-way settings sync · OTA with progress/success detection
 

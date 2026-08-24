@@ -406,6 +406,8 @@ class CentralController:
             )
             zr = {
                 "name": getattr(z, "name", None),
+                "floor": getattr(z, "floor", 0),
+                "heat_control": getattr(z, "heater_control", "smart"),
                 "temp": cur,
                 "target": getattr(z, "_target_temp", None),
                 "effective_setpoint": z.effective_setpoint(),

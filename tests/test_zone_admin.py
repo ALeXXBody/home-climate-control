@@ -7,7 +7,10 @@ from custom_components.home_climate_control.deadtime import DeadTimeEstimator
 from custom_components.home_climate_control.health import RoomHealthMonitor
 from custom_components.home_climate_control.insulation import InsulationScorer
 from custom_components.home_climate_control.setback import SetbackLearner
-from custom_components.home_climate_control.websocket_api import validate_zone_name
+from custom_components.home_climate_control.websocket_api import (
+    validate_zone_name,
+    validate_zone_update,
+)
 
 
 # ------------------------------------------------------------------ naming
@@ -79,3 +82,55 @@ def test_calibration_cancelled_on_rename():
     ctrl.calibration.start("Old Name", ts=100.0, temp=19.0)
     ctrl.rename_zone_learning("Old Name", "Renamed")
     assert ctrl.calibration.active() is False
+
+
+# ------------------------------------------------------- house-model edits
+
+def test_validate_update_requires_something():
+    assert validate_zone_update(["A"]) is not None
+
+
+def test_validate_update_floor_bounds():
+    assert validate_zone_update(["A"], floor=0) is None
+    assert validate_zone_update(["A"], floor=30) is None
+    assert validate_zone_update(["A"], floor=31) is not None
+    assert validate_zone_update(["A"], floor=-1) is not None
+
+
+def test_validate_update_control_values():
+    assert validate_zone_update(["A"], heat_control="smart") is None
+    assert validate_zone_update(["A"], heat_control="manual") is None
+    assert validate_zone_update(["A"], heat_control="dumb") is not None
+
+
+def test_validate_update_combines_rules():
+    # valid rename + valid floor passes even with duplicate-check on others
+    assert validate_zone_update(["B"], new_name="A", floor=2) is None
+    # duplicate name still rejected inside a combined update
+    err = validate_zone_update(["B", "C"], new_name="c", floor=1)
+    assert err is not None and "already exists" in err
+
+
+def _make_room(cfg):
+    from unittest.mock import MagicMock
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    hass = MagicMock()
+    coord = MagicMock()
+    coord.curve_coeff = 1.2
+    coord.flow_setpoint = 45.0
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    room = ZoneClimateEntity(hass, coord, entry, {"name": "X", **cfg})
+    room.async_write_ha_state = MagicMock()
+    return room
+
+
+def test_zone_defaults_and_custom_house_fields():
+    room = _make_room({})
+    assert room.floor == 0 and room.heater_control == "smart"
+    room2 = _make_room({"floor": 2, "heat_control": "manual"})
+    assert room2.floor == 2 and room2.heater_control == "manual"
+    # garbage input falls back to safe defaults
+    room3 = _make_room({"floor": "attic", "heat_control": "telepathy"})
+    assert room3.floor == 0 and room3.heater_control == "smart"

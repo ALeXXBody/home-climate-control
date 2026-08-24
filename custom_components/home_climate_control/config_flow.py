@@ -20,6 +20,10 @@ from .const import (
     CONF_ZONE_NAME,
     CONF_ZONE_TEMP_SENSOR,
     CONF_ZONE_TRV_CLIMATES,
+    CONF_ZONE_FLOOR,
+    CONF_ZONE_HEAT_CONTROL,
+    HEAT_CONTROL_SMART,
+    HEAT_CONTROL_MANUAL,
     CONF_ZONE_WINDOW_SENSORS,
     CONF_ZONES,
     CURVE_COEFF_MAX,
@@ -207,18 +211,27 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            control = user_input.get(CONF_ZONE_HEAT_CONTROL, HEAT_CONTROL_SMART)
             trv = user_input.get(CONF_ZONE_TRV_CLIMATES)
-            if not trv:
+            if control == HEAT_CONTROL_SMART and not trv:
+                # A controlled room needs at least one addressable TRV;
+                # manual-radiator rooms legitimately have none.
                 errors["base"] = "trv_required"
             else:
                 # Selector may return str (single) or list; normalise to list.
-                trv_list = [trv] if isinstance(trv, str) else list(trv)
+                trv_list = ([trv] if isinstance(trv, str) else list(trv)) if trv else []
+                try:
+                    floor = int(user_input.get(CONF_ZONE_FLOOR, 0) or 0)
+                except (TypeError, ValueError):
+                    floor = 0
                 zone = {
                     CONF_ZONE_NAME: user_input[CONF_ZONE_NAME],
                     CONF_ZONE_TRV_CLIMATES: trv_list,
                     CONF_ZONE_TEMP_SENSOR: user_input.get(CONF_ZONE_TEMP_SENSOR) or None,
                     CONF_ZONE_WINDOW_SENSORS: user_input.get(CONF_ZONE_WINDOW_SENSORS)
                     or [],
+                    CONF_ZONE_FLOOR: max(0, floor),
+                    CONF_ZONE_HEAT_CONTROL: control,
                 }
                 self._zones.append(zone)
 
@@ -245,8 +258,24 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_ZONE_NAME, default=f"Room {len(self._zones) + 1}"
                 ): str,
-                vol.Required(CONF_ZONE_TRV_CLIMATES): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="climate")
+                vol.Required(
+                    CONF_ZONE_HEAT_CONTROL, default=HEAT_CONTROL_SMART
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=HEAT_CONTROL_SMART, label="Smart TRV (controlled by HCC)"),
+                            selector.SelectOptionDict(value=HEAT_CONTROL_MANUAL, label="Manual radiator (valve turned by hand)"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(CONF_ZONE_TRV_CLIMATES): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="climate", multiple=True)
+                ),
+                vol.Optional(CONF_ZONE_FLOOR, default=0): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=30, step=1, mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
                 vol.Optional(CONF_ZONE_TEMP_SENSOR): selector.EntitySelector(
                     selector.EntitySelectorConfig(
