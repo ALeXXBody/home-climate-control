@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -18,6 +20,22 @@ from .firmware_manager import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_VERSION_CACHE: str | None = None
+
+
+def _integration_version() -> str:
+    """Integration version from manifest.json ('' when unreadable)."""
+    global _VERSION_CACHE
+    if _VERSION_CACHE is None:
+        try:
+            manifest = Path(__file__).parent / "manifest.json"
+            _VERSION_CACHE = str(
+                json.loads(manifest.read_text(encoding="utf-8")).get("version", "")
+            )
+        except (OSError, ValueError):
+            _VERSION_CACHE = ""
+    return _VERSION_CACHE
 
 
 @callback
@@ -139,6 +157,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
 
     return {
         "domain": DOMAIN,
+        "version": _integration_version(),
         "systems": systems,
         "devices": devices,
         "firmware_catalog": mgr.catalog if mgr else [],

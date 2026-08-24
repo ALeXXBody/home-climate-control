@@ -34,6 +34,7 @@ w.document.body.appendChild(el);
 
 const STATUS = {
   domain: "home_climate_control",
+  version: "9.9.9",
   systems: [{ entry_id: "e1", update_info: { available: false, latest_tag: "v1.0.2" } }],
   devices: [
     {
@@ -396,6 +397,19 @@ check(
 
 // offline devices are not shown on board tab
 check(!h.includes("hcs-offline"), "offline board leaked onto board tab");
+
+// footer shows the running integration version from get_status
+const foot = el.shadowRoot.querySelector("footer");
+check(!!foot, "footer missing");
+check(
+  /Home Climate Control\s+v\d+\.\d+\.\d+/.test(foot.textContent),
+  "footer does not show integration version"
+);
+check(
+  foot.textContent.includes("v9.9.9"),
+  "footer version not sourced from get_status payload: " +
+    JSON.stringify(foot.textContent.slice(0, 60))
+);
 
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));

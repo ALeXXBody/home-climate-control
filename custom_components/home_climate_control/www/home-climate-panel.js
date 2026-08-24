@@ -486,7 +486,7 @@ class HomeClimatePanel extends HTMLElement {
         ${this._notice ? `<div class="notice">${this._esc(this._notice)}</div>` : ""}
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
-          <span>Home Climate Control</span>
+          <span>Home Climate Control${this._status?.version ? ` v${this._status.version}` : ""}</span>
           <a href="https://github.com/ALeXXBody/home-climate-control" target="_blank" rel="noopener">Software</a>
           <a href="https://github.com/ALeXXBody/home-climate-system" target="_blank" rel="noopener">Hardware</a>
           <a href="https://buymeacoffee.com/alexxbody" target="_blank" rel="noopener">Buy me a coffee</a>
