@@ -229,6 +229,8 @@ class HcsDevice:
     # Mirrored board settings (masked snapshot from hcs/<node>/cfg).
     # Secrets never appear here: passwords come only as *_set booleans.
     cfg: dict[str, Any] = field(default_factory=dict)
+    # Live control-state mirror from hcs/<node>/ctl (retained JSON).
+    ctl: dict[str, Any] = field(default_factory=dict)
     cfg_ts: str = ""
     ota_state: str = ""  # starting|downloading|rebooting|done|failed
     ota_progress: int | None = None  # 0..100 when known
@@ -307,6 +309,9 @@ class FirmwareManager:
         )
         self._unsub_cfg = await mqtt.async_subscribe(
             self.hass, "hcs/+/cfg", self._on_cfg, 0
+        )
+        self._unsub_ctl = await mqtt.async_subscribe(
+            self.hass, "hcs/+/ctl", self._on_ctl, 0
         )
         if self._watchdog_task is None:
             import asyncio
@@ -397,6 +402,9 @@ class FirmwareManager:
         if getattr(self, "_unsub_cfg", None):
             self._unsub_cfg()
             self._unsub_cfg = None
+        if getattr(self, "_unsub_ctl", None):
+            self._unsub_ctl()
+            self._unsub_ctl = None
         if self._watchdog_task is not None:
             self._watchdog_task.cancel()
             self._watchdog_task = None
@@ -404,6 +412,97 @@ class FirmwareManager:
             if dev.ota_state in {"starting", "downloading", "rebooting"}:
                 dev.ota_state = "failed"
                 dev.ota_error = "HA restarted during the update"
+
+    CONTROL_KEYS = {
+        # key -> payload formatter
+        "ch_enable": lambda v: "true" if v else "false",
+        "dhw_enable": lambda v: "true" if v else "false",
+        "weather_comp": lambda v: "true" if v else "false",
+        "max_modulation": lambda v: str(int(v)),
+        "flow_setpoint": lambda v: str(round(float(v), 1)),
+        "dhw_setpoint": lambda v: (
+            "auto" if isinstance(v, str) and v.lower() in {"auto", "off"}
+            else str(round(float(v), 1))
+        ),
+    }
+
+    @callback
+    def _on_ctl(self, msg) -> None:
+        """Board control-state mirror (retained JSON)."""
+        try:
+            node = msg.topic.split("/")[1]
+        except IndexError:
+            return
+        dev = self.devices.get(node)
+        if dev is None:
+            return
+        try:
+            payload = msg.payload
+            if isinstance(payload, bytes):
+                payload = payload.decode("utf-8", errors="replace")
+            data = json.loads(payload)
+        except (ValueError, TypeError):
+            return
+        if isinstance(data, dict):
+            dev.ctl = data
+
+    async def async_send_control(
+        self, node_id: str, key: str, value: Any
+    ) -> dict[str, Any]:
+        """Replicate a board Control-page action over MQTT."""
+        fmt = self.CONTROL_KEYS.get(key)
+        dev = self.devices.get(node_id)
+        if not fmt or not dev:
+            return {"ok": False, "error": f"unsupported key: {key}"}
+        try:
+            payload = fmt(value)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad value"}
+
+        wc_keys = {"wc_ref", "wc_design", "wc_fmax", "wc_fmin"}
+        if key in wc_keys or key == "weather_comp_cfg":
+            return {"ok": False, "error": "use async_apply_wc_curve"}
+
+        await mqtt.async_publish(
+            self.hass, f"hcs/{node_id}/set/{key}", payload, 0, False
+        )
+        _LOGGER.info("Control MQTT %s set/%s = %s", node_id, key, payload)
+        # optimistic echo; authoritative state arrives via retained ctl
+        dev.ctl = {**dev.ctl, **{key: value}}
+        return {"ok": True, "node_id": node_id}
+
+    async def async_apply_wc_curve(
+        self, node_id: str, curve: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Push the weather-compensation curve (ref/design/fmax/fmin)."""
+        dev = self.devices.get(node_id)
+        if not dev:
+            return {"ok": False, "error": "unknown device"}
+        try:
+            body = json.dumps(
+                {
+                    "t_out_ref": round(float(curve["wc_ref"]), 1),
+                    "t_out_design": round(float(curve["wc_design"]), 1),
+                    "flow_max": round(float(curve["wc_fmax"]), 1),
+                    "flow_min": round(float(curve["wc_fmin"]), 1),
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            return {"ok": False, "error": "curve needs wc_ref/wc_design/wc_fmax/wc_fmin"}
+        await mqtt.async_publish(
+            self.hass, f"hcs/{node_id}/set/weather_comp_cfg", body, 0, False
+        )
+        _LOGGER.info("WC curve MQTT %s -> %s", node_id, body)
+        dev.ctl = {
+            **dev.ctl,
+            **{
+                "wc_ref": curve["wc_ref"],
+                "wc_design": curve["wc_design"],
+                "wc_fmax": curve["wc_fmax"],
+                "wc_fmin": curve["wc_fmin"],
+            },
+        }
+        return {"ok": True, "node_id": node_id}
 
     SETTINGS_KEYS = (
         "device_name",

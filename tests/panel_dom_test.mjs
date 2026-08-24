@@ -56,6 +56,20 @@ const STATUS = {
         otgw_node: "hcs-device",
         ota_password_set: true,
       },
+      ctl: {
+        ch_enable: false,
+        dhw_enable: true,
+        dhw_setpoint: null,
+        flow_setpoint: 45,
+        max_modulation: 100,
+        wc_enable: true,
+        wc_ref: 18,
+        wc_design: -10,
+        wc_fmax: 65,
+        wc_fmin: 25,
+        wc_target: 38.5,
+        fs_state: "OFF",
+      },
     },
     {
       node_id: "hcs-offline",
@@ -314,6 +328,74 @@ const catFlash = wsCalls.find(
 );
 check(!!catFlash, "flash-catalog ws not called");
 check(catFlash?.catalog_id === "hcs-1.0.2-lolin_c3_mini", "flash-catalog wrong image");
+
+// 6) Board tab replicates the ESP control page
+el._tab = "board";
+el._render();
+await new Promise((r) => setTimeout(r, 10));
+let h = el.shadowRoot.innerHTML;
+check(h.includes("Central heating"), "board CH row missing");
+check(h.includes("Weather compensation"), "board WC card missing");
+check(h.includes("38.5"), "board WC target not rendered from ctl");
+const chOff = el.shadowRoot.querySelector(
+  '[data-ctl-node="hcs-test"][data-ctl-key="ch_enable"][data-ctl-value="false"]'
+);
+check(!!chOff, "CH off button missing");
+chOff.click();
+await new Promise((r) => setTimeout(r, 20));
+check(
+  wsCalls.some(
+    (c) =>
+      c.type === "home_climate_control/device_control" &&
+      c.node_id === "hcs-test" &&
+      c.key === "ch_enable" &&
+      c.value === false
+  ),
+  "device_control(ch_enable=false) ws not called"
+);
+
+// draft input respected by Apply
+const dhwIn = el.shadowRoot.querySelector(
+  '[data-draft-node="hcs-test"][data-draft-key="dhw_setpoint"]'
+);
+dhwIn.value = "52";
+dhwIn.dispatchEvent(new w.Event("input"));
+await new Promise((r) => setTimeout(r, 5));
+el.shadowRoot
+  .querySelector('[data-ctl-key="dhw_setpoint"][data-ctl-from-input]')
+  .click();
+await new Promise((r) => setTimeout(r, 20));
+check(
+  wsCalls.some(
+    (c) => c.type === "home_climate_control/device_control" && c.key === "dhw_setpoint" && Number(c.value) === 52
+  ),
+  "DHW apply did not send drafted value"
+);
+
+// WC curve apply sends all four fields
+for (const [k, v] of [
+  ["wc_ref", "20"],
+  ["wc_design", "-12"],
+  ["wc_fmax", "70"],
+  ["wc_fmin", "28"],
+]) {
+  const inp = el.shadowRoot.querySelector(`[data-draft-key="${k}"]`);
+  inp.value = v;
+  inp.dispatchEvent(new w.Event("input"));
+}
+el.shadowRoot.querySelector('[data-wc-apply="hcs-test"]').click();
+await new Promise((r) => setTimeout(r, 20));
+const wcCall = wsCalls.find(
+  (c) => c.type === "home_climate_control/device_control" && c.key === "weather_comp_cfg"
+);
+check(!!wcCall, "WC apply ws not called");
+check(
+  wcCall?.curve?.wc_ref === 20 && wcCall?.curve?.wc_fmin === 28,
+  "WC curve payload wrong: " + JSON.stringify(wcCall?.curve)
+);
+
+// offline devices are not shown on board tab
+check(!h.includes("hcs-offline"), "offline board leaked onto board tab");
 
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));

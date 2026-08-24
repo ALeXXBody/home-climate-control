@@ -37,6 +37,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
     websocket_api.async_register_command(hass, ws_set_device_settings)
+    websocket_api.async_register_command(hass, ws_device_control)
     websocket_api.async_register_command(hass, ws_reboot_device)
     websocket_api.async_register_command(hass, ws_firmware_catalog)
     hass.data[key] = True
@@ -268,6 +269,34 @@ async def ws_ping_devices(
     mgr = await async_setup_firmware_manager(hass)
     await mgr.async_ping()
     connection.send_result(msg["id"], {"ok": True, "devices": mgr.list_devices()})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/device_control",
+        vol.Required("node_id"): str,
+        vol.Required("key"): str,
+        vol.Optional("value"): vol.Any(bool, int, float, str, None),
+        vol.Optional("curve"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_device_control(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    if msg.get("curve") is not None:
+        result = await mgr.async_apply_wc_curve(msg["node_id"], msg["curve"])
+    else:
+        result = await mgr.async_send_control(msg["node_id"], msg["key"], msg.get("value"))
+    if not result.get("ok"):
+        connection.send_error(
+            msg["id"], "control_failed", result.get("error") or "failed"
+        )
+        return
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.websocket_command(

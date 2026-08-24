@@ -16,6 +16,7 @@ class HomeClimatePanel extends HTMLElement {
     this._busy = {};
     this._poll = null;
     this._selectedBoardId = null;
+    this._drafts = {};
   }
 
   set hass(hass) {
@@ -25,11 +26,23 @@ class HomeClimatePanel extends HTMLElement {
       this._render();
       this._refresh();
       this._poll = setInterval(() => this._refresh(), 5000);
+      this.shadowRoot.addEventListener("input", (ev) => {
+        if (ev.target.dataset && ev.target.dataset.draftKey != null)
+          this._boardDraftFromEvent(ev);
+      });
+      this.shadowRoot.addEventListener("change", (ev) => {
+        const r = ev.target;
+        if (r.dataset && r.dataset.rangeLive != null) {
+          const v = Number(r.value);
+          this._sendCtl(r.dataset.ctlNode, r.dataset.ctlKey, v);
+        }
+      });
+      this.shadowRoot.addEventListener("click", (ev) => this._onBoardClick(ev));
       this._otaFast = setInterval(() => {
         const active = (this._status?.devices || []).some((d) =>
           HomeClimatePanel.OTA_ACTIVE.has(d.ota_state)
         );
-        if (active) this._refresh();
+        if (active || this._tab === "board") this._refresh();
       }, 2000);
 
     }
@@ -61,6 +74,96 @@ class HomeClimatePanel extends HTMLElement {
       clearInterval(this._otaFast);
       this._otaFast = null;
     }
+  }
+
+  _boardDraftFromEvent(ev) {
+    const t = ev.target;
+    if (t.dataset.draftNode && t.dataset.draftKey) {
+      this._drafts[`${t.dataset.draftNode}:${t.dataset.draftKey}`] = t.value;
+      // keep paired range/number inputs in sync
+      if (t.dataset.rangeFor) {
+        const root = this.shadowRoot;
+        root.querySelectorAll(
+          `[data-draft-node="${t.dataset.draftNode}"][data-draft-key="${t.dataset.rangeFor}"]`
+        ).forEach((el) => {
+          if (el !== t) el.value = t.value;
+        });
+      }
+    }
+  }
+
+  _ctlPayload(btn) {
+    const node = btn.dataset.ctlNode;
+    const key = btn.dataset.ctlKey;
+    let value = btn.dataset.ctlValue;
+    if (btn.dataset.ctlFromInput) {
+      const root = this.shadowRoot;
+      const inp = root.querySelector(
+        `[data-draft-node="${node}"][data-draft-key="${key}"]`
+      );
+      value = inp ? inp.value : "";
+      if (!value) return null;
+    } else if (value === "true") value = true;
+    else if (value === "false") value = false;
+    else if (/^-?\d+(\.\d+)?$/.test(value ?? "")) value = Number(value);
+    return { node, key, value };
+  }
+
+  async _sendCtl(node, key, value) {
+    try {
+      await this._hass.callWS({
+        type: "home_climate_control/device_control",
+        node_id: node,
+        key,
+        value,
+      });
+    } catch (err) {
+      this._notice = `Control failed (${key}): ${err.message || err}`;
+      this._render();
+    }
+  }
+
+  async _onBoardClick(ev) {
+    const wcBtn = ev.target.closest("[data-wc-apply]");
+    if (wcBtn) {
+      const node = wcBtn.dataset.wcApply;
+      const q = (k) =>
+        this.shadowRoot.querySelector(
+          `[data-draft-node="${node}"][data-draft-key="${k}"]`
+        );
+      const curve = {};
+      for (const k of ["wc_ref", "wc_design", "wc_fmax", "wc_fmin"]) {
+        const el = q(k);
+        if (el && el.value !== "") curve[k] = Number(el.value);
+      }
+      try {
+        await this._hass.callWS({
+          type: "home_climate_control/device_control",
+          node_id: node,
+          key: "weather_comp_cfg",
+          curve,
+        });
+      } catch (err) {
+        this._notice = `WC apply failed: ${err.message || err}`;
+        this._render();
+      }
+      return;
+    }
+    const btn = ev.target.closest("[data-ctl-key]");
+    if (!btn) return;
+    const payload = this._ctlPayload(btn);
+    if (!payload) return;
+    btn.disabled = true;
+    setTimeout(() => { btn.disabled = false; }, 800);
+    await this._sendCtl(payload.node, payload.key, payload.value);
+  }
+
+  /** Skip re-render while the user is editing board controls. */
+  static _boardEditing(root) {
+    const a = root.activeElement;
+    if (a && a.dataset && (a.dataset.draftKey != null || a.dataset.rangeLive != null))
+      return true;
+    return false;
   }
 
   async _onSaveBoard() {
@@ -108,6 +211,8 @@ class HomeClimatePanel extends HTMLElement {
       this._error = err?.message || String(err);
     }
     this._loading = false;
+    if (this._tab === "board" && HomeClimatePanel._boardEditing(this.shadowRoot))
+      return; // user is typing/dragging — values catch up next cycle
     this._render();
   }
 
@@ -373,6 +478,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("zones", "Rooms")}
           ${this._tabBtn("floorplan", "Floor plan")}
           ${this._tabBtn("firmware", "Firmware")}
+          ${this._tabBtn("board", "Board")}
           ${this._tabBtn("settings", "Settings")}
         </nav>
         ${this._error ? `<div class="error">${this._esc(this._error)}</div>` : ""}
@@ -446,7 +552,7 @@ class HomeClimatePanel extends HTMLElement {
       this._selectedBoardId = bsel.value;
       this._renderBoardPreview();
     });
-    if (this._selectedBoardId) bsel.value = this._selectedBoardId;
+    if (this._selectedBoardId && bsel) bsel.value = this._selectedBoardId;
     this._renderBoardPreview();
     this._populateBoilerCatalog();
   }
@@ -554,6 +660,8 @@ class HomeClimatePanel extends HTMLElement {
         );
       case "firmware":
         return this._firmwareHtml();
+      case "board":
+        return this._boardHtml();
       case "settings":
         return this._settingsHtml(sys);
       default:
@@ -816,6 +924,94 @@ class HomeClimatePanel extends HTMLElement {
     if (c.model) return c.model;
     // Fallback: strip legacy "HCS x.y.z — " / "HCS x.y.z GW — " prefixes.
     return String(c.title || "").replace(/^HCS\s+[\d.]+\s+(GW\s+)?—\s+/, "");
+  }
+
+  static _ctlVal(ctl, key, dflt = "—") {
+    const v = ctl?.[key];
+    if (v == null) return dflt;
+    return v;
+  }
+
+  /** Replica of the ESP board Control page, driven over MQTT. */
+  _boardHtml() {
+    const devs = (this._status?.devices || []).filter((d) => d.online);
+    if (!devs.length)
+      return this._placeholder(
+        "Board",
+        "No online HCS boards. They re-register within seconds of coming back."
+      );
+    return devs.map((d) => {
+      const c = d.ctl || {};
+      const node = this._esc(d.node_id);
+      const on = (b) => (b === true ? "ON" : b === false ? "OFF" : "—");
+      const num = (k, dflt = "") => {
+        const v = c[k];
+        return v == null ? dflt : v;
+      };
+      const draftKey = `bd:${d.node_id}`;
+      const draft = this._drafts[draftKey] || {};
+      const dv = (k, dflt = "") => (draft[k] != null ? draft[k] : num(k, dflt));
+      const fs = c.fs_state || "OFF";
+      const fsColor =
+        fs === "FAILSAFE" ? "#ef5350" : fs === "HOLD" ? "#ffb74d" : "#7cb342";
+      return `
+      <div class="card wide" style="margin-bottom:14px">
+        <div class="zone-title">${this._esc(d.name || d.node_id)}
+          <span class="badge on">v${this._esc(d.version || "?")}</span>
+          ${fs !== "OFF" ? `<span class="badge heat">failsafe: ${fs}</span>` : ""}
+        </div>
+        <div class="zone-meta">live mirror of the board Control page · changes apply instantly over MQTT</div>
+
+        <div class="row"><label>Central heating</label>
+          <button type="button" class="${c.ch_enable === false ? "" : "a"}" data-ctl-node="${node}" data-ctl-key="ch_enable" data-ctl-value="true">CH on</button>
+          <button type="button" class="ghost" data-ctl-node="${node}" data-ctl-key="ch_enable" data-ctl-value="false">CH off</button>
+          <span style="margin-left:auto">now: <b>${on(c.ch_enable)}</b></span></div>
+
+        <div class="row"><label>DHW enable</label>
+          <button type="button" class="${c.dhw_enable === false ? "" : "a"}" data-ctl-node="${node}" data-ctl-key="dhw_enable" data-ctl-value="true">DHW on</button>
+          <button type="button" class="ghost" data-ctl-node="${node}" data-ctl-key="dhw_enable" data-ctl-value="false">DHW off</button>
+          <span style="margin-left:auto">now: <b>${on(c.dhw_enable)}</b></span></div>
+
+        <div class="row"><label>DHW setpoint °C</label>
+          <input type="number" min="30" max="60" step="1" style="max-width:100px"
+            value="${dv("dhw_setpoint", "")}" data-draft-node="${node}" data-draft-key="dhw_setpoint">
+          <button type="button" class="a" data-ctl-node="${node}" data-ctl-key="dhw_setpoint" data-ctl-from-input="1">Apply</button>
+          <button type="button" class="ghost" title="release to boiler/thermostat"
+            data-ctl-node="${node}" data-ctl-key="dhw_setpoint" data-ctl-value="auto">Auto</button>
+          <span style="margin-left:auto">now: <b>${c.dhw_setpoint == null ? "auto" : c.dhw_setpoint + " °C"}</b></span></div>
+
+        <div class="row"><label>Flow setpoint °C</label>
+          <input type="number" min="20" max="90" step="0.5" style="max-width:100px"
+            value="${dv("flow_setpoint", "")}" data-draft-node="${node}" data-draft-key="flow_setpoint">
+          <button type="button" class="a" data-ctl-node="${node}" data-ctl-key="flow_setpoint" data-ctl-from-input="1">Apply</button>
+          <input type="range" min="20" max="90" step="0.5" style="flex:1"
+            value="${dv("flow_setpoint", 45)}" data-draft-node="${node}" data-draft-key="flow_setpoint"
+            data-range-for="flow_setpoint" data-ctl-node="${node}">
+          <span style="margin-left:auto">now: <b>${c.flow_setpoint == null ? "—" : c.flow_setpoint + " °C"}</b></span></div>
+
+        <div class="row"><label>Max modulation</label>
+          <input type="range" min="0" max="100" step="5" style="flex:1"
+            value="${num("max_modulation", 100)}" data-ctl-node="${node}" data-ctl-key="max_modulation" data-range-live="1">
+          <span style="margin-left:auto">now: <b>${c.max_modulation != null ? c.max_modulation + "%" : "—"}</b></span></div>
+
+        <h3 style="margin-top:16px">Weather compensation
+          <span style="font-weight:400;font-size:.85rem"> target: <b>${c.wc_target != null ? c.wc_target + " °C" : "—"}</b></span></h3>
+        <div class="row"><label>&nbsp;</label>
+          <button type="button" class="${c.wc_enable === false ? "" : "a"}" data-ctl-node="${node}" data-ctl-key="weather_comp" data-ctl-value="true">WC on</button>
+          <button type="button" class="ghost" data-ctl-node="${node}" data-ctl-key="weather_comp" data-ctl-value="false">WC off</button>
+          <span style="margin-left:auto">now: <b>${on(c.wc_enable)}</b></span></div>
+        <div class="row"><label>Curve °C</label>
+          <input type="number" step="1" style="max-width:80px" title="Ref (zero demand)" placeholder="Ref"
+            value="${dv("wc_ref", "")}" data-draft-node="${node}" data-draft-key="wc_ref">
+          <input type="number" step="1" style="max-width:80px" title="Design temp" placeholder="Design"
+            value="${dv("wc_design", "")}" data-draft-node="${node}" data-draft-key="wc_design">
+          <input type="number" step="1" style="max-width:80px" title="Flow max" placeholder="Max"
+            value="${dv("wc_fmax", "")}" data-draft-node="${node}" data-draft-key="wc_fmax">
+          <input type="number" step="1" style="max-width:80px" title="Flow min" placeholder="Min"
+            value="${dv("wc_fmin", "")}" data-draft-node="${node}" data-draft-key="wc_fmin">
+          <button type="button" class="a" data-wc-apply="${node}">Apply curve</button></div>
+      </div>`;
+    }).join("");
   }
 
   _firmwareHtml() {
