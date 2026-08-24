@@ -946,19 +946,53 @@ class FirmwareManager:
         local = self.MIRROR_DIR / fname
         await self._async_refresh_mirror(url, local, self._expected_mirror_meta(url, fname))
         if not local.is_file():
+            _LOGGER.warning(
+                "OTA mirror has no cached image for %s; handing board %s",
+                fname,
+                url,
+            )
             return url  # nothing cached, let the board try GitHub itself
-        try:
-            from homeassistant.helpers.network import get_url
 
-            base = get_url(self.hass, allow_cloud=False, prefer_internal=True)
-            mirrored = f"{base}/home_climate_control_static/firmware/{fname}"
-        except Exception:  # noqa: BLE001
-            return url
-        # ESP boards cannot resolve mDNS/external names; give them the
-        # interface address that actually reaches them.
         dev_ip = next(
             (d.ip for d in self.devices.values() if d.online and d.ip), None
         )
+        try:
+            from homeassistant.helpers.network import get_url
+
+            # WebSocket-triggered flashes have no HTTP request context;
+            # get_url() raises unless internal/external URLs are configured,
+            # so fall back to building the base from the interface address
+            # that reaches the device.
+            base = None
+            for kwargs in (
+                {"allow_cloud": False, "prefer_internal": True},
+                {"allow_cloud": False},
+            ):
+                try:
+                    base = get_url(self.hass, **kwargs)
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            base = None
+        if not base:
+            ip = self._lan_source_ip(dev_ip) if dev_ip else None
+            api_cfg = getattr(self.hass.config, "api", None)
+            try:
+                port = int(getattr(api_cfg, "port", None) or 0) or 8123
+            except (TypeError, ValueError):
+                port = 8123
+            if not ip:
+                _LOGGER.warning(
+                    "OTA mirror cannot determine a board-reachable URL; "
+                    "handing board %s",
+                    url,
+                )
+                return url
+            base = f"http://{ip}:{port}"
+        mirrored = f"{base}/home_climate_control_static/firmware/{fname}"
+        # ESP boards cannot resolve mDNS/external names; give them the
+        # interface address that actually reaches them.
         if dev_ip:
             mirrored = await self._async_lan_url(mirrored, dev_ip)
         self.last_ota_url = mirrored

@@ -160,3 +160,31 @@ def test_corrupt_download_rejected_by_sha(env, monkeypatch):
     assert calls == [GH]  # download attempted...
     assert f.read_bytes() == b"keep" * 1000  # ...but rejected, cache kept
     assert url.endswith("/firmware/firmware-d1_mini.bin")
+
+
+def test_no_request_context_still_mirrors(env, monkeypatch):
+    """Regression (v1.0.31 live finding): WS-triggered flashes have no HTTP
+    request context, so get_url() raises when internal_url is unset — the
+    old code silently handed the board the raw GitHub HTTPS URL, which
+    pre-TLS boards cannot pull (-104). Mirror must still engage by building
+    the base from the interface address toward the device."""
+    from homeassistant.helpers import network as ha_network
+
+    m, tmp = env
+    dev = HcsDevice(node_id="hcs-x", board="d1_mini")
+    dev.online = True
+    dev.ip = "192.168.50.153"
+    m.devices["hcs-x"] = dev
+    f = tmp / "firmware-d1_mini.bin"
+    f.write_bytes(b"x" * 70000)
+
+    def _boom(*a, **k):
+        raise RuntimeError("NoURLAvailableError stand-in")
+
+    monkeypatch.setattr(ha_network, "get_url", _boom)
+    monkeypatch.setattr(
+        FirmwareManager, "_lan_source_ip", staticmethod(lambda ip: "192.168.50.200")
+    )
+    url = asyncio.run(m._async_ota_url(GH))
+    assert url.startswith("http://192.168.50.200:"), url  # iface toward device
+    assert url.endswith("/home_climate_control_static/firmware/firmware-d1_mini.bin")
