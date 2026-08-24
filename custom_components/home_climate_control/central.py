@@ -50,6 +50,7 @@ class CentralController:
         self.gas = None
         self.deadtime = None
         self.insulation = None
+        self.datalogger = None
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
@@ -345,6 +346,13 @@ class CentralController:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("health feed failed", exc_info=True)
 
+        # Training-data log: one compact snapshot per control tick (60 s).
+        if self.datalogger is not None:
+            try:
+                self.datalogger.feed(self._training_row())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("training feed failed", exc_info=True)
+
         # Demo physics + push simulated room temps into zones.
         simulate = getattr(self.backend, "simulate_step", None)
         if callable(simulate):
@@ -358,6 +366,57 @@ class CentralController:
                     temp = get_room(name)
                     if temp is not None and hasattr(zone, "on_sensor_update"):
                         zone.on_sensor_update(temp, None)
+
+    def _training_row(self) -> dict:
+        """Flat, ML-friendly snapshot of the whole system for this tick."""
+        from datetime import datetime, timezone
+
+        zones_out = []
+        for z in self.zones:
+            cur = (
+                getattr(z, "current_temperature", None)
+                or getattr(z, "_current_temp", None)
+            )
+            zr = {
+                "name": getattr(z, "name", None),
+                "temp": cur,
+                "target": getattr(z, "_target_temp", None),
+                "effective_setpoint": z.effective_setpoint(),
+                "preset": getattr(z, "_preset", None),
+                "demand": z.demand_level(),
+                "wants_heat": bool(z.wants_heat() and not z.paused()),
+                "hvac_action": str(getattr(z, "hvac_action", "")),
+                "window_open": bool(z.paused()),
+                "health_flag": self.health.flag_for(getattr(z, "name", "")),
+            }
+            if self.setbacks is not None:
+                st = self.setbacks.rooms.get(zr["name"])
+                if st is not None:
+                    zr["warm_rate"] = st.warm_ema
+                    zr["cool_rate"] = st.cool_ema
+            if self.deadtime is not None:
+                zr["dead_time_s"] = self.deadtime.seconds_for(zr["name"])
+            if self.insulation is not None:
+                sc = self.insulation.score_for(zr["name"])
+                if sc is not None:
+                    zr["insulation_k"] = round(sc[1], 5)
+            zones_out.append(zr)
+
+        backend = self.backend
+        return {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "outdoor": self.outdoor_temp(),
+            "ch_on": self._ch_on,
+            "flow_setpoint": self.flow_setpoint,
+            "curve_coeff": self.curve_coeff,
+            "boiler": {
+                "flame": bool(getattr(backend, "flame_on", False)),
+                "modulation": getattr(backend, "modulation_level", None),
+                "return_t": getattr(backend, "return_temp", None),
+                "flow_t": getattr(backend, "flow_temp", None),
+            },
+            "zones": zones_out,
+        }
 
     def diagnostics(self) -> dict:
         data = {
@@ -377,6 +436,8 @@ class CentralController:
             data["deadtime"] = self.deadtime.as_dict()
         if self.insulation is not None:
             data["insulation"] = self.insulation.as_dict()
+        if self.datalogger is not None:
+            data["datalogger"] = self.datalogger.stats()
         data["calibration"] = self.calibration.as_dict()
         data["health"] = self.health.as_dict()
         if self.gas is not None:

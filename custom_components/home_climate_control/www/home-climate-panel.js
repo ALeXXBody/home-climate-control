@@ -294,6 +294,24 @@ class HomeClimatePanel extends HTMLElement {
           margin: 0;
           flex: 1;
         }
+        .hdr-alert {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          max-width: 340px;
+          overflow: hidden;
+          padding: 4px 12px;
+          border-radius: 14px;
+          font-size: 0.82rem;
+          color: #ffb4a9;
+          background: rgba(207, 102, 90, 0.18);
+          border: 1px solid rgba(207, 102, 90, 0.45);
+          white-space: nowrap;
+        }
+        .hdr-alert-txt {
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
         .tabs {
           display: flex;
           gap: 4px;
@@ -478,6 +496,7 @@ class HomeClimatePanel extends HTMLElement {
         <header>
           <img class="hcc-logo" src="/home_climate_control_static/brand/icon.png" alt="Home Climate Control logo">
           <h1>Home Climate ${sys?.demo ? '<span class="badge heat" style="font-size:0.7rem;vertical-align:middle">DEMO</span>' : ""}</h1>
+          ${this._boilerDiagBanner()}
           <button class="ghost refresh" type="button" data-action="refresh">Refresh</button>
         </header>
         <nav class="tabs">
@@ -489,7 +508,6 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("settings", "Settings")}
         </nav>
         ${this._error ? `<div class="error">${this._esc(this._error)}</div>` : ""}
-        ${this._boilerDiagBanner()}
         ${this._notice ? `<div class="notice">${this._esc(this._notice)}</div>` : ""}
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
@@ -918,6 +936,11 @@ class HomeClimatePanel extends HTMLElement {
         ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
           ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
         </div>` : ""}
+        ${sys.boiler?.datalogger ? `<div class="card"><h3>Training data</h3>
+          <div class="metric">${sys.boiler.datalogger.rows_total ?? 0}<span class="unit">rows logged</span></div>
+          <p class="sub">${sys.boiler.datalogger.last_row_ts ? `last: ${this._esc(sys.boiler.datalogger.last_row_ts)} · ` : ""}buffered: ${this._esc(sys.boiler.datalogger.rows_buffered ?? 0)}</p>
+          <p class="sub" style="opacity:.75">Saved to <code>${this._esc(sys.boiler.datalogger.directory || "")}</code> as monthly JSONL — survives integration updates.</p>
+        </div>` : ""}
         ${(sys.probes && sys.probes.length) ? `<div class="card"><h3>1-Wire probes</h3>
           ${sys.probes.map(p => `<p class="sub"><strong>${this._esc((p.addr || "").slice(-8) || "?")}</strong>: ${p.temp_c != null ? this._esc(p.temp_c) + "°C" : "—"} · ${this._esc(p.health || "?")} · ${this._esc(p.role || "none")}${p.name ? " · " + this._esc(p.name) : ""}</p>`).join("")}
         </div>` : ""}
@@ -1128,6 +1151,8 @@ class HomeClimatePanel extends HTMLElement {
             ${!d.online || this._busy[d.node_id] ? "disabled" : ""}>Reboot</button>
           <button type="button" class="ghost" data-fw-action="open" data-node="${this._esc(d.node_id)}"
             ${!d.ota_http ? "disabled" : ""}>OTA page</button>
+          <button type="button" class="ghost" data-fw-action="forget" data-node="${this._esc(d.node_id)}"
+            title="Remove this board from the list">Remove</button>
         </div>
       </div>`;
       })
@@ -1246,6 +1271,25 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "open") return this._openOtaPage(nodeId);
     if (action === "reboot") return this._rebootDevice(nodeId);
     if (action === "flash") return this._flashDevice(nodeId);
+    if (action === "forget") {
+      if (!confirm(`Remove board ${nodeId} from the list?\n\nIts MQTT announcements are wiped, so a powered-off board stays gone. A still-running board reappears after 'Scan now' or an HA restart.`)) return;
+      return this._forgetDevice(nodeId);
+    }
+  }
+
+  async _forgetDevice(nodeId) {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/forget_device",
+        node_id: nodeId,
+      });
+      this._status = { ...(this._status || {}), devices: res.devices };
+      this._flashNotice(`Board ${nodeId} removed.`);
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._render();
   }
 
   async _flashAllOutdated() {
@@ -1476,6 +1520,8 @@ class HomeClimatePanel extends HTMLElement {
   }
 
   _boilerDiagBanner() {
+    /* Compact header pill (sits left of Refresh): shows the boiler's
+       plain-English diagnostic text when it reports anything unusual. */
     if (!this._hass?.states) return "";
     const entry = Object.entries(this._hass.states).find(([id]) =>
       id.endsWith("_boiler_diagnostic")
@@ -1484,13 +1530,10 @@ class HomeClimatePanel extends HTMLElement {
     const st = entry[1];
     const text = String(st.state ?? "");
     if (!text || text === "unknown" || text === "no faults") return "";
-    return `<div class="error" style="display:flex;align-items:center;gap:8px">
-      <ha-icon icon="mdi:fire-alert"></ha-icon>
-      <span>Boiler: ${this._esc(text)}</span>
-      <button class="ghost refresh" type="button"
-        style="margin-left:auto;padding:2px 10px;font-size:0.8rem"
-        onclick="this.getRootNode().host._refresh()">Recheck</button>
-    </div>`;
+    return `<span class="hdr-alert" title="Boiler diagnostic: ${this._esc(text)}">
+      <ha-icon icon="mdi:fire-alert" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
+      <span class="hdr-alert-txt">${this._esc(text)}</span>
+    </span>`;
   }
 }
 

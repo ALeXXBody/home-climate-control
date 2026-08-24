@@ -266,6 +266,9 @@ class FirmwareManager:
         self._grace_until = 0.0  # monotonic; retained-replay window after start
         self._wiped: set[str] = set()
         self._flowed_nodes: set[str] = set()
+        # Boards the user explicitly removed: ignored until the next manual
+        # scan or HA restart, so live announcements cannot resurrect them.
+        self._suppressed: set[str] = set()
         self._unsub = None
         self.catalog: list[dict[str, str]] = list(DEFAULT_CATALOG)
         self._catalog_at: float = 0.0
@@ -278,9 +281,9 @@ class FirmwareManager:
     def _in_grace(self) -> bool:
         return time.monotonic() < self._grace_until
 
-    def _wipe_retained(self, topic: str) -> None:
+    def _wipe_retained(self, topic: str, *, force: bool = False) -> None:
         """Clear a stale retained blob so it can never impersonate liveness."""
-        if topic in self._wiped or not self._hass:
+        if topic in self._wiped and not force:
             return
         self._wiped.add(topic)
         _LOGGER.info("Wiping stale retained payload on %s", topic)
@@ -376,6 +379,8 @@ class FirmwareManager:
         try:
             node = msg.topic.split("/")[1]
         except IndexError:
+            return
+        if node in self._suppressed:
             return
         state = (msg.payload or b"").decode("utf-8", errors="replace").strip()
         if self._in_grace():
@@ -850,6 +855,9 @@ class FirmwareManager:
             return
 
         node = data.get("node_id") or msg.topic.rsplit("/", 1)[-1]
+        if node in self._suppressed:
+            _LOGGER.debug("ignoring announcement from removed board %s", node)
+            return
         ip = data.get("ip") or ""
         dev = self.devices.get(node) or HcsDevice(node_id=node)
         dev.name = data.get("name") or dev.name or node
@@ -949,7 +957,34 @@ class FirmwareManager:
             _LOGGER.debug("update re-check failed", exc_info=True)
 
     async def async_ping(self) -> None:
+        # A manual scan means the user wants everything back — clear any
+        # forget-suppressions so removed-but-alive boards can re-announce.
+        self._suppressed.clear()
         await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)
+
+    async def async_forget(self, node_id: str) -> dict[str, Any]:
+        """Remove a board from the list and wipe what would resurrect it.
+
+        Wipes the retained discovery/online/cfg/ctl topics for the node and
+        suppresses live announcements until the next manual scan (or HA
+        restart). A powered-off board stays gone permanently; a still-running
+        board reappears after 'Scan now' or restart — by design, since its
+        retained state is genuinely gone.
+        """
+        if not valid_node_id(node_id):
+            return {"ok": False, "error": "invalid node id"}
+        self.devices.pop(node_id, None)
+        self._ota_rt.pop(node_id, None)
+        self._suppressed.add(node_id)
+        for topic in (
+            f"hcs/discovery/{node_id}",
+            f"hcs/{node_id}/online",
+            f"hcs/{node_id}/cfg",
+            f"hcs/{node_id}/ctl",
+        ):
+            self._wipe_retained(topic, force=True)
+        _LOGGER.info("Board %s removed from device list", node_id)
+        return {"ok": True, "node_id": node_id}
 
     last_ota_url: str | None = None
 

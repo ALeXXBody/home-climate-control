@@ -70,6 +70,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .setback import SetbackLearner
     from .deadtime import DeadTimeEstimator
     from .insulation import InsulationScorer
+    from .datalogger import TrainingDataLogger
     from .gasmeter import GasMeter
     from .panel import async_register_panel
     from .websocket_api import async_setup_websocket
@@ -90,6 +91,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await deadtime.async_load()
     insulation = InsulationScorer(hass)
     await insulation.async_load()
+    datalogger = TrainingDataLogger(hass)
+    datalogger.async_start()
     gas = GasMeter(
         hass,
         rated_power_kw=opts.get("rated_heat_input_kw", 24.0),
@@ -111,6 +114,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     controller.setbacks = setbacks
     controller.deadtime = deadtime
     controller.insulation = insulation
+    controller.datalogger = datalogger
     controller.gas = gas
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
@@ -241,6 +245,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if stored is not None:
         controller = stored["controller"]
         await controller.async_stop()
+        # Final training-log flush so buffered rows survive the unload.
+        dl = getattr(controller, "datalogger", None)
+        if dl is not None:
+            await dl.async_stop()
 
         bi = stored.get("boiler_info")
         if bi is not None:

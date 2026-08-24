@@ -53,6 +53,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_check_updates)
     websocket_api.async_register_command(hass, ws_set_github_token)
     websocket_api.async_register_command(hass, ws_list_devices)
+    websocket_api.async_register_command(hass, ws_forget_device)
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
     websocket_api.async_register_command(hass, ws_set_device_settings)
@@ -319,6 +320,28 @@ async def ws_list_devices(
         msg["id"],
         {"devices": mgr.list_devices(), "catalog": mgr.catalog},
     )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/forget_device",
+        vol.Required("node_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_forget_device(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a board from the Firmware tab list (wipes retained MQTT)."""
+    mgr = await async_setup_firmware_manager(hass)
+    result = await mgr.async_forget(msg["node_id"])
+    if not result.get("ok"):
+        connection.send_error(msg["id"], "forget_failed", result.get("error", "?"))
+        return
+    connection.send_result(msg["id"], {"ok": True, "devices": mgr.list_devices()})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/ping_devices"})
