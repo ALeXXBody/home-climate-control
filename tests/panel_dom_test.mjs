@@ -43,6 +43,9 @@ const STATUS = {
       version: "1.0.2",
       online: true,
       ip: "1.2.3.4",
+      ota_state: "downloading",
+      ota_progress: 55,
+      ota_error: "",
     },
     {
       node_id: "hcs-offline",
@@ -59,6 +62,9 @@ const STATUS = {
       version: "1.1.0",
       online: true,
       ip: "9.9.9.9",
+      ota_state: "failed",
+      ota_progress: null,
+      ota_error: "HTTP 404 (code -104)",
     },
   ],
   firmware_catalog: [
@@ -187,6 +193,26 @@ const pills = [...el.shadowRoot.querySelectorAll(".badge")].map((b) =>
 check(pills.includes("v1.1.0 available"), "update pill missing for outdated device");
 check(pills.includes("up to date"), "up-to-date pill missing for current device");
 check(!html.includes("Firmware is up to date"), "stale banner still rendered");
+
+// 5) live progress bar with percentage
+check(
+  !!el.shadowRoot.querySelector(".ota-bar:not(.ind)"),
+  "determinate ota progress bar missing"
+);
+const barFill = el.shadowRoot.querySelector(".ota-bar i");
+check(
+  barFill && barFill.getAttribute("style").includes("width:55%"),
+  "progress bar width does not reflect 55%"
+);
+check(html.includes("Downloading firmware — 55%"), "progress label missing");
+
+// 6) failure box carries the board's error reason
+const failBox = el.shadowRoot.querySelector(".ota-fail");
+check(!!failBox, "ota failure box missing");
+check(
+  failBox && failBox.textContent.includes("HTTP 404"),
+  "failure reason not shown in ota box"
+);
 check(
   !/personal token/i.test(html),
   "GitHub token UI must be gone entirely"

@@ -322,7 +322,9 @@ async def ws_flash_device(
         )
         return
 
-    result = await mgr.async_trigger_ota(msg["node_id"], url)
+    result = await mgr.async_trigger_ota(
+        msg["node_id"], url, target_version=(item or {}).get("version")
+    )
     if not result.get("ok"):
         connection.send_error(
             msg["id"], "flash_failed", result.get("error") or "flash failed"

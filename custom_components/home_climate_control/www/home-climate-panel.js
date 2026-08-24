@@ -25,6 +25,13 @@ class HomeClimatePanel extends HTMLElement {
       this._render();
       this._refresh();
       this._poll = setInterval(() => this._refresh(), 5000);
+      this._otaFast = setInterval(() => {
+        const active = (this._status?.devices || []).some((d) =>
+          HomeClimatePanel.OTA_ACTIVE.has(d.ota_state)
+        );
+        if (active) this._refresh();
+      }, 2000);
+
     }
   }
 
@@ -49,6 +56,10 @@ class HomeClimatePanel extends HTMLElement {
     if (this._poll) {
       clearInterval(this._poll);
       this._poll = null;
+    }
+    if (this._otaFast) {
+      clearInterval(this._otaFast);
+      this._otaFast = null;
     }
   }
 
@@ -201,6 +212,31 @@ class HomeClimatePanel extends HTMLElement {
         .badge.on { background: #1b5e20; color: #c8e6c9; }
         .badge.off { background: #333; color: #bbb; }
         .badge.heat { background: #e65100; color: #ffe0b2; }
+        .ota-wrap { margin-top: 10px; }
+        .ota-label { font-size: 12px; color: #9fb3c8; margin-bottom: 4px; }
+        .ota-bar {
+          height: 8px; border-radius: 4px; overflow: hidden;
+          background: #22303f; position: relative;
+        }
+        .ota-bar i {
+          display: block; height: 100%; min-width: 6%;
+          background: linear-gradient(90deg, #2196f3, #64b5f6);
+          transition: width .6s ease;
+        }
+        .ota-bar.ind i {
+          width: 35% !important;
+          animation: ota-slide 1.1s ease-in-out infinite alternate;
+        }
+        @keyframes ota-slide {
+          from { transform: translateX(-40%); }
+          to   { transform: translateX(220%); }
+        }
+        .ota-fail {
+          margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+          background: #3a1b1b; border: 1px solid #ef5350; color: #ffcdd2;
+          font-size: 13px; display: flex; gap: 8px; align-items: flex-start;
+        }
+        .ota-done { color: #a5d6a7; font-size: 13px; margin-top: 8px; }
         .zones { display: flex; flex-direction: column; gap: 12px; }
         .zone {
           display: grid;
@@ -553,6 +589,43 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
+  static OTA_ACTIVE = new Set(["starting", "downloading", "rebooting"]);
+
+  /** Progress bar / failure box markup for one device's OTA attempt. */
+  static _otaHtml(d) {
+    const esc = (x) =>
+      String(x == null ? "" : x)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const st = d.ota_state || "";
+    if (!st || st === "done") {
+      return st === "done"
+        ? '<div class="ota-done">Firmware updated successfully.</div>'
+        : "";
+    }
+    if (st === "failed") {
+      const err = d.ota_error || "update failed";
+      return `<div class="ota-fail"><span>⚠</span><div>
+        <strong>Update failed.</strong> ${esc(err)}
+      </div></div>`;
+    }
+    const pct =
+      typeof d.ota_progress === "number" ? Math.max(0, Math.min(100, d.ota_progress)) : null;
+    const label =
+      st === "rebooting"
+        ? "Flashing finished — board is rebooting…"
+        : pct == null
+          ? "Starting update…"
+          : `Downloading firmware — ${pct}%`;
+    const indeterminate = pct == null && st !== "rebooting";
+    return `<div class="ota-wrap">
+      <div class="ota-label">${label}</div>
+      <div class="ota-bar ${indeterminate ? "ind" : ""}"><i style="width:${pct == null ? 30 : pct}%"></i></div>
+    </div>`;
+  }
+
   static _verTuple(v) {
     return String(v || "")
       .replace(/^[vV]+/, "")
@@ -707,6 +780,7 @@ class HomeClimatePanel extends HTMLElement {
             · seen ${this._ago(d.last_seen)}
             ${d.last_error ? ` · <span style="color:#ef9a9a">${this._esc(d.last_error)}</span>` : ""}
           </div>
+          ${HomeClimatePanel._otaHtml(d)}
         </div>
         <div class="controls">
           <select data-catalog-for="${this._esc(d.node_id)}">${options}</select>

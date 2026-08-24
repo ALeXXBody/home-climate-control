@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -221,6 +222,12 @@ class HcsDevice:
     seen_lwt_offline: bool = False
     last_seen: str = ""
     last_error: str = ""
+    # Live OTA progress (published by the board to hcs/<node>/ota) and
+    # attempt bookkeeping maintained by the manager's watchdog.
+    ota_state: str = ""  # starting|downloading|rebooting|done|failed
+    ota_progress: int | None = None  # 0..100 when known
+    ota_error: str = ""
+    ota_target_version: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -240,6 +247,11 @@ class FirmwareManager:
         self._unsub = None
         self.catalog: list[dict[str, str]] = list(DEFAULT_CATALOG)
         self._catalog_at: float = 0.0
+        # node -> {"started_at","msg_at","went_offline","notified"} for the
+        # running OTA attempt (kept out of HcsDevice so to_dict stays clean)
+        self._ota_rt: dict[str, dict[str, Any]] = {}
+        self._watchdog_task: Any = None
+        self._unsub_ota = None
 
     def _in_grace(self) -> bool:
         return time.monotonic() < self._grace_until
@@ -284,6 +296,13 @@ class FirmwareManager:
         self._unsub_avail = await mqtt.async_subscribe(
             self.hass, AVAILABILITY_TOPIC, self._on_availability, 0
         )
+        self._unsub_ota = await mqtt.async_subscribe(
+            self.hass, "hcs/+/ota", self._on_ota, 0
+        )
+        if self._watchdog_task is None:
+            import asyncio
+
+            self._watchdog_task = asyncio.ensure_future(self._ota_watchdog())
         # Ask devices to announce themselves (answers during grace are wiped
         # + ignored; the post-grace ping re-triggers them within seconds)
         await mqtt.async_publish(self.hass, DISCOVERY_PING, "1", 0, False)
@@ -343,10 +362,18 @@ class FirmwareManager:
                 self.devices[node] = dev
             else:
                 return
+        went_online = state == "online" and not dev.online
         dev.online = state == "online"
         dev.seen_lwt_offline = state != "online"
         if dev.online:
             dev.last_seen = datetime.now(timezone.utc).isoformat()
+        if not dev.online and node in self._ota_rt:
+            rt = self._ota_rt[node]
+            rt["went_offline"] = True
+            if dev.ota_state in {"starting", "downloading"}:
+                dev.ota_state = "rebooting"
+        elif went_online:
+            self._ota_resolve_reboot(node)
 
     async def async_stop(self) -> None:
         if self._unsub:
@@ -355,6 +382,161 @@ class FirmwareManager:
         if getattr(self, "_unsub_avail", None):
             self._unsub_avail()
             self._unsub_avail = None
+        if getattr(self, "_unsub_ota", None):
+            self._unsub_ota()
+            self._unsub_ota = None
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
+        for dev in self.devices.values():
+            if dev.ota_state in {"starting", "downloading", "rebooting"}:
+                dev.ota_state = "failed"
+                dev.ota_error = "HA restarted during the update"
+
+    OTA_ACK_TIMEOUT_S = 45  # command sent, board never said anything
+    OTA_STALL_S = 120  # progress stopped mid-update
+    OTA_HARD_TIMEOUT_S = 900  # absolute cap for one attempt
+
+    @callback
+    def _on_ota(self, msg) -> None:
+        """Board-published progress: hcs/<node>/ota JSON."""
+        try:
+            node = msg.topic.split("/")[1]
+        except IndexError:
+            return
+        try:
+            payload = msg.payload
+            if isinstance(payload, bytes):
+                payload = payload.decode("utf-8", errors="replace")
+            data = json.loads(payload)
+        except (ValueError, TypeError):
+            return
+        dev = self.devices.get(node)
+        if dev is None or not isinstance(data, dict):
+            return
+        state = str(data.get("state") or "")
+        rt = self._ota_rt.setdefault(
+            node,
+            {
+                "started_at": time.monotonic(),
+                "msg_at": None,
+                "went_offline": False,
+                "notified": False,
+            },
+        )
+        rt["msg_at"] = time.monotonic()
+
+        if state == "failed":
+            reason = str(data.get("error") or "update failed on the board")
+            self._ota_fail(node, reason)
+            return
+        dev.ota_state = (
+            "rebooting" if state in {"done", "flashing"} else state or dev.ota_state
+        )
+        prog = data.get("progress")
+        dev.ota_progress = int(prog) if isinstance(prog, (int, float)) else None
+        if state == "done":
+            dev.ota_progress = 100
+
+    def _ota_fail(self, node: str, reason: str) -> None:
+        """Mark attempt failed once; surface the reason via notification."""
+        dev = self.devices.get(node)
+        if dev is None:
+            return
+        rt = self._ota_rt.get(node) or {}
+        first_failure = dev.ota_state != "failed"
+        dev.ota_state = "failed"
+        dev.ota_error = reason
+        dev.online = dev.online and not rt.get("went_offline", False)
+        if first_failure and not rt.get("notified", False):
+            rt["notified"] = True
+            self.hass.async_create_task(self._async_notify_failure(dev))
+        _LOGGER.warning("OTA to %s failed: %s", node, reason)
+
+    async def _async_notify_failure(self, dev: HcsDevice) -> None:
+        title = f"Firmware update failed — {dev.name or dev.node_id}"
+        message = (
+            f"Board `{dev.node_id}` ({dev.board or 'unknown board'}) did not "
+            f"complete its firmware update"
+            + (f" to v{dev.ota_target_version}" if dev.ota_target_version else "")
+            + f".\n\n**Reason:** {dev.ota_error}\n\nYou can retry from the "
+            "Firmware tab. If it keeps failing, check the board's web portal "
+            "(Settings → Firmware update over the air) while powered on."
+        )
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {"title": title, "message": message, "notification_id": f"hcs_ota_{dev.node_id}"},
+                blocking=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("OTA failure notification failed", exc_info=True)
+
+    def _ota_resolve_reboot(self, node: str) -> None:
+        """Board came back online after an update attempt: judge outcome."""
+        dev = self.devices.get(node)
+        rt = self._ota_rt.get(node)
+        if dev is None or rt is None:
+            return
+        if dev.ota_state not in {"starting", "downloading", "rebooting"}:
+            return
+        target = (dev.ota_target_version or "").lstrip("vV")
+        current = (dev.version or "").lstrip("vV")
+
+        def vt(v: str) -> tuple[int, ...]:
+            out = []
+            for part in v.split("."):
+                m = re.match(r"\d+", part)
+                out.append(int(m.group(0)) if m else 0)
+            return tuple(out)
+
+        if not target or not current:
+            dev.ota_state = "done"
+            dev.ota_progress = 100
+            return
+        if vt(current) >= vt(target):
+            dev.ota_state = "done"
+            dev.ota_progress = 100
+            self._ota_rt.pop(node, None)
+        else:
+            self._ota_fail(
+                node,
+                f"board rebooted but still runs v{current} "
+                f"(expected v{target}) — the image may not have been written",
+            )
+
+    async def _ota_watchdog(self) -> None:
+        """Detect silent OTA failures (old firmware publishes nothing)."""
+        import asyncio
+
+        while True:
+            await asyncio.sleep(2)
+            now = time.monotonic()
+            for node in list(self._ota_rt):
+                dev = self.devices.get(node)
+                rt = self._ota_rt[node]
+                if dev is None:
+                    continue
+                if dev.ota_state not in {"starting", "downloading", "rebooting"}:
+                    continue
+                age = now - rt.get("started_at", now)
+                last_msg = rt.get("msg_at")
+                if last_msg is None and age > self.OTA_ACK_TIMEOUT_S:
+                    self._ota_fail(
+                        node,
+                        "board did not acknowledge the update command "
+                        "(offline, or running firmware older than v1.1.1)",
+                    )
+                elif (
+                    last_msg is not None
+                    and now - last_msg > self.OTA_STALL_S
+                    and not rt.get("went_offline")
+                    and dev.online
+                ):
+                    self._ota_fail(node, "update stalled (no progress for 2 min)")
+                elif age > self.OTA_HARD_TIMEOUT_S:
+                    self._ota_fail(node, "timed out after 15 minutes")
 
     DEVICE_TTL = 600  # seconds; boards announce every ~30 s when online
 
@@ -506,7 +688,7 @@ class FirmwareManager:
             return url
 
     async def async_trigger_ota(
-        self, node_id: str, url: str
+        self, node_id: str, url: str, target_version: str | None = None
     ) -> dict[str, Any]:
         """Tell device to pull firmware from URL (MQTT + HTTP fallback)."""
         url = self._maybe_local_mirror(url)
@@ -516,6 +698,18 @@ class FirmwareManager:
             return {"ok": False, "error": "unknown device"}
         if not url:
             return {"ok": False, "error": "missing url"}
+
+        # Fresh attempt bookkeeping for the progress bar + watchdog.
+        dev.ota_state = "starting"
+        dev.ota_progress = 0
+        dev.ota_error = ""
+        dev.ota_target_version = target_version or ""
+        self._ota_rt[node_id] = {
+            "started_at": time.monotonic(),
+            "msg_at": None,
+            "went_offline": False,
+            "notified": False,
+        }
 
         # Quiet update-entity / notification thrash while the board reboots.
         try:
