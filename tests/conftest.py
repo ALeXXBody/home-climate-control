@@ -159,7 +159,7 @@ def install_ha_stubs() -> None:
     helpers.device_registry = dr
 
     net_helper = _mod("homeassistant.helpers.network")
-    net_helper.get_url = lambda hass, prefer_internal=False: (
+    net_helper.get_url = lambda hass, *a, **k: (
         "http://192.168.50.20:8123")
     helpers.network = net_helper
     storage = _mod("homeassistant.helpers.storage")

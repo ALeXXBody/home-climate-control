@@ -185,6 +185,7 @@ def catalog_from_releases(
                     or f"/home_climate_control_static/boards/photos/{plain}.png",
                     "model": model,
                     "title": f"HCS {ver} — {pretty_model}",
+                    "size": str(asset.get("size") or ""),
                     "url": asset.get("browser_download_url")
                     or asset.get("url", ""),
                     "notes": meta.get("notes", "")
@@ -665,17 +666,74 @@ class FirmwareManager:
 
     last_ota_url: str | None = None
 
-    def _maybe_local_mirror(self, url: str) -> str:
-        """Serve GitHub release binaries over plain LAN HTTP when available."""
-        marker = "/releases/download/"
-        if marker not in url:
+    MIRROR_DIR = Path(__file__).parent / "www" / "firmware"
+
+    @staticmethod
+    def _mirror_fname(url: str) -> str | None:
+        """firmware-<board>.bin asset names only."""
+        if "/releases/download/" not in url:
+            return None
+        fname = url.rsplit("/", 1)[-1]
+        if fname.startswith("firmware-") and fname.endswith(".bin"):
+            return fname
+        return None
+
+    def _expected_mirror_size(self, url: str, fname: str) -> int | None:
+        """Asset size from the live catalog (newest release wins)."""
+        board = fname[len("firmware-"):-len(".bin")]
+        for item in self.catalog:
+            if item.get("url") == url or item.get("board") == board:
+                try:
+                    return int(item.get("size") or "")
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    async def _async_refresh_mirror(
+        self, url: str, local: Path, expected_size: int | None
+    ) -> None:
+        """Re-download the cached release image when stale/missing."""
+        try:
+            stale = not local.is_file() or (
+                expected_size is not None
+                and local.stat().st_size != expected_size
+            )
+            if not stale:
+                return
+            import asyncio
+
+            session = async_get_clientsession(self.hass)
+            async with asyncio.timeout(180):
+                async with session.get(url) as resp:
+                    resp.raise_for_status()
+                    data = await resp.read()
+            if len(data) < 65536:
+                raise ValueError(f"asset suspiciously small ({len(data)}B)")
+            tmp = local.with_name(local.name + ".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(local)
+            _LOGGER.warning(
+                "OTA mirror refreshed: %s (%d bytes)", local.name, len(data)
+            )
+        except Exception:  # noqa: BLE001
+            # Keep serving whatever cache exists — plain LAN HTTP is still
+            # the only reliable path for pre-TLS (ESP8266) boards.
+            _LOGGER.debug("OTA mirror refresh failed", exc_info=True)
+
+    async def _async_ota_url(self, url: str) -> str:
+        """Serve GitHub release binaries over plain LAN HTTP when possible.
+
+        The cached copy is checked against the release's asset size first;
+        a stale image used to be re-flashed verbatim, making updates look
+        like no-ops (board rebooted onto the same version).
+        """
+        fname = self._mirror_fname(url)
+        if not fname:
             return url
-        fname = url.rsplit("/", 1)[-1]  # firmware-<board>.bin
-        if not fname.startswith("firmware-") or not fname.endswith(".bin"):
-            return url
-        local = Path(__file__).parent / "www" / "firmware" / fname
+        local = self.MIRROR_DIR / fname
+        await self._async_refresh_mirror(url, local, self._expected_mirror_size(url, fname))
         if not local.is_file():
-            return url
+            return url  # nothing cached, let the board try GitHub itself
         try:
             from homeassistant.helpers.network import get_url
 
@@ -691,7 +749,7 @@ class FirmwareManager:
         self, node_id: str, url: str, target_version: str | None = None
     ) -> dict[str, Any]:
         """Tell device to pull firmware from URL (MQTT + HTTP fallback)."""
-        url = self._maybe_local_mirror(url)
+        url = await self._async_ota_url(url)
         self.last_ota_url = url
         dev = self.devices.get(node_id)
         if not dev:
