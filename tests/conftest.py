@@ -124,6 +124,7 @@ def install_ha_stubs() -> None:
     wsapi = _mod("homeassistant.components.websocket_api")
     wsapi.websocket_command = lambda schema: (lambda fn: fn)
     wsapi.async_response = lambda fn: fn
+    wsapi.require_admin = lambda fn: fn  # admin check is live-HA behaviour
     wsapi.register_command = MagicMock()
     class _ActiveConnection:  # noqa: D401
         pass

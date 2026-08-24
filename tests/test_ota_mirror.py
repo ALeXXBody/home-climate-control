@@ -181,10 +181,19 @@ def test_no_request_context_still_mirrors(env, monkeypatch):
     def _boom(*a, **k):
         raise RuntimeError("NoURLAvailableError stand-in")
 
+    # MagicMock.__int__ returns 1; pin a real port. Also make the executor
+    # awaitable so _async_lan_url's host swap works under MagicMock hass.
+    m.hass.config.api.port = 8123
+
+    async def _exec(fn, *a, **k):
+        return fn(*a, **k)
+
+    m.hass.async_add_executor_job = _exec
     monkeypatch.setattr(ha_network, "get_url", _boom)
     monkeypatch.setattr(
         FirmwareManager, "_lan_source_ip", staticmethod(lambda ip: "192.168.50.200")
     )
     url = asyncio.run(m._async_ota_url(GH))
-    assert url.startswith("http://192.168.50.200:"), url  # iface toward device
-    assert url.endswith("/home_climate_control_static/firmware/firmware-d1_mini.bin")
+    assert url == (
+        "http://192.168.50.200:8123/home_climate_control_static/firmware/firmware-d1_mini.bin"
+    ), url

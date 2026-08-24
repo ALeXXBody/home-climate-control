@@ -59,12 +59,23 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         reaches HA via any other host than the one HA prefers internally
         (IP vs .local, reverse proxy, remote UI). The version query busts
         image caches across releases.
+
+        Note: on HA 2025.10+ UpdateEntity.entity_picture is overridden to
+        always return /api/brands/integration/<domain>/icon.png, ignoring
+        this attribute; there the icon comes from the home-assistant/brands
+        repo instead. This still helps older HA installs.
         """
         from pathlib import Path
 
         from .const import PANEL_STATIC_URL
 
-        if not (Path(__file__).parent / "brand" / "icon.png").is_file():
+        # The static mount serves <int>/www/brand/, so prefer that copy;
+        # fall back to the root brand/ dir for legacy layouts.
+        base = Path(__file__).parent
+        if not any(
+            (base / rel / "icon.png").is_file()
+            for rel in ("www/brand", "brand")
+        ):
             return None
         try:
             from homeassistant.const import __version__ as ha_version

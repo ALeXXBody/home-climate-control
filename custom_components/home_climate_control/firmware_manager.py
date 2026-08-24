@@ -181,8 +181,11 @@ def catalog_from_releases(
                     "version": ver,
                     "board": board,
                     "description": meta.get("description", ""),
+                    # Boards without bundled metadata fall back to the vector
+                    # art — every shipped board has an SVG, photos do not
+                    # (gateway variants would 404 otherwise).
                     "image": meta.get("image", "")
-                    or f"/home_climate_control_static/boards/photos/{plain}.png",
+                    or f"/home_climate_control_static/boards/{board}.svg",
                     "model": model,
                     "title": f"HCS {ver} — {pretty_model}",
                     "sha256": str(asset.get("digest") or ""),
@@ -208,6 +211,17 @@ def catalog_item(catalog: list[dict[str, str]], catalog_id: str) -> dict | None:
         if item.get("id") == catalog_id:
             return item
     return None
+
+
+# Board-derived ids look like "hcs-aabbcc112233"; anything outside this
+# charset could smuggle MQTT topic separators/wildcards into
+# "hcs/<node_id>/set/..." publishes.
+_NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def valid_node_id(node_id: Any) -> bool:
+    """True when node_id is safe to embed in MQTT topics."""
+    return isinstance(node_id, str) and bool(_NODE_ID_RE.match(node_id))
 
 
 @dataclass
@@ -450,6 +464,8 @@ class FirmwareManager:
         self, node_id: str, key: str, value: Any
     ) -> dict[str, Any]:
         """Replicate a board Control-page action over MQTT."""
+        if not valid_node_id(node_id):
+            return {"ok": False, "error": "invalid node id"}
         fmt = self.CONTROL_KEYS.get(key)
         dev = self.devices.get(node_id)
         if not fmt or not dev:
@@ -475,6 +491,8 @@ class FirmwareManager:
         self, node_id: str, curve: dict[str, Any]
     ) -> dict[str, Any]:
         """Push the weather-compensation curve (ref/design/fmax/fmin)."""
+        if not valid_node_id(node_id):
+            return {"ok": False, "error": "invalid node id"}
         dev = self.devices.get(node_id)
         if not dev:
             return {"ok": False, "error": "unknown device"}
@@ -545,6 +563,8 @@ class FirmwareManager:
         Only whitelisted keys are forwarded; secrets are write-only (the
         board echoes *_set flags instead of values).
         """
+        if not valid_node_id(node_id):
+            return {"ok": False, "error": "invalid node id"}
         dev = self.devices.get(node_id)
         if not dev:
             return {"ok": False, "error": "unknown device"}
@@ -675,15 +695,10 @@ class FirmwareManager:
             return
         if dev.ota_state not in {"starting", "downloading", "rebooting"}:
             return
+        from .update_checker import version_tuple as vt
+
         target = (dev.ota_target_version or "").lstrip("vV")
         current = (dev.version or "").lstrip("vV")
-
-        def vt(v: str) -> tuple[int, ...]:
-            out = []
-            for part in v.split("."):
-                m = re.match(r"\d+", part)
-                out.append(int(m.group(0)) if m else 0)
-            return tuple(out)
 
         if not target or not current:
             dev.ota_state = "done"
@@ -1043,6 +1058,8 @@ class FirmwareManager:
         self, node_id: str, url: str, target_version: str | None = None
     ) -> dict[str, Any]:
         """Tell device to pull firmware from URL (MQTT + HTTP fallback)."""
+        if not valid_node_id(node_id):
+            return {"ok": False, "error": "invalid node id"}
         url = await self._async_ota_url(url)
         self.last_ota_url = url
         dev = self.devices.get(node_id)
@@ -1108,6 +1125,8 @@ class FirmwareManager:
         }
 
     async def async_reboot(self, node_id: str) -> dict[str, Any]:
+        if not valid_node_id(node_id):
+            return {"ok": False, "error": "invalid node id"}
         await mqtt.async_publish(
             self.hass, f"hcs/{node_id}/set/reboot", "1", 0, False
         )

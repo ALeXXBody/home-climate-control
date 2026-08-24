@@ -229,6 +229,7 @@ async def ws_set_zone(
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/set_failsafe",
@@ -318,6 +319,7 @@ async def ws_device_control(
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/set_device_settings",
@@ -341,6 +343,7 @@ async def ws_set_device_settings(
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/flash_device",
@@ -358,6 +361,15 @@ async def ws_flash_device(
 ) -> None:
     mgr = await async_setup_firmware_manager(hass)
     url = msg.get("url") or ""
+    if url:
+        from urllib.parse import urlsplit
+
+        scheme = urlsplit(url).scheme.lower()
+        if scheme not in ("http", "https"):
+            connection.send_error(
+                msg["id"], "bad_url", f"Unsupported url scheme: {scheme or 'none'}"
+            )
+            return
     catalog_id = msg.get("catalog_id")
     item = None
     if catalog_id:
@@ -405,6 +417,7 @@ async def ws_flash_device(
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/reboot_device",
@@ -418,6 +431,11 @@ async def ws_reboot_device(
     msg: dict[str, Any],
 ) -> None:
     mgr = await async_setup_firmware_manager(hass)
+    if msg["node_id"] not in mgr.devices:
+        connection.send_error(
+            msg["id"], "unknown_node", f"No such device: {msg['node_id']}"
+        )
+        return
     result = await mgr.async_reboot(msg["node_id"])
     connection.send_result(msg["id"], result)
 
@@ -492,6 +510,7 @@ async def ws_check_updates(
     connection.send_result(msg["id"], {"ok": True, "info": info})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/set_github_token",

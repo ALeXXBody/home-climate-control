@@ -282,6 +282,12 @@ class HomeClimatePanel extends HTMLElement {
           gap: 12px;
           margin-bottom: 20px;
         }
+        .hcc-logo {
+          width: 34px;
+          height: 34px;
+          border-radius: 8px;
+          flex: none;
+        }
         h1 {
           font-size: 1.5rem;
           font-weight: 500;
@@ -470,6 +476,7 @@ class HomeClimatePanel extends HTMLElement {
       </style>
       <div class="wrap">
         <header>
+          <img class="hcc-logo" src="/home_climate_control_static/brand/icon.png" alt="Home Climate Control logo">
           <h1>Home Climate ${sys?.demo ? '<span class="badge heat" style="font-size:0.7rem;vertical-align:middle">DEMO</span>' : ""}</h1>
           <button class="ghost refresh" type="button" data-action="refresh">Refresh</button>
         </header>
