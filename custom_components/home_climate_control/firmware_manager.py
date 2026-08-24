@@ -952,11 +952,52 @@ class FirmwareManager:
 
             base = get_url(self.hass, allow_cloud=False, prefer_internal=True)
             mirrored = f"{base}/home_climate_control_static/firmware/{fname}"
-            self.last_ota_url = mirrored
-            _LOGGER.warning("OTA mirror engaged: %s -> %s", url, mirrored)
-            return mirrored
         except Exception:  # noqa: BLE001
             return url
+        # ESP boards cannot resolve mDNS/external names; give them the
+        # interface address that actually reaches them.
+        dev_ip = next(
+            (d.ip for d in self.devices.values() if d.online and d.ip), None
+        )
+        if dev_ip:
+            mirrored = await self._async_lan_url(mirrored, dev_ip)
+        self.last_ota_url = mirrored
+        _LOGGER.warning("OTA mirror engaged: %s -> %s", url, mirrored)
+        return mirrored
+
+    @staticmethod
+    def _lan_source_ip(device_ip: str) -> str | None:
+        """Interface IP that would reach device_ip (no packets sent)."""
+        import socket
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((device_ip, 9))  # discard port; nothing is transmitted
+            ip = s.getsockname()[0]
+            return ip if ip and not ip.startswith("127.") else None
+        except OSError:
+            return None
+        finally:
+            s.close()
+
+    async def _async_lan_url(self, base_url: str, device_ip: str) -> str:
+        """Swap the hostname in base_url for a board-reachable IP."""
+        from urllib.parse import urlsplit, urlunsplit
+
+        try:
+            ip = await self.hass.async_add_executor_job(
+                self._lan_source_ip, device_ip
+            )
+        except Exception:  # noqa: BLE001
+            ip = None
+        if not ip:
+            return base_url
+        parts = urlsplit(base_url)
+        host = parts.hostname or ""
+        if host == ip:
+            return base_url
+        netloc = ip if parts.port is None else f"{ip}:{parts.port}"
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
     async def async_trigger_ota(
         self, node_id: str, url: str, target_version: str | None = None
