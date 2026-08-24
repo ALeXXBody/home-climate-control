@@ -794,6 +794,12 @@ class FirmwareManager:
         self.devices[node] = dev
         self._prune_stale()
 
+        # Graceful-disconnect boards never fire an LWT, so the offline ->
+        # online transition that drives _ota_resolve_reboot() never happens;
+        # judge the outcome when the board re-announces itself post-reboot.
+        if node in self._ota_rt and dev.ota_state == "rebooting":
+            self._ota_resolve_reboot(node)
+
         # Re-check (debounced) when a device announces a version — but skip
         # during post-install cooldown so reboot churn does not thrash HA.
         if data.get("version") and self._hass:
