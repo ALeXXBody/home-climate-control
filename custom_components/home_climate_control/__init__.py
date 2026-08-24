@@ -69,6 +69,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .central import CentralController
     from .setback import SetbackLearner
     from .deadtime import DeadTimeEstimator
+    from .insulation import InsulationScorer
     from .gasmeter import GasMeter
     from .panel import async_register_panel
     from .websocket_api import async_setup_websocket
@@ -87,6 +88,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await setbacks.async_load()
     deadtime = DeadTimeEstimator(hass)
     await deadtime.async_load()
+    insulation = InsulationScorer(hass)
+    await insulation.async_load()
     gas = GasMeter(
         hass,
         rated_power_kw=opts.get("rated_heat_input_kw", 24.0),
@@ -107,6 +110,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     controller.setbacks = setbacks
     controller.deadtime = deadtime
+    controller.insulation = insulation
     controller.gas = gas
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,

@@ -11,7 +11,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.1.5 |
+| **Current version** | v1.1.6 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -39,6 +39,9 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 - **Radiator health flags** — rooms that demand heat at full flow for a long
   time without getting warm get a visible warning (undersized radiator,
   air/sludge, stuck TRV) in the panel
+- **Insulation score** — learns each room's weather-normalized heat-loss
+  factor from real cool-downs and labels it (excellent/good/fair/poor),
+  so envelope problems are visible at a glance
 - **Bootstrap calibration** — one click per room measures its warm-up speed
   (°C/h) on demand and feeds the setback learner, so learned behaviour works
   from day one instead of after weeks of history
@@ -164,7 +167,7 @@ When adding the integration, choose **Demo OTGW**. That creates:
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
 and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v1.1.5)
+## Status (v1.1.6)
 
 - Backends: demo simulator · OTGW-firmware MQTT · native HCS board (MQTT)
 - Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·
@@ -172,7 +175,7 @@ and flow setpoint change. Perfect for testing the UI before hardware work.
 - Metering: estimated gas accounting · boiler MemberID detection · 1-Wire probe entities
 - Boards: live Board tab · two-way settings sync · OTA with progress/success detection
 
-Planned next: insulation score per room, floor plan view.
+Planned next: floor plan view.
 
 ## Run tests (local venv)
 

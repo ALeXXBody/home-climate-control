@@ -123,6 +123,11 @@ class SetbackLearner:
     def _room(self, zone: str) -> _RoomState:
         return self.rooms.setdefault(zone, _RoomState())
 
+    def in_cooling(self, zone: str) -> bool:
+        """True while this room is inside an active setback cool-down."""
+        st = self.rooms.get(zone)
+        return bool(st and st.phase == "setback")
+
     def observe(
         self,
         zone: str,

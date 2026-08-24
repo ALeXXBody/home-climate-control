@@ -49,6 +49,7 @@ class CentralController:
         self.setbacks = None
         self.gas = None
         self.deadtime = None
+        self.insulation = None
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
@@ -374,6 +375,8 @@ class CentralController:
             data["setbacks"] = self.setbacks.as_dict()
         if self.deadtime is not None:
             data["deadtime"] = self.deadtime.as_dict()
+        if self.insulation is not None:
+            data["insulation"] = self.insulation.as_dict()
         data["calibration"] = self.calibration.as_dict()
         data["health"] = self.health.as_dict()
         if self.gas is not None:

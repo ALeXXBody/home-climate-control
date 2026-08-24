@@ -40,7 +40,6 @@ from .window_detect import SlopeWindowDetector
 
 _LOGGER = logging.getLogger(__name__)
 
-
 def _as_list(value) -> list[str]:
     if not value:
         return []
@@ -294,6 +293,31 @@ class ZoneClimateEntity(ClimateEntity):
 
             try:
                 estimator.observe(self.name, _t.time(), temperature)
+            except Exception:  # noqa: BLE001
+                pass
+        # Insulation score: samples inside genuine cool-down stretches
+        # (setback phases) yield a weather-normalized loss factor per room.
+        scorer = getattr(self.coordinator, "insulation", None)
+        if (
+            scorer is not None
+            and learner is not None
+            and temperature is not None
+            and not self._window_open
+        ):
+            import time as _t
+
+            try:
+                outdoor = None
+                getter = getattr(self.coordinator, "outdoor_temp", None)
+                if callable(getter):
+                    outdoor = getter()
+                scorer.observe(
+                    self._attr_name,
+                    _t.time(),
+                    temperature,
+                    outdoor,
+                    cooling=learner.in_cooling(self.name),
+                )
             except Exception:  # noqa: BLE001
                 pass
         # Slope-based window detection (rooms without contact sensors):
