@@ -169,9 +169,12 @@ def test_graceful_disconnect_resolves_on_status_publish(mgr):
 
     dev.ota_state = "starting"
     dev.ota_target_version = "1.1.1"
+    import time as _t
+
+    now = _t.monotonic()
     m._ota_rt["hcs-a"] = {
-        "started_at": 0.0,
-        "msg_at": 5.0,
+        "started_at": now - 120,
+        "msg_at": now - 100,
         "went_offline": False,
         "notified": False,
     }
@@ -209,9 +212,12 @@ def test_status_publish_does_not_resolve_mid_download(mgr):
     dev.seen_lwt_offline = False
     dev.ota_state = "downloading"
     dev.ota_target_version = "1.1.1"
+    import time as _t
+
+    now = _t.monotonic()
     m._ota_rt["hcs-a"] = {
-        "started_at": 0.0,
-        "msg_at": 5.0,
+        "started_at": now - 30,
+        "msg_at": now - 10,  # progress messages still arriving: not silent
         "went_offline": False,
         "notified": False,
     }
@@ -274,3 +280,148 @@ def test_clean_disconnect_board_resolves_on_status_publish(mgr):
     )
     dev.ota_state = "done"
     assert dev.ota_state not in {"starting", "downloading", "rebooting"}
+
+
+def test_silent_state_board_resolves_via_discovery_gap(mgr):
+    """v1.1.0 live finding (d1_mini @ fw 1.2.2): the board publishes no
+    recognizable state transitions on hcs/<node>/ota — msg_at gets touched
+    once, ota_state stays 'starting' forever — then goes silent across the
+    clean-disconnect reboot. A post-silence discovery announcement must
+    resolve the attempt even though ota_state never hit 'rebooting'."""
+    import time as _t
+
+    m, _ = mgr
+    dev = m.devices["hcs-a"]
+    dev.version = "1.2.2"  # same-version reflash, as tested live
+    dev.online = True
+    dev.seen_lwt_offline = False
+    dev.ota_state = "starting"
+    dev.ota_target_version = "1.2.2"
+
+    now = _t.monotonic()
+    m._ota_rt["hcs-a"] = {
+        "started_at": now - 100,
+        "msg_at": now - 90,  # one early ota-topic touch, then silence
+        "went_offline": False,
+        "notified": False,
+    }
+    assert dev.ota_state == "starting"
+
+    msg = MagicMock()
+    msg.topic = "hcs/hcs-a/status"
+    msg.payload = json.dumps({"node_id": "hcs-a", "version": "1.2.2"})
+    m._on_discovery(msg)
+    assert dev.ota_state == "done"
+    assert dev.ota_progress == 100
+    assert not dev.ota_error
+
+
+def test_discovery_gap_does_not_resolve_fresh_run(mgr):
+    """Guard: announcements arriving while the ota topic is still active
+    (< 75 s silence) must not resolve the attempt."""
+    import time as _t
+
+    m, _ = mgr
+    dev = m.devices["hcs-a"]
+    dev.version = "1.0.2"
+    dev.online = True
+    dev.seen_lwt_offline = False
+    dev.ota_state = "starting"
+    dev.ota_target_version = "1.1.1"
+    now = _t.monotonic()
+    m._ota_rt["hcs-a"] = {
+        "started_at": now - 20,
+        "msg_at": now - 10,
+        "went_offline": False,
+        "notified": False,
+    }
+    msg = MagicMock()
+    msg.topic = "hcs/hcs-a/status"
+    msg.payload = json.dumps({"node_id": "hcs-a", "version": "1.0.2"})
+    m._on_discovery(msg)
+    assert dev.ota_state == "starting"
+
+
+class _Resp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    async def json(self, content_type=None):
+        return self._payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _Sess:
+    def __init__(self, payload=None, boom=False):
+        self._payload = payload
+        self._boom = boom
+
+    def get(self, url):
+        if self._boom:
+            raise OSError("unreachable")
+
+        return _Resp(self._payload)
+
+
+def test_watchdog_stall_verifies_over_http_success(mgr, monkeypatch):
+    """Stall path must ask the board over HTTP before failing: a board that
+    silently flashed + rebooted reports the target version -> done."""
+    import asyncio
+
+    from custom_components.home_climate_control import firmware_manager as fm
+
+    m, tasks = mgr
+    monkeypatch.setattr(
+        fm, "async_get_clientsession", lambda hass: _Sess({"version": "1.1.1"})
+    )
+    dev = m.devices["hcs-a"]
+    dev.version = "1.0.2"
+    dev.api_status = "http://192.168.50.153/api/status"
+    dev.ota_state = "starting"
+    dev.ota_target_version = "1.1.1"
+    m._ota_rt["hcs-a"] = {
+        "started_at": 0,
+        "msg_at": None,
+        "went_offline": False,
+        "notified": False,
+    }
+    asyncio.run(
+        m._async_verify_before_fail("hcs-a", "update stalled (no progress for 2 min)")
+    )
+    assert dev.ota_state == "done"
+    assert dev.version == "1.1.1"
+    assert "hcs-a" not in m._ota_rt
+    assert not dev.ota_error
+
+
+def test_watchdog_stall_http_unreachable_fails(mgr, monkeypatch):
+    """No HTTP answer either -> original watchdog failure stands."""
+    import asyncio
+
+    from custom_components.home_climate_control import firmware_manager as fm
+
+    m, tasks = mgr
+    monkeypatch.setattr(fm, "async_get_clientsession", lambda hass: _Sess(boom=True))
+    dev = m.devices["hcs-a"]
+    dev.api_status = "http://192.168.50.153/api/status"
+    dev.ota_state = "starting"
+    dev.ota_target_version = "1.1.1"
+    m._ota_rt["hcs-a"] = {
+        "started_at": 0,
+        "msg_at": None,
+        "went_offline": False,
+        "notified": False,
+    }
+    asyncio.run(
+        m._async_verify_before_fail("hcs-a", "update stalled (no progress for 2 min)")
+    )
+    assert dev.ota_state == "failed"
+    assert "stalled" in dev.ota_error

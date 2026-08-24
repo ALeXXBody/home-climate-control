@@ -732,10 +732,12 @@ class FirmwareManager:
                 age = now - rt.get("started_at", now)
                 last_msg = rt.get("msg_at")
                 if last_msg is None and age > self.OTA_ACK_TIMEOUT_S:
-                    self._ota_fail(
-                        node,
-                        "board did not acknowledge the update command "
-                        "(offline, or running firmware older than v1.1.1)",
+                    self.hass.async_create_task(
+                        self._async_verify_before_fail(
+                            node,
+                            "board did not acknowledge the update command "
+                            "(offline, or running firmware older than v1.1.1)",
+                        )
                     )
                 elif (
                     last_msg is not None
@@ -743,9 +745,68 @@ class FirmwareManager:
                     and not rt.get("went_offline")
                     and dev.online
                 ):
-                    self._ota_fail(node, "update stalled (no progress for 2 min)")
+                    self.hass.async_create_task(
+                        self._async_verify_before_fail(
+                            node, "update stalled (no progress for 2 min)"
+                        )
+                    )
                 elif age > self.OTA_HARD_TIMEOUT_S:
                     self._ota_fail(node, "timed out after 15 minutes")
+
+    async def _async_http_version(self, dev: HcsDevice) -> str | None:
+        """Board-reported firmware version from its LAN status API."""
+        import asyncio
+
+        if not dev.api_status and not dev.ip:
+            return None
+        url = dev.api_status or f"http://{dev.ip}/api/status"
+        try:
+            session = async_get_clientsession(self.hass)
+            async with asyncio.timeout(8):
+                async with session.get(url) as resp:
+                    resp.raise_for_status()
+                    data = await resp.json(content_type=None)
+            version = (data or {}).get("version")
+            return str(version) if version else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def _async_verify_before_fail(self, node: str, reason: str) -> None:
+        """Last-chance check before the watchdog fails an attempt.
+
+        Some boards never publish recognizable state transitions to the ota
+        topic — they go silent across the reboot and re-announce via
+        discovery. Before declaring a stall/ack failure, ask the board over
+        HTTP which version it actually runs.
+        """
+        rt = self._ota_rt.get(node)
+        dev = self.devices.get(node)
+        if rt is None or dev is None:
+            return
+        if dev.ota_state not in {"starting", "downloading", "rebooting"}:
+            return  # already resolved while we were checking
+        http_version = await self._async_http_version(dev)
+        target = (dev.ota_target_version or "").lstrip("vV")
+        if not http_version or not target:
+            self._ota_fail(node, reason)
+            return
+        from .update_checker import is_newer
+
+        if is_newer(target, http_version):
+            # Board runs something older than the target image: genuine fail.
+            self._ota_fail(
+                node,
+                f"board reports v{http_version} but v{target} was requested "
+                f"({reason})",
+            )
+            return
+        dev.ota_state = "done"
+        dev.ota_progress = 100
+        dev.version = http_version
+        self._ota_rt.pop(node, None)
+        _LOGGER.info(
+            "OTA to %s verified over HTTP: running v%s", node, http_version
+        )
 
     DEVICE_TTL = 600  # seconds; boards announce every ~30 s when online
 
@@ -812,8 +873,20 @@ class FirmwareManager:
         # Graceful-disconnect boards never fire an LWT, so the offline ->
         # online transition that drives _ota_resolve_reboot() never happens;
         # judge the outcome when the board re-announces itself post-reboot.
-        if node in self._ota_rt and dev.ota_state == "rebooting":
-            self._ota_resolve_reboot(node)
+        # Boards that publish no recognizable ota-state transitions stay in
+        # "starting" forever, so also treat "run active + ota topic silent
+        # for 75+ s + attempt older than 60 s" as a reboot signature.
+        if node in self._ota_rt:
+            rt = self._ota_rt[node]
+            silent_for = (
+                time.monotonic() - rt["msg_at"] if rt.get("msg_at") else None
+            )
+            if dev.ota_state == "rebooting" or (
+                silent_for is not None
+                and silent_for > 75
+                and time.monotonic() - rt["started_at"] > 60
+            ):
+                self._ota_resolve_reboot(node)
 
         # Re-check (debounced) when a device announces a version — but skip
         # during post-install cooldown so reboot churn does not thrash HA.
