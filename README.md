@@ -11,7 +11,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.2.0 |
+| **Current version** | v1.1.2 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -154,7 +154,7 @@ When adding the integration, choose **Demo OTGW**. That creates:
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
 and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v1.2.0)
+## Status (v1.1.2)
 
 - Backends: demo simulator · OTGW-firmware MQTT · native HCS board (MQTT)
 - Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·
