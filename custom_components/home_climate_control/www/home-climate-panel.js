@@ -700,8 +700,25 @@ class HomeClimatePanel extends HTMLElement {
         <div class="card"><h3>Boiler</h3><div class="metric" style="font-size:1.1rem">${ch} ${flame}</div>
           <div class="sub">Mod ${this._fmt(sys.boiler?.modulation_level)}% · Return ${this._fmt(sys.boiler?.return_temp)}°C</div></div>
       </div>
+      ${this._healthHtml(sys)}
       ${this._zonesHtml(sys, true)}
     `;
+  }
+
+  _healthHtml(sys) {
+    const rooms = sys.boiler?.health?.rooms || {};
+    const flagged = Object.entries(rooms).filter(([, r]) => r.flag);
+    if (!flagged.length) return "";
+    return `
+      <div class="card wide" style="margin-bottom:12px">
+        <h3>Room health</h3>
+        ${flagged
+          .map(
+            ([name]) =>
+              `<div class="sub">⚠ <strong>${this._esc(name)}</strong> — struggles to reach target at full flow. Check radiator size, bleeding (air/sludge), or the TRV.</div>`
+          )
+          .join("")}
+      </div>`;
   }
 
   _zonesHtml(sys, compact = false) {
@@ -709,6 +726,7 @@ class HomeClimatePanel extends HTMLElement {
     const cal = sys.boiler?.calibration || {};
     const rates = sys.boiler?.setbacks?.rooms || {};
     const dts = sys.boiler?.deadtime?.rooms || {};
+    const health = sys.boiler?.health?.rooms || {};
     if (!zones.length) {
       return `<div class="card empty">No rooms configured. Add rooms (TRV + optional temp sensor) in the integration setup.</div>`;
     }
@@ -737,6 +755,7 @@ class HomeClimatePanel extends HTMLElement {
                   : ""}
                 ${z.window_open ? ' · <span class="badge heat">window/door open</span>' : ""}
                 ${heat ? ' · <span class="badge heat">heating</span>' : ""}
+                ${health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
                 ${calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
               </div>
             </div>

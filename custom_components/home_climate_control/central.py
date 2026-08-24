@@ -18,7 +18,8 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from .boiler.base import BoilerBackend
 from .calibrate import RoomCalibrator
-from .const import CONTROL_LOOP_SECONDS
+from .const import CONTROL_LOOP_SECONDS, DEFAULT_MAX_FLOW_TEMP
+from .health import FLOW_NEAR_MAX_K, RoomHealthMonitor
 from .heating_curve import clamp, flow_for_outdoor
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class CentralController:
 
         self.cycleguard = CycleGuard()
         self.calibration = RoomCalibrator()
+        self.health = RoomHealthMonitor()
 
         self.zones: list = []
 
@@ -314,6 +316,34 @@ class CentralController:
                 self.active_zone_names,
             )
 
+        # Health watch: a room that demands heat with a large deficit while
+        # flow runs saturated is struggling (undersized/blocked radiator or
+        # stuck TRV). Feed every room each tick so flags can also clear.
+        flow_now = self.flow_setpoint
+        sat = bool(
+            self._ch_on
+            and flow_now is not None
+            and flow_now >= self.max_flow - FLOW_NEAR_MAX_K
+        )
+        for z in self.zones:
+            dem = bool(z.wants_heat() and not z.paused())
+            cur = (
+                getattr(z, "current_temperature", None)
+                or getattr(z, "_current_temp", None)
+            )
+            deficit = (z.effective_setpoint() - cur) if cur is not None else None
+            try:
+                self.health.feed(
+                    z.name,
+                    now,
+                    demanding=dem,
+                    deficit_c=deficit,
+                    flow_at_max=sat,
+                    tick_s=CONTROL_LOOP_SECONDS,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("health feed failed", exc_info=True)
+
         # Demo physics + push simulated room temps into zones.
         simulate = getattr(self.backend, "simulate_step", None)
         if callable(simulate):
@@ -345,6 +375,7 @@ class CentralController:
         if self.deadtime is not None:
             data["deadtime"] = self.deadtime.as_dict()
         data["calibration"] = self.calibration.as_dict()
+        data["health"] = self.health.as_dict()
         if self.gas is not None:
             data["gas"] = self.gas.as_dict()
         data["cycle_guard"] = self.cycleguard.as_dict()
