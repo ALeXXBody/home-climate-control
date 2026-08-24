@@ -11,7 +11,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.1.8 |
+| **Current version** | v1.1.9 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -76,6 +76,8 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 ### Zones
 
 - Zone climate entities with presets, heat/off
+- **Rename & remove rooms from the panel** — ✎ renames (learned history
+  carries over), 🗑 removes the card; changes apply live via options reload
 - Window/door sensor pause
 - TRV demand respect — zones only call for heat when their TRVs actually ask
 
@@ -169,7 +171,7 @@ When adding the integration, choose **Demo mode**. That creates:
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
 and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v1.1.8)
+## Status (v1.1.9)
 
 - Backends: demo simulator · native HCS board (MQTT)
 - Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·

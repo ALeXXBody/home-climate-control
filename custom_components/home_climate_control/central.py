@@ -102,6 +102,33 @@ class CentralController:
                 return z
         return None
 
+    # ---------------------------------------------------------- zone admin
+    def rename_zone_learning(self, old: str, new: str) -> None:
+        """Carry every learned coefficient over when a room is renamed.
+
+        Setback offsets, dead-time and insulation scores take days or weeks
+        to mature — a rename must never throw that history away.
+        """
+        for store in (self.setbacks, self.deadtime, self.insulation):
+            if store is None:
+                continue
+            rooms = getattr(store, "rooms", None)
+            if rooms and old in rooms and new not in rooms:
+                rooms[new] = rooms.pop(old)
+            persist = getattr(store, "_persist", None)
+            if callable(persist):
+                persist()
+        if self.deadtime is not None:
+            est = self.deadtime.estimates
+            if old in est and new not in est:
+                est[new] = est.pop(old)
+            self.deadtime._persist()
+        if old in self.health.rooms and new not in self.health.rooms:
+            self.health.rooms[new] = self.health.rooms.pop(old)
+        if self.calibration.active_zone == old:
+            # A session cannot survive the entity reload anyway.
+            self.calibration.cancel()
+
     async def async_start_calibration(self, zone_name: str) -> dict:
         """Bootstrap a room's heat-rate: boost its target, time the climb.
 

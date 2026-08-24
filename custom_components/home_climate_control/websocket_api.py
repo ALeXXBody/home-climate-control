@@ -12,7 +12,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
-from .const import DOMAIN
+from .const import CONF_ZONE_NAME, CONF_ZONES, DOMAIN
 from .firmware_manager import (
     async_setup_firmware_manager,
     catalog_item,
@@ -47,6 +47,8 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_set_zone)
     websocket_api.async_register_command(hass, ws_calibrate_zone)
+    websocket_api.async_register_command(hass, ws_rename_zone)
+    websocket_api.async_register_command(hass, ws_remove_zone)
     websocket_api.async_register_command(hass, ws_set_failsafe)
     websocket_api.async_register_command(hass, ws_get_boiler_catalog)
     websocket_api.async_register_command(hass, ws_set_boiler_info)
@@ -270,6 +272,104 @@ async def ws_calibrate_zone(
         return
 
     connection.send_result(msg["id"], {**result, "status": _collect_status(hass)})
+
+
+def _zone_entry_and_names(hass: HomeAssistant, zone_name: str):
+    """Find the config entry owning *zone_name*; returns (entry, names) or (None, [])."""
+    for entry_id, data in (hass.data.get(DOMAIN) or {}).items():
+        if not isinstance(data, dict) or "controller" not in data:
+            continue
+        names = [
+            getattr(z, "name", None) for z in getattr(data["controller"], "zones", [])
+        ]
+        if zone_name in names:
+            entry = hass.config_entries.async_get_entry(entry_id)
+            if entry is not None:
+                return entry, names
+    return None, []
+
+
+def validate_zone_name(names: list[str | None], new_name: str) -> str | None:
+    """Returns an error string, or None when the name is acceptable."""
+    name = (new_name or "").strip()
+    if not name:
+        return "Room name cannot be empty"
+    if len(name) > 40:
+        return "Room name too long (max 40 characters)"
+    lowered = [str(n).strip().lower() for n in names if n]
+    if name.lower() in lowered:
+        return f"A room named '{name}' already exists"
+    return None
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/rename_zone",
+        vol.Required("zone"): str,
+        vol.Required("new_name"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_rename_zone(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Rename a room: updates options (entry reloads) and migrates learning."""
+    entry, names = _zone_entry_and_names(hass, msg["zone"])
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Unknown zone")
+        return
+    err = validate_zone_name([n for n in names if n != msg["zone"]], msg["new_name"])
+    if err is not None:
+        connection.send_error(msg["id"], "invalid_name", err)
+        return
+
+    controller = hass.data[DOMAIN][entry.entry_id]["controller"]
+    zones_cfg = list(entry.options.get(CONF_ZONES, []))
+    new_zones = [
+        {**z, CONF_ZONE_NAME: msg["new_name"].strip()}
+        if z.get(CONF_ZONE_NAME) == msg["zone"]
+        else z
+        for z in zones_cfg
+    ]
+    new_options = {**entry.options, CONF_ZONES: new_zones}
+    # Migrate learned history before the reload swaps the entity out.
+    controller.rename_zone_learning(msg["zone"], msg["new_name"].strip())
+    hass.config_entries.async_update_entry(entry, options=new_options)
+    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/remove_zone",
+        vol.Required("zone"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_remove_zone(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a room card: drops it from options; the entry reload cleans up."""
+    entry, _names = _zone_entry_and_names(hass, msg["zone"])
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Unknown zone")
+        return
+    zones_cfg = list(entry.options.get(CONF_ZONES, []))
+    new_zones = [z for z in zones_cfg if z.get(CONF_ZONE_NAME) != msg["zone"]]
+    if len(new_zones) == len(zones_cfg):
+        connection.send_error(msg["id"], "not_found", "Unknown zone")
+        return
+    if not new_zones:
+        connection.send_error(
+            msg["id"], "last_zone", "Cannot remove the last remaining room"
+        )
+        return
+    new_options = {**entry.options, CONF_ZONES: new_zones}
+    hass.config_entries.async_update_entry(entry, options=new_options)
+    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
 @websocket_api.require_admin

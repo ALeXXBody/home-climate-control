@@ -794,6 +794,12 @@ class HomeClimatePanel extends HTMLElement {
                 <button type="button" ${cal.active ? "disabled" : ""} data-zone-action="calibrate"
                   data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
+                <button type="button" class="ghost" data-zone-action="rename"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Rename this room">✎</button>
+                <button type="button" class="ghost" data-zone-action="remove"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Remove this room">🗑</button>
               </div>
               <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
                 <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
@@ -1466,6 +1472,34 @@ class HomeClimatePanel extends HTMLElement {
       if (!confirm("Calibrate this room? The target will be raised ~2 °C for up to 90 minutes while the room's warm-up speed is measured. Keep windows/doors closed.")) return;
       this._calibrateZone("start", zoneName, id);
     }
+    if (action === "rename") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (!zoneName) return;
+      const newName = prompt(`Rename "${zoneName}" to:`, zoneName);
+      if (!newName || newName.trim() === zoneName) return;
+      this._adminZone("rename_zone", { zone: zoneName, new_name: newName.trim() });
+    }
+    if (action === "remove") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (!zoneName) return;
+      if (!confirm(`Remove room "${zoneName}"?\n\nIts climate entity is deleted. Learned values are kept in case you re-add it later.`)) return;
+      this._adminZone("remove_zone", { zone: zoneName });
+    }
+  }
+
+  async _adminZone(command, payload) {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({
+        type: `home_climate_control/${command}`,
+        ...payload,
+      });
+      this._status = res.status || this._status;
+      this._error = null;
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._render();
   }
 
   async _calibrateZone(action, zoneName, entityId) {
