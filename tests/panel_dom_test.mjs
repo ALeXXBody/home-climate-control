@@ -46,6 +46,16 @@ const STATUS = {
       ota_state: "downloading",
       ota_progress: 55,
       ota_error: "",
+      cfg: {
+        device_name: "Test Board",
+        mqtt_host: "192.168.50.20",
+        mqtt_port: 1883,
+        mqtt_user: "home",
+        mqtt_user_set: true,
+        mqtt_prefix: "hcs",
+        otgw_node: "hcs-device",
+        ota_password_set: true,
+      },
     },
     {
       node_id: "hcs-offline",
@@ -205,6 +215,40 @@ check(
   "progress bar width does not reflect 55%"
 );
 check(html.includes("Downloading firmware — 55%"), "progress label missing");
+
+// 5b) board settings card on Settings tab
+el.shadowRoot.querySelector('[data-tab="settings"]').click();
+await new Promise((r) => setTimeout(r, 20));
+{
+  const h = el.shadowRoot.innerHTML;
+  check(h.includes("Board settings"), "board settings card missing");
+  const sel = el.shadowRoot.getElementById("hcc-bs-device");
+  check(!!sel && sel.value === "hcs-test", "device selector wrong");
+  check(
+    el.shadowRoot.getElementById("hcc-bs-name")?.value === "Test Board",
+    "name field not populated from cfg snapshot"
+  );
+  check(
+    el.shadowRoot.getElementById("hcc-bs-host")?.value === "192.168.50.20" &&
+      el.shadowRoot.getElementById("hcc-bs-port")?.value === "1883",
+    "mqtt fields not populated"
+  );
+  check(
+    el.shadowRoot.getElementById("hcc-bs-ota")?.value === "",
+    "ota password must not be pre-filled (write-only)"
+  );
+  el.shadowRoot.getElementById("hcc-bs-name").value = "Renamed";
+  el.shadowRoot.getElementById("hcc-bs-name").dispatchEvent(new w.Event("input"));
+  el.shadowRoot.querySelector('[data-action="save-board"]').click();
+  await new Promise((r) => setTimeout(r, 30));
+  const saveCall = wsCalls.find((c) => c.type === "home_climate_control/set_device_settings");
+  check(!!saveCall, "set_device_settings ws not called");
+  check(saveCall?.node_id === "hcs-test", "settings sent to wrong node");
+  check(saveCall?.settings?.device_name === "Renamed", "edited field missing in payload");
+  check(!("ota_password" in (saveCall?.settings || {})), "empty password must not be sent");
+}
+el.shadowRoot.querySelector('[data-tab="firmware"]').click();
+await new Promise((r) => setTimeout(r, 20));
 
 // 6) failure box carries the board's error reason
 const failBox = el.shadowRoot.querySelector(".ota-fail");

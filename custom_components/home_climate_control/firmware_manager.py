@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -226,6 +226,10 @@ class HcsDevice:
     last_error: str = ""
     # Live OTA progress (published by the board to hcs/<node>/ota) and
     # attempt bookkeeping maintained by the manager's watchdog.
+    # Mirrored board settings (masked snapshot from hcs/<node>/cfg).
+    # Secrets never appear here: passwords come only as *_set booleans.
+    cfg: dict[str, Any] = field(default_factory=dict)
+    cfg_ts: str = ""
     ota_state: str = ""  # starting|downloading|rebooting|done|failed
     ota_progress: int | None = None  # 0..100 when known
     ota_error: str = ""
@@ -300,6 +304,9 @@ class FirmwareManager:
         )
         self._unsub_ota = await mqtt.async_subscribe(
             self.hass, "hcs/+/ota", self._on_ota, 0
+        )
+        self._unsub_cfg = await mqtt.async_subscribe(
+            self.hass, "hcs/+/cfg", self._on_cfg, 0
         )
         if self._watchdog_task is None:
             import asyncio
@@ -387,6 +394,9 @@ class FirmwareManager:
         if getattr(self, "_unsub_ota", None):
             self._unsub_ota()
             self._unsub_ota = None
+        if getattr(self, "_unsub_cfg", None):
+            self._unsub_cfg()
+            self._unsub_cfg = None
         if self._watchdog_task is not None:
             self._watchdog_task.cancel()
             self._watchdog_task = None
@@ -394,6 +404,89 @@ class FirmwareManager:
             if dev.ota_state in {"starting", "downloading", "rebooting"}:
                 dev.ota_state = "failed"
                 dev.ota_error = "HA restarted during the update"
+
+    SETTINGS_KEYS = (
+        "device_name",
+        "mqtt_host",
+        "mqtt_port",
+        "mqtt_user",
+        "mqtt_pass",
+        "mqtt_prefix",
+        "otgw_node",
+        "ota_password",
+    )
+
+    @callback
+    def _on_cfg(self, msg) -> None:
+        """Retained masked-settings snapshot published by the board."""
+        try:
+            node = msg.topic.split("/")[1]
+        except IndexError:
+            return
+        dev = self.devices.get(node)
+        if dev is None:
+            return
+        try:
+            payload = msg.payload
+            if isinstance(payload, bytes):
+                payload = payload.decode("utf-8", errors="replace")
+            data = json.loads(payload)
+        except (ValueError, TypeError):
+            return
+        if not isinstance(data, dict):
+            return
+        dev.cfg = data
+        dev.cfg_ts = datetime.now(timezone.utc).isoformat()
+
+    async def async_push_settings(
+        self, node_id: str, settings: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Push a partial settings update to a board (MQTT + HTTP fallback).
+
+        Only whitelisted keys are forwarded; secrets are write-only (the
+        board echoes *_set flags instead of values).
+        """
+        dev = self.devices.get(node_id)
+        if not dev:
+            return {"ok": False, "error": "unknown device"}
+        clean = {
+            k: v for k, v in (settings or {}).items() if k in self.SETTINGS_KEYS
+        }
+        if not clean:
+            return {"ok": False, "error": "no supported settings provided"}
+
+        topic = f"hcs/{node_id}/set/settings"
+        await mqtt.async_publish(
+            self.hass, topic, json.dumps(clean), 0, False
+        )
+        _LOGGER.info("Settings MQTT %s -> %d field(s)", node_id, len(clean))
+
+        # Boards apply settings at boot: they save and reboot themselves.
+        http_ok = False
+        http_err = ""
+        if dev.api_status or dev.ip:
+            api = f"http://{dev.ip}/api/settings"
+            session = async_get_clientsession(self.hass)
+            try:
+                async with session.post(api, json=clean, timeout=30) as resp:
+                    http_ok = resp.status < 300
+                    if not http_ok:
+                        http_err = f"HTTP {resp.status}"
+            except Exception as err:  # noqa: BLE001
+                http_err = str(err)
+
+        # Optimistic local echo (secrets stay masked); authoritative state
+        # arrives via the retained cfg snapshot after the board reboots.
+        merged = dict(dev.cfg)
+        merged.update({k: v for k, v in clean.items() if "pass" not in k})
+        merged["mqtt_user_set"] = bool(merged.get("mqtt_user"))
+        merged["ota_password_set"] = merged.get("ota_password_set", False) or (
+            "ota_password" in clean
+        )
+        dev.cfg = merged
+
+        return {"ok": True, "mqtt": True, "http": http_ok,
+                "http_error": http_err or None, "node_id": node_id}
 
     OTA_ACK_TIMEOUT_S = 45  # command sent, board never said anything
     OTA_STALL_S = 120  # progress stopped mid-update

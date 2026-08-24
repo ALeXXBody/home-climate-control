@@ -63,6 +63,38 @@ class HomeClimatePanel extends HTMLElement {
     }
   }
 
+  async _onSaveBoard() {
+    const node =
+      this._bsSel || this.shadowRoot.getElementById("hcc-bs-device")?.value;
+    if (!node || !this._hass) return;
+    const fields = {};
+    this.shadowRoot.querySelectorAll("[data-bs-field]").forEach((el) => {
+      const k = el.getAttribute("data-bs-field");
+      const v = el.value.trim();
+      // password-type inputs: empty means "unchanged" — never send ""
+      if (!v && el.type === "password") return;
+      fields[k] = k === "mqtt_port" ? parseInt(v, 10) || 1883 : v;
+    });
+    if (!Object.keys(fields).length) {
+      this._notice = "Nothing to save.";
+      this._render();
+      return;
+    }
+    try {
+      await this._hass.callWS({
+        type: "home_climate_control/set_device_settings",
+        node_id: node,
+        settings: fields,
+      });
+      this._notice = "Settings sent — board is saving and will reboot.";
+      this._bsDraft = null;
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._render();
+    setTimeout(() => this._refresh(), 4000);
+  }
+
   async _refresh() {
     if (!this._hass) return;
     // Avoid stacking renders while a flash/reboot is in flight.
@@ -271,6 +303,15 @@ class HomeClimatePanel extends HTMLElement {
           border: 1px solid var(--primary-color, #03a9f4);
         }
         button:disabled { opacity: 0.5; cursor: default; }
+        .row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+        .row label { flex: 0 0 130px; font-size: 0.9rem; }
+        .row input, .row select {
+          flex: 1; min-width: 0;
+          font: inherit; border-radius: 8px;
+          border: 1px solid var(--divider-color, #444);
+          background: var(--primary-background-color, #111);
+          color: inherit; padding: 8px 12px;
+        }
         .temp-row { display: flex; align-items: center; gap: 6px; }
         .temp-row input { width: 72px; }
         .error {
@@ -376,6 +417,24 @@ class HomeClimatePanel extends HTMLElement {
     root.querySelectorAll("[data-fw-action]").forEach((el) => {
       el.addEventListener("click", () => this._onFwAction(el));
     });
+    root.getElementById("hcc-bs-device")?.addEventListener("change", (e) => {
+      this._bsSel = e.target.value;
+      this._bsDraft = null;
+      this._render();
+    });
+    root.querySelectorAll("[data-bs-field]").forEach((el) => {
+      el.addEventListener("input", () => {
+        const node =
+          this._bsSel ||
+          root.getElementById("hcc-bs-device")?.value;
+        if (!node) return;
+        const d = this._bsDraft && this._bsDraft.node === node
+          ? this._bsDraft
+          : (this._bsDraft = { node, v: {} });
+        d.v[el.getAttribute("data-bs-field")] = el.value;
+      });
+    });
+    root.querySelector('[data-action="save-board"]')?.addEventListener("click", () => this._onSaveBoard());
     root
       .querySelector('[data-action="save-failsafe"]')
       ?.addEventListener("click", () => this._onSaveFailsafe());
@@ -649,8 +708,49 @@ class HomeClimatePanel extends HTMLElement {
     return false;
   }
 
+  _boardSettingsHtml() {
+    const devs = (this._status?.devices || []).filter((d) => d.online);
+    if (!devs.length) return "";
+    const selId =
+      this._bsSel && devs.some((d) => d.node_id === this._bsSel)
+        ? this._bsSel
+        : devs[0].node_id;
+    const dev = devs.find((d) => d.node_id === selId);
+    const cfg = dev.cfg || {};
+    const draft = this._bsDraft && this._bsDraft.node === selId ? this._bsDraft.v : null;
+    const val = (k, dflt = "") => {
+      if (draft && draft[k] != null) return draft[k];
+      return cfg[k] != null ? cfg[k] : dflt;
+    };
+    const inp = (id, label, key, type = "text", ph = "") => `
+      <div class="row"><label>${label}</label>
+      <input id="${id}" data-bs-field="${key}" type="${type}" value="${this._esc(val(key))}" placeholder="${ph}"></div>`;
+    return `
+      <div class="card wide">
+        <h3>Board settings</h3>
+        <div class="row"><label>Device</label>
+          <select id="hcc-bs-device">${devs.map((d) =>
+            `<option value="${this._esc(d.node_id)}" ${d.node_id === selId ? "selected" : ""}>${this._esc(d.name || d.node_id)}</option>`
+          ).join("")}</select></div>
+        ${inp("hcc-bs-name", "Name", "device_name")}
+        <div class="row"><label>MQTT host</label><span style="flex:1;display:flex;gap:8px">
+          <input id="hcc-bs-host" data-bs-field="mqtt_host" type="text" value="${this._esc(val("mqtt_host"))}" style="flex:2">
+          <input id="hcc-bs-port" data-bs-field="mqtt_port" type="number" value="${this._esc(val("mqtt_port", "1883"))}" style="flex:1;max-width:90px"></span></div>
+        ${inp("hcc-bs-user", "MQTT user", "mqtt_user")}
+        ${inp("hcc-bs-pass", "MQTT password", "mqtt_pass", "password", "(unchanged)")}
+        ${inp("hcc-bs-ota", "OTA password", "ota_password", "password", cfg.ota_password_set ? "(set — type to replace)" : "(none)")}
+        <div class="row"><label>MQTT prefix</label><input id="hcc-bs-prefix" data-bs-field="mqtt_prefix" type="text" value="${this._esc(val("mqtt_prefix", "hcs"))}"></div>
+        <div class="row"><label>OTGW node</label><input id="hcc-bs-otgw" data-bs-field="otgw_node" type="text" value="${this._esc(val("otgw_node"))}"></div>
+        <p class="sub">Secrets are write-only. Saving reboots the board.
+          ${cfg.ota_password_set ? " · OTA password: set" : ""}${cfg.mqtt_user_set ? " · MQTT user: set" : ""}
+          ${dev.cfg_ts ? ` · synced ${this._ago(dev.cfg_ts)}` : " · pre-1.2.0 firmware: save works, live sync of board-side edits needs v1.2.0+"}</p>
+        <button type="button" class="a" data-action="save-board">Save to board</button>
+      </div>`;
+  }
+
   _settingsHtml(sys) {
     const bi = sys?.boiler_info || {};
+    const boardCard = this._boardSettingsHtml();
     const detected = bi.detected_make
       ? `<p class="sub">Detected from boiler MemberID ${bi.member_id ?? "?"}: <strong>${this._esc(bi.detected_make)}</strong></p>`
       : `<p class="sub">No MemberID received yet — select manually.</p>`;
@@ -705,6 +805,7 @@ class HomeClimatePanel extends HTMLElement {
           style="margin-top:8px;padding:6px 14px">Save to device</button>
         <span id="hcc-fs-msg" style="margin-left:8px;font-size:.85rem"></span>
       </div>
+      ${boardCard}
       <div class="card placeholder">
         <p>Tune curve and flow limits via <strong>Settings → Devices &amp; services → Home Climate Control → Configure</strong>.</p>
       </div>`;

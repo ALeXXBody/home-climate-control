@@ -36,6 +36,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_list_devices)
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
+    websocket_api.async_register_command(hass, ws_set_device_settings)
     websocket_api.async_register_command(hass, ws_reboot_device)
     websocket_api.async_register_command(hass, ws_firmware_catalog)
     hass.data[key] = True
@@ -267,6 +268,29 @@ async def ws_ping_devices(
     mgr = await async_setup_firmware_manager(hass)
     await mgr.async_ping()
     connection.send_result(msg["id"], {"ok": True, "devices": mgr.list_devices()})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_device_settings",
+        vol.Required("node_id"): str,
+        vol.Required("settings"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_set_device_settings(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    result = await mgr.async_push_settings(msg["node_id"], msg["settings"])
+    if not result.get("ok"):
+        connection.send_error(
+            msg["id"], "settings_failed", result.get("error") or "failed"
+        )
+        return
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.websocket_command(
