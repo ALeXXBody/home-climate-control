@@ -11,7 +11,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.1.2 |
+| **Current version** | v1.1.3 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -38,6 +38,10 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
   from day one instead of after weeks of history
 - **CycleGuard** — adaptive burner rest window + minimum-on floor; protects the
   boiler from short-cycling at low load
+- **Slope-based open-window detection** — rooms without contact sensors get
+  automatic heat pause when temperature falls abnormally fast (window/door
+  open), resuming once the reading stabilises; hard-capped so it can never
+  freeze a room
 
 ### Metering & diagnostics
 
@@ -154,7 +158,7 @@ When adding the integration, choose **Demo OTGW**. That creates:
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
 and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v1.1.2)
+## Status (v1.1.3)
 
 - Backends: demo simulator · OTGW-firmware MQTT · native HCS board (MQTT)
 - Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·
@@ -162,8 +166,7 @@ and flow setpoint change. Perfect for testing the UI before hardware work.
 - Metering: estimated gas accounting · boiler MemberID detection · 1-Wire probe entities
 - Boards: live Board tab · two-way settings sync · OTA with progress/success detection
 
-Planned next: temp-slope open-window detection (no contact sensors needed),
-dead-time estimation, radiator health flags, floor plan view.
+Planned next: dead-time estimation, radiator health flags, floor plan view.
 
 ## Run tests (local venv)
 

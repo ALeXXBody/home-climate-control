@@ -36,6 +36,7 @@ from .const import (
     ZONE_PRESETS,
 )
 from .pid import PID
+from .window_detect import SlopeWindowDetector
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,6 +86,12 @@ class ZoneClimateEntity(ClimateEntity):
         self._trv_entity: str | None = trvs[0] if trvs else None
         self._temp_sensor = zone_cfg.get("temp_sensor") or None
         self._window_sensors: list[str] = _as_list(zone_cfg.get("window_sensors"))
+        # Rooms without physical sensors get slope-based detection instead:
+        # an abnormally fast temperature drop pauses heat just like a
+        # tripped door sensor would.
+        self._slope_detector = (
+            None if self._window_sensors else SlopeWindowDetector()
+        )
 
         start = zone_cfg.get("demo_start_temp")
         self._current_temp: float | None = float(start) if start is not None else None
@@ -144,6 +151,10 @@ class ZoneClimateEntity(ClimateEntity):
             "demand_level": round(self._demand, 3),
             "pid_flow_contribution": round(self._pid_output, 2),
             "window_open": self._window_open,
+            "slope_window_detect": self._slope_detector is not None,
+            "slope_window_active": (
+                self._slope_detector.open if self._slope_detector else False
+            ),
             "trv": self._trv_entity,
             "trv_climates": self._trv_climates,
             "temp_sensor": self._temp_sensor,
@@ -271,6 +282,27 @@ class ZoneClimateEntity(ClimateEntity):
                 self.hass.async_create_task(
                     self.coordinator.finish_calibration(result)
                 )
+        # Slope-based window detection (rooms without contact sensors):
+        # a fast temperature drop trips the same pause a door sensor would.
+        if self._slope_detector is not None and temperature is not None:
+            import time as _t
+
+            try:
+                now_open = self._slope_detector.observe(_t.time(), temperature)
+            except Exception:  # noqa: BLE001
+                now_open = self._window_open
+            if now_open != self._window_open:
+                self._window_open = now_open
+                if now_open:
+                    _LOGGER.info(
+                        "%s: heat paused (suspected open window/door)",
+                        self._attr_name,
+                    )
+                else:
+                    _LOGGER.info(
+                        "%s: temperature stable again — heating resumes",
+                        self._attr_name,
+                    )
         if window_open is not None:
             self._window_open = window_open
         if self.hass is not None:
