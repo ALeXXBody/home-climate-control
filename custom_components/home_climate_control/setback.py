@@ -187,6 +187,24 @@ class SetbackLearner:
                 self._persist()
 
     # --------------------------------------------------------------- output
+    def inject_warm_rate(self, zone: str, rate_cph: float) -> None:
+        """Seed a measured warm-up rate from a calibration session.
+
+        Behaves exactly like one honestly-observed recovery: EMA-combined
+        with any existing estimate and counted as one completed cycle, so
+        time-to-mature shrinks from "wait for real setbacks" to "a couple
+        of cycles".
+        """
+        rate = max(0.2, min(12.0, float(rate_cph)))
+        st = self._room(zone)
+        if st.warm_ema is None:
+            st.warm_ema = rate
+        else:
+            st.warm_ema += EMA_ALPHA * (rate - st.warm_ema)
+        st.cycles += 1
+        self._persist()
+        _LOGGER.info("Injected calibration rate %.2f °C/h into '%s'", rate, zone)
+
     def offset_for(self, zone: str, fallback: float) -> float:
         """Learned setback offset for a room, or the fixed fallback."""
         if not self.enabled:

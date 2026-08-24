@@ -46,6 +46,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         return
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_set_zone)
+    websocket_api.async_register_command(hass, ws_calibrate_zone)
     websocket_api.async_register_command(hass, ws_set_failsafe)
     websocket_api.async_register_command(hass, ws_get_boiler_catalog)
     websocket_api.async_register_command(hass, ws_set_boiler_info)
@@ -227,6 +228,47 @@ async def ws_set_zone(
         )
 
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/calibrate_zone",
+        vol.Required("action"): vol.In(["start", "cancel"]),
+        vol.Inclusive("zone", "with_start"): str,
+        vol.Inclusive("entity_id", "with_start"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_calibrate_zone(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Start or cancel a bootstrap heat-rate calibration for one room."""
+    controller = None
+    for data in (hass.data.get(DOMAIN) or {}).values():
+        if isinstance(data, dict) and "controller" in data:
+            candidate = data["controller"]
+            names = [
+                getattr(z, "name", None) for z in getattr(candidate, "zones", [])
+            ]
+            if msg.get("zone") in names:
+                controller = candidate
+                break
+    if controller is None:
+        connection.send_error(msg["id"], "not_found", "Unknown zone")
+        return
+
+    try:
+        if msg["action"] == "start":
+            result = await controller.async_start_calibration(msg["zone"])
+        else:
+            result = await controller.async_cancel_calibration()
+    except (ValueError, RuntimeError) as err:
+        connection.send_error(msg["id"], "calibration_error", str(err))
+        return
+
+    connection.send_result(msg["id"], {**result, "status": _collect_status(hass)})
 
 
 @websocket_api.require_admin

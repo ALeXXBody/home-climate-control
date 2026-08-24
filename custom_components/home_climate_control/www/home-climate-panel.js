@@ -706,6 +706,8 @@ class HomeClimatePanel extends HTMLElement {
 
   _zonesHtml(sys, compact = false) {
     const zones = sys.zones || [];
+    const cal = sys.boiler?.calibration || {};
+    const rates = sys.boiler?.setbacks?.rooms || {};
     if (!zones.length) {
       return `<div class="card empty">No rooms configured. Add rooms (TRV + optional temp sensor) in the integration setup.</div>`;
     }
@@ -715,6 +717,8 @@ class HomeClimatePanel extends HTMLElement {
           .map((z) => {
             const heat =
               String(z.hvac_action).includes("heat") || z.hvac_action === "heating";
+            const rate = rates[z.name]?.warm_rate;
+            const calHere = cal.active && cal.zone === z.name;
             return `
           <div class="card zone">
             <div>
@@ -722,6 +726,7 @@ class HomeClimatePanel extends HTMLElement {
               <div class="zone-meta">
                 ${this._fmt(z.current_temperature)}°C → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C
                 · demand ${Math.round((z.demand_level || 0) * 100)}%
+                ${rate ? ` · <span title="Learned warm-up rate">warms ${rate} °C/h</span>` : ""}
                 ${z.trv ? ` · TRV ${this._esc(z.trv)}` : ""}
                 ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (z.temp_source === "trv" ? " · temp from TRV" : "")}
                 ${(z.window_sensors || []).length
@@ -729,6 +734,7 @@ class HomeClimatePanel extends HTMLElement {
                   : ""}
                 ${z.window_open ? ' · <span class="badge heat">window/door open</span>' : ""}
                 ${heat ? ' · <span class="badge heat">heating</span>' : ""}
+                ${calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
               </div>
             </div>
             ${
@@ -742,6 +748,9 @@ class HomeClimatePanel extends HTMLElement {
                   data-entity="${this._esc(z.entity_id || "")}" class="temp-input" />
                 <button type="button" data-zone-action="inc" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">+</button>
                 <button type="button" data-zone-action="apply" data-entity="${this._esc(z.entity_id || "")}">Set</button>
+                <button type="button" ${cal.active ? "disabled" : ""} data-zone-action="calibrate"
+                  data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
+                  title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
               </div>
               <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
                 <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
@@ -1383,6 +1392,29 @@ class HomeClimatePanel extends HTMLElement {
       if (input) t = parseFloat(input.value);
       this._setZone(id, { temperature: t });
     }
+    if (action === "calibrate") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (!zoneName) return;
+      if (!confirm("Calibrate this room? The target will be raised ~2 °C for up to 90 minutes while the room's warm-up speed is measured. Keep windows/doors closed.")) return;
+      this._calibrateZone("start", zoneName, id);
+    }
+  }
+
+  async _calibrateZone(action, zoneName, entityId) {
+    if (!this._hass || !zoneName) return;
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/calibrate_zone",
+        action,
+        zone: zoneName,
+        entity_id: entityId || "",
+      });
+      this._status = res.status || this._status;
+      this._error = null;
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._render();
   }
 
   _fmt(v) {

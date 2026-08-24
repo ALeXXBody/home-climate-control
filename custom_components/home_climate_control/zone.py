@@ -253,6 +253,24 @@ class ZoneClimateEntity(ClimateEntity):
                 learner.observe(self.name, _t.time(), temperature, self._preset)
             except Exception:  # noqa: BLE001
                 pass
+        # Bootstrap calibration: feed the active session, finish it when the
+        # target gain is reached (restore + injection happen in the task).
+        calibrator = getattr(self.coordinator, "calibration", None)
+        if (
+            calibrator is not None
+            and temperature is not None
+            and not self._window_open
+        ):
+            import time as _t
+
+            try:
+                result = calibrator.observe(self.name, _t.time(), temperature)
+            except Exception:  # noqa: BLE001
+                result = None
+            if result is not None and self.hass is not None:
+                self.hass.async_create_task(
+                    self.coordinator.finish_calibration(result)
+                )
         if window_open is not None:
             self._window_open = window_open
         if self.hass is not None:

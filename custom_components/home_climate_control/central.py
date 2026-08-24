@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
 from .boiler.base import BoilerBackend
+from .calibrate import RoomCalibrator
 from .const import CONTROL_LOOP_SECONDS
 from .heating_curve import clamp, flow_for_outdoor
 
@@ -49,6 +50,7 @@ class CentralController:
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
+        self.calibration = RoomCalibrator()
 
         self.zones: list = []
 
@@ -88,6 +90,110 @@ class CentralController:
     def outdoor_temp(self) -> float | None:
         return self.backend.outdoor_temp
 
+    # ------------------------------------------------------------ calibration
+    def _find_zone(self, zone_name: str):
+        for z in self.zones:
+            if getattr(z, "name", None) == zone_name:
+                return z
+        return None
+
+    async def async_start_calibration(self, zone_name: str) -> dict:
+        """Bootstrap a room's heat-rate: boost its target, time the climb.
+
+        The boosted setpoint guarantees the room actually calls for heat;
+        the calibrator measures °C/h from live sensor updates and
+        finish_calibration() restores everything afterwards.
+        """
+        zone = self._find_zone(zone_name)
+        if zone is None:
+            raise ValueError(f"unknown zone '{zone_name}'")
+        if self.calibration.active():
+            raise RuntimeError(
+                f"calibration already running for '{self.calibration.active_zone}'"
+            )
+        cur = (
+            getattr(zone, "current_temperature", None)
+            or getattr(zone, "_current_temp", None)
+        )
+        if cur is None:
+            raise ValueError(f"no temperature reading for '{zone_name}' yet")
+
+        entity_id = getattr(zone, "entity_id", None)
+        if not entity_id:
+            raise ValueError(f"zone '{zone_name}' has no climate entity yet")
+
+        original = getattr(zone, "_target_temp", None)
+        boosted = round(max(cur + 2.0, original or 0.0) + 0.0, 1)
+        self._calib_restore = {
+            "entity_id": entity_id,
+            "temperature": original,
+            "prev_hvac": str(getattr(zone, "hvac_mode", "off")),
+        }
+        self.calibration.start(zone_name, temp=cur)
+
+        import homeassistant.util.dt as dt_util
+
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": entity_id, "temperature": boosted},
+            blocking=True,
+        )
+        if str(getattr(zone, "hvac_mode", "heat")) != "heat":
+            await self.hass.services.async_call(
+                "climate",
+                "set_hvac_mode",
+                {"entity_id": entity_id, "hvac_mode": "heat"},
+                blocking=True,
+            )
+        _LOGGER.info(
+            "Calibration: '%s' target %.1f → %.1f °C (from %.1f °C room temp)",
+            zone_name,
+            original if original is not None else -99.0,
+            boosted,
+            cur,
+        )
+        return {"ok": True, "zone": zone_name, "boosted_to": boosted}
+
+    async def async_cancel_calibration(self) -> dict:
+        res = self.calibration.cancel()
+        await self._restore_after_calibration()
+        return {"ok": True, **res}
+
+    async def finish_calibration(self, result: dict) -> None:
+        """Called when the calibrator closes a session (done/partial/failed)."""
+        await self._restore_after_calibration()
+        rate = result.get("rate_cph")
+        if result.get("status") in ("done", "partial") and rate and self.setbacks:
+            self.setbacks.inject_warm_rate(result["zone"], rate)
+
+    async def _restore_after_calibration(self) -> None:
+        restore = getattr(self, "_calib_restore", None)
+        if not restore:
+            return
+        self._calib_restore = None
+        try:
+            if restore.get("temperature") is not None:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": restore["entity_id"],
+                        "temperature": restore["temperature"],
+                    },
+                    blocking=True,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Restoring setpoint after calibration failed")
+
+    def _calibration_tick(self, now_mono: float) -> None:
+        """Expire stale sessions; runs inside the control tick."""
+        import time as _time
+
+        res = self.calibration.maybe_expire(_time.time())
+        if res is not None and self.hass is not None:
+            self.hass.async_create_task(self.finish_calibration(res))
+
     async def _async_control_tick(self, _now=None) -> None:
         try:
             await self.async_control_step()
@@ -98,6 +204,9 @@ class CentralController:
         import time as _time
 
         now = _time.monotonic()
+
+        # Calibration sessions can time out; check on every tick.
+        self._calibration_tick(now)
 
         # Gas accounting: integrate burner kW x dt from live telemetry.
         if self.gas is not None:
@@ -212,6 +321,7 @@ class CentralController:
             data["autotune"] = self.autotune.as_dict()
         if self.setbacks is not None:
             data["setbacks"] = self.setbacks.as_dict()
+        data["calibration"] = self.calibration.as_dict()
         if self.gas is not None:
             data["gas"] = self.gas.as_dict()
         data["cycle_guard"] = self.cycleguard.as_dict()
