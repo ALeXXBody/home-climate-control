@@ -534,7 +534,6 @@ class FirmwareManager:
         "mqtt_user",
         "mqtt_pass",
         "mqtt_prefix",
-        "otgw_node",
         "ota_password",
     )
 

@@ -907,7 +907,6 @@ class HomeClimatePanel extends HTMLElement {
         ${inp("hcc-bs-pass", "MQTT password", "mqtt_pass", "password", "(unchanged)")}
         ${inp("hcc-bs-ota", "OTA password", "ota_password", "password", cfg.ota_password_set ? "(set — type to replace)" : "(none)")}
         <div class="row"><label>MQTT prefix</label><input id="hcc-bs-prefix" data-bs-field="mqtt_prefix" type="text" value="${this._esc(val("mqtt_prefix", "hcs"))}"></div>
-        <div class="row"><label>OTGW node</label><input id="hcc-bs-otgw" data-bs-field="otgw_node" type="text" value="${this._esc(val("otgw_node"))}"></div>
         <p class="sub">Secrets are write-only. Saving reboots the board.
           ${cfg.ota_password_set ? " · OTA password: set" : ""}${cfg.mqtt_user_set ? " · MQTT user: set" : ""}
           ${dev.cfg_ts ? ` · synced ${this._ago(dev.cfg_ts)}` : " · pre-1.2.0 firmware: save works, live sync of board-side edits needs v1.2.0+"}</p>

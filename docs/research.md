@@ -19,8 +19,8 @@ be adapted directly. This keeps HCC publishable under MIT later.
 ## 2. What each project does
 
 ### SAT (GPL-3.0) — boiler-side brain, deep OpenTherm integration
-Talks directly to the boiler through an OpenTherm Gateway (OTGW via
-MQTT/serial), DIYLess shield, Ihor Melnyk adapter, or ESPHome `opentherm`.
+Talks directly to the boiler through a dedicated OpenTherm bus gateway
+(MQTT/serial), DIYLess shield, Ihor Melnyk adapter, or ESPHome `opentherm`.
 
 Core ideas worth copying (concept-level only):
 - **Weather compensation**: computes boiler flow-water setpoint from a
@@ -108,7 +108,7 @@ auto start/stop via slope.
 
 ## 5. Open questions (need user hardware info)
 
-1. Boiler interface available? OpenTherm Gateway / EMS bus / plain
+1. Boiler interface available? OpenTherm bus gateway / EMS bus / plain
    on-off switch / boiler's own climate entity?
 2. TRVs present (brand/integration)? Or radiators without valves?
 3. Underfloor or radiators?

@@ -11,7 +11,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.1.7 |
+| **Current version** | v1.1.8 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -84,10 +84,8 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 - Home Assistant 2024.1 or newer
 - [HACS](https://hacs.xyz/) (recommended)
 - MQTT integration configured in Home Assistant
-- One of:
-  - **OpenTherm Gateway** with MQTT (e.g. OTGW-firmware), or
-  - a **Home Climate System** board (DIYLess OT shield + ESP8266/ESP32, see the
-    [home-climate-system](https://github.com/ALeXXBody/home-climate-system) repo)
+- A **Home Climate System** board (DIYLess OpenTherm shield + ESP8266/ESP32,
+  see the [home-climate-system](https://github.com/ALeXXBody/home-climate-system) repo)
 - Boiler outdoor temperature sensor (weather compensation)
 
 ## Install via HACS (custom repository)
@@ -114,9 +112,9 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 2. Click **+ Add integration**.
 3. Search for **Home Climate Control**.
 4. Complete the setup wizard:
-   1. **Boiler / OTGW**
-      - MQTT top topic (default `OTGW`)
-      - OTGW node id (e.g. `otgw-AABBCCDDEEFF`)
+   1. **Boiler connection**
+      - MQTT topic prefix (default `hcs`)
+      - Board node id
       - Min / max flow temperature
       - Heating curve coefficient
    2. **Zones** (at least one)
@@ -125,8 +123,8 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
       - Optional window/door sensors
       - Optional TRV climate entities
 
-Outdoor temperature is read from the boiler outdoor sensor published by OTGW
-as `outsidetemperature`.
+Outdoor temperature is read from the boiler's outdoor sensor as reported by
+the HCS board.
 
 ## Manual install (without HACS)
 
@@ -162,7 +160,7 @@ The panel footer shows the running integration version.
 
 ## Demo mode (no hardware)
 
-When adding the integration, choose **Demo OTGW**. That creates:
+When adding the integration, choose **Demo mode**. That creates:
 
 - Simulated outdoor temperature, boiler flame / modulation / flow / return
 - Two zones: **Living Room** and **Bedroom** (room temps evolve over time)
@@ -171,9 +169,9 @@ When adding the integration, choose **Demo OTGW**. That creates:
 Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
 and flow setpoint change. Perfect for testing the UI before hardware work.
 
-## Status (v1.1.7)
+## Status (v1.1.8)
 
-- Backends: demo simulator · OTGW-firmware MQTT · native HCS board (MQTT)
+- Backends: demo simulator · native HCS board (MQTT)
 - Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·
   per-room bootstrap calibration
 - Metering: estimated gas accounting · boiler MemberID detection · 1-Wire probe entities

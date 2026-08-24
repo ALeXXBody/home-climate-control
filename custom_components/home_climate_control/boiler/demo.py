@@ -1,4 +1,4 @@
-"""In-process demo OpenTherm gateway (no MQTT / no hardware).
+"""In-process demo boiler gateway (no MQTT / no hardware).
 
 Simulates outdoor temperature, boiler flow/return/modulation/flame, and
 simple room thermal dynamics so the sidebar app and climate entities can

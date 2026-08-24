@@ -103,7 +103,7 @@ async def test_hcs_topics():
 
 
 @pytest.mark.asyncio
-async def test_otgw_set_flow_clamps_and_publishes():
+async def test_hcs_set_flow_clamps_and_publishes():
     import homeassistant.components.mqtt as mqtt
 
     mqtt.async_publish = AsyncMock()

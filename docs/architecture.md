@@ -48,9 +48,8 @@ custom_components/home_climate_control/
 ├── boiler/
 │   ├── __init__.py        # BoilerBackend ABC: set_flow_temp, get_modulation,
 │   │                      #   get_return_temp, get_flame, enable_ch...
-│   ├── otgw_mqtt.py       # OpenTherm Gateway via MQTT (otgw-firmware topics)
-│   ├── esphome_ot.py      # ESPHome opentherm entities backend
-│   └── switch.py          # (phase 2) plain relay fallback
+│   ├── demo.py            # In-process simulator (no hardware)
+│   └── hcs_mqtt.py        # Native HCS board backend (hcs/<node> topics)
 ├── heating_curve.py       # flow = f(outdoor, room_setpoint); radiator/UF variants
 ├── pid.py                 # PID w/ anti-windup + auto-gains from curve coefficient
 ├── zone.py                # ZoneClimateEntity (ClimateEntity)
@@ -83,8 +82,8 @@ Runs every control tick (default 60 s):
    modulation, estimated instant gas use from min/max consumption).
 
 ### Outdoor temperature source (priority order)
-1. Boiler's own outdoor sensor reported by OTGW via MQTT (`Tout` /
-   `outdoor_sensor_value`) — primary, no extra hardware needed.
+1. Boiler's own outdoor sensor, reported by the HCS board over MQTT —
+   primary, no extra hardware needed.
 2. Fallback: any HA temperature sensor / weather integration entity,
    selectable in options if MQTT value is missing or stale (>30 min).
 
@@ -96,7 +95,7 @@ Underfloor variant = same formula, lower clamps + longer sample time.
 
 ## Phased roadmap
 
-**Phase 1 — MVP (radiators, OTGW MQTT):**
+**Phase 1 — MVP (radiators, HCS board):**
 - config flow: gateway topic/prefix, outdoor temp source, max flow temp,
   zones (room sensor [+ optional TRV climates])
 - heating curve + central flow setpoint control
