@@ -1556,31 +1556,6 @@ class HomeClimatePanel extends HTMLElement {
   _onZoneAction(el) {
     const action = el.getAttribute("data-zone-action");
     const id = el.getAttribute("data-entity");
-    if (!id) return;
-    const card = el.closest(".zone");
-    const input = card?.querySelector(".temp-input");
-    let t = parseFloat(input?.value ?? el.getAttribute("data-temp") ?? "20");
-    if (Number.isNaN(t)) t = 20;
-    if (action === "dec") {
-      t = Math.max(5, t - 0.5);
-      if (input) input.value = t;
-      return;
-    }
-    if (action === "inc") {
-      t = Math.min(30, t + 0.5);
-      if (input) input.value = t;
-      return;
-    }
-    if (action === "apply") {
-      if (input) t = parseFloat(input.value);
-      this._setZone(id, { temperature: t });
-    }
-    if (action === "calibrate") {
-      const zoneName = el.getAttribute("data-zone-name");
-      if (!zoneName) return;
-      if (!confirm("Calibrate this room? The target will be raised ~2 °C for up to 90 minutes while the room's warm-up speed is measured. Keep windows/doors closed.")) return;
-      this._calibrateZone("start", zoneName, id);
-    }
     if (action === "add") {
       this._addingRoom = true;
       this._render();
@@ -1609,6 +1584,31 @@ class HomeClimatePanel extends HTMLElement {
         window_sensors,
       });
       return;
+    }
+    if (!id) return;
+    const card = el.closest(".zone");
+    const input = card?.querySelector(".temp-input");
+    let t = parseFloat(input?.value ?? el.getAttribute("data-temp") ?? "20");
+    if (Number.isNaN(t)) t = 20;
+    if (action === "dec") {
+      t = Math.max(5, t - 0.5);
+      if (input) input.value = t;
+      return;
+    }
+    if (action === "inc") {
+      t = Math.min(30, t + 0.5);
+      if (input) input.value = t;
+      return;
+    }
+    if (action === "apply") {
+      if (input) t = parseFloat(input.value);
+      this._setZone(id, { temperature: t });
+    }
+    if (action === "calibrate") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (!zoneName) return;
+      if (!confirm("Calibrate this room? The target will be raised ~2 °C for up to 90 minutes while the room's warm-up speed is measured. Keep windows/doors closed.")) return;
+      this._calibrateZone("start", zoneName, id);
     }
     if (action === "rename") {
       const zoneName = el.getAttribute("data-zone-name");
