@@ -1520,7 +1520,6 @@ class HomeClimatePanel extends HTMLElement {
 
   _settingsHtml(sys) {
     const bi = sys?.boiler_info || {};
-    const boardCard = this._boardSettingsHtml();
     const detected = bi.detected_make
       ? `<p class="sub">Detected from boiler MemberID ${bi.member_id ?? "?"}: <strong>${this._esc(bi.detected_make)}</strong></p>`
       : `<p class="sub">No MemberID received yet — select manually.</p>`;
@@ -1556,7 +1555,6 @@ class HomeClimatePanel extends HTMLElement {
           style="margin-top:8px;padding:6px 14px">Save to device</button>
         <span id="hcc-fs-msg" style="margin-left:8px;font-size:.85rem"></span>
       </div>
-      ${boardCard}
       <div class="card placeholder">
         <p>Tune curve and flow limits via <strong>Settings → Devices &amp; services → Home Climate Control → Configure</strong>.</p>
       </div>`;
