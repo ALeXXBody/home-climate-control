@@ -243,6 +243,7 @@ class HomeClimatePanel extends HTMLElement {
     const systems = this._systems();
     const sys = systems[0];
 
+    const savedRoom = this._addingRoom ? this._saveAddRoomForm() : null;
     root.innerHTML = `
       <style>
         :host {
@@ -539,6 +540,7 @@ class HomeClimatePanel extends HTMLElement {
         </footer>
       </div>
     `;
+    if (savedRoom) this._restoreAddRoomForm(savedRoom);
 
     root.querySelectorAll("[data-tab]").forEach((el) => {
       el.addEventListener("click", () => {
@@ -807,6 +809,29 @@ class HomeClimatePanel extends HTMLElement {
       ${this._addRoomHtml()}`;
   }
 
+  _saveAddRoomForm() {
+    const r = this.shadowRoot;
+    return {
+      name: r.getElementById("nr-name")?.value || "",
+      control: r.getElementById("nr-control")?.value || "smart",
+      floor: r.getElementById("nr-floor")?.value || "0",
+      trv: r.getElementById("nr-trv")?.value || "",
+      sensor: r.getElementById("nr-sensor")?.value || "",
+      window: r.getElementById("nr-window")?.value || "",
+    };
+  }
+
+  _restoreAddRoomForm(s) {
+    const r = this.shadowRoot;
+    const set = (id, v) => { const e = r.getElementById(id); if (e) e.value = v; };
+    set("nr-name", s.name);
+    set("nr-control", s.control);
+    set("nr-floor", s.floor);
+    set("nr-trv", s.trv);
+    set("nr-sensor", s.sensor);
+    set("nr-window", s.window);
+  }
+
   _addRoomHtml() {
     if (!this._addingRoom) {
       return `<div class="card" style="text-align:center">
@@ -819,6 +844,7 @@ class HomeClimatePanel extends HTMLElement {
     const sensors = Object.keys(this._hass?.states || {})
       .filter((id) => id.startsWith("sensor."))
       .sort();
+    const friendly = (id) => this._hass?.states?.[id]?.attributes?.friendly_name || id;
     return `
       <div class="card" style="margin-top:12px">
         <h3>New room</h3>
@@ -835,10 +861,10 @@ class HomeClimatePanel extends HTMLElement {
           </select></div>
         <div class="row"><label>TRV climate<br><span style="font-weight:400">(required for smart)</span></label>
           <input id="nr-trv" list="nr-climates" placeholder="climate.… (blank for manual)" style="flex:1">
-          <datalist id="nr-climates">${climates.map((c) => `<option value="${this._esc(c)}">`).join("")}</datalist></div>
+          <datalist id="nr-climates">${climates.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div class="row"><label>Temp sensor<br><span style="font-weight:400">(optional)</span></label>
           <input id="nr-sensor" list="nr-sensors" placeholder="sensor.… (else TRV's own)" style="flex:1">
-          <datalist id="nr-sensors">${sensors.slice(0, 400).map((c) => `<option value="${this._esc(c)}">`).join("")}</datalist></div>
+          <datalist id="nr-sensors">${sensors.slice(0, 400).map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div class="row"><label>Window/door<br><span style="font-weight:400">(optional, comma-sep)</span></label>
           <input id="nr-window" type="text" placeholder="binary_sensor.…" style="flex:1"></div>
         <div style="display:flex;gap:8px;margin-top:10px">
@@ -1585,6 +1611,36 @@ class HomeClimatePanel extends HTMLElement {
       });
       return;
     }
+    if (action === "rename") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (!zoneName) return;
+      const newName = prompt(`Rename "${zoneName}" to:`, zoneName);
+      if (!newName || newName.trim() === zoneName) return;
+      this._adminZone("rename_zone", { zone: zoneName, new_name: newName.trim() });
+      return;
+    }
+    if (action === "control") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (!zoneName) return;
+      const sys = (this._status?.systems || [])[0];
+      const zone = (sys?.zones || []).find(z => z.name === zoneName);
+      const now = zone?.heat_control || "smart";
+      const next = now === "manual" ? "smart" : "manual";
+      const msg =
+        next === "manual"
+          ? `Mark "${zoneName}" as a manual radiator?\n\nHCC will observe its temperature but the valve is turned by hand.`
+          : `Mark "${zoneName}" as smart-TRV controlled?`;
+      if (!confirm(msg)) return;
+      this._adminZone("rename_zone", { zone: zoneName, heat_control: next });
+      return;
+    }
+    if (action === "remove") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (!zoneName) return;
+      if (!confirm(`Remove room "${zoneName}"?\n\nIts climate entity is deleted. Learned values are kept in case you re-add it later.`)) return;
+      this._adminZone("remove_zone", { zone: zoneName });
+      return;
+    }
     if (!id) return;
     const card = el.closest(".zone");
     const input = card?.querySelector(".temp-input");
@@ -1609,33 +1665,6 @@ class HomeClimatePanel extends HTMLElement {
       if (!zoneName) return;
       if (!confirm("Calibrate this room? The target will be raised ~2 °C for up to 90 minutes while the room's warm-up speed is measured. Keep windows/doors closed.")) return;
       this._calibrateZone("start", zoneName, id);
-    }
-    if (action === "rename") {
-      const zoneName = el.getAttribute("data-zone-name");
-      if (!zoneName) return;
-      const newName = prompt(`Rename "${zoneName}" to:`, zoneName);
-      if (!newName || newName.trim() === zoneName) return;
-      this._adminZone("rename_zone", { zone: zoneName, new_name: newName.trim() });
-    }
-    if (action === "control") {
-      const zoneName = el.getAttribute("data-zone-name");
-      if (!zoneName) return;
-      const sys = (this._status?.systems || [])[0];
-      const zone = (sys?.zones || []).find(z => z.name === zoneName);
-      const now = zone?.heat_control || "smart";
-      const next = now === "manual" ? "smart" : "manual";
-      const msg =
-        next === "manual"
-          ? `Mark "${zoneName}" as a manual radiator?\n\nHCC will observe its temperature but the valve is turned by hand.`
-          : `Mark "${zoneName}" as smart-TRV controlled?`;
-      if (!confirm(msg)) return;
-      this._adminZone("rename_zone", { zone: zoneName, heat_control: next });
-    }
-    if (action === "remove") {
-      const zoneName = el.getAttribute("data-zone-name");
-      if (!zoneName) return;
-      if (!confirm(`Remove room "${zoneName}"?\n\nIts climate entity is deleted. Learned values are kept in case you re-add it later.`)) return;
-      this._adminZone("remove_zone", { zone: zoneName });
     }
   }
 
