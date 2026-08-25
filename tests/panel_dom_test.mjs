@@ -191,8 +191,8 @@ check(
 // 1c) catalog block + registered-boards area both live in the merged card
 check(!!el.shadowRoot.querySelector(".fw-cat"), "catalog grid layout missing");
 check(html.includes("Registered boards"), "registered-boards label missing");
-check(html.indexOf("fw-cat") < html.indexOf("Registered boards"),
-  "catalog should sit above the registered boards list");
+check(html.indexOf("Registered boards") < html.indexOf("Flash a new board"),
+  "registered boards should sit above the flash-new-board catalog");
 const opts = [...el.shadowRoot.querySelectorAll("#hcc-board-sel option")].map(
   (o) => o.textContent
 );

@@ -1695,6 +1695,12 @@ class HomeClimatePanel extends HTMLElement {
       (ui?.outdated_devices || []).map((d) => d.node_id)
     );
 
+    const emptyState = devices.length
+      ? ""
+      : (this._status?.devices || []).length
+      ? `<p class="sub" style="margin-top:10px">Your board is powered off or unreachable — it reappears here within seconds of coming back.</p>`
+      : `<p class="sub" style="margin-top:10px">No board found yet — flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on; it registers here automatically.</p>`;
+
     let banner = "";
     if (ui?.error) {
       banner = `<div class="card placeholder"><p class="sub">Update check failed: ${this._esc(ui.error)}</p></div>`;
@@ -1775,12 +1781,11 @@ class HomeClimatePanel extends HTMLElement {
           `<option value="${this._esc(c.id)}"${c.id === this._selectedBoardId ? " selected" : ""}>${this._esc(HomeClimatePanel._modelLabel(c))}</option>`
       )
       .join("");
-
-    const emptyState = devices.length
-      ? ""
-      : (this._status?.devices || []).length
-      ? `<p class="sub" style="margin-top:10px">Your board is powered off or unreachable — it reappears here within seconds of coming back.</p>`
-      : `<p class="sub" style="margin-top:10px">No board found yet — flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on; it registers here automatically.</p>`;
+    // Registered boards first, then the flash-new-board catalog.
+    const registeredLabel =
+      `<div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:2px 0 6px">Registered boards</div>`;
+    const flashLabel =
+      `<div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:18px 0 6px">Flash a new board</div>`;
 
     return `
       <div class="card zone" style="margin-bottom:16px">
@@ -1794,11 +1799,14 @@ class HomeClimatePanel extends HTMLElement {
           <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
           <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
         </div>
-
       </div>
       ${banner}
       <div class="card zone">
         <div class="zone-title" style="margin-bottom:10px">Firmware</div>
+        ${devices.length
+          ? registeredLabel + `<div class="zones">${deviceCards}</div>`
+          : emptyState}
+        ${flashLabel}
         <div class="fw-cat">
           <div>
             <label style="display:block;font-size:.85rem;margin-bottom:6px">Board model</label>
@@ -1818,10 +1826,6 @@ class HomeClimatePanel extends HTMLElement {
             <p class="sub" style="margin-top:6px"></p>
           </div>
         </div>
-        <div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:18px 0 6px">
-          Registered boards
-        </div>
-        ${devices.length ? `<div class="zones">${deviceCards}</div>` : emptyState}
       </div>
 `;
   }
