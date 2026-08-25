@@ -1757,7 +1757,7 @@ class HomeClimatePanel extends HTMLElement {
         </div>
         <div class="controls">
           <select data-catalog-for="${this._esc(d.node_id)}"
-            style="margin-top:8px;max-width:220px">${options}</select>
+            style="margin-top:14px;max-width:220px">${options}</select>
           <button type="button" data-fw-action="flash" data-node="${this._esc(d.node_id)}"
             ${!d.online || this._busy[d.node_id] ? "disabled" : ""}>Flash</button>
           <button type="button" class="ghost" data-fw-action="reboot" data-node="${this._esc(d.node_id)}"
@@ -1792,14 +1792,14 @@ class HomeClimatePanel extends HTMLElement {
 
     return `
       <div class="card zone" style="margin-top:20px">
-        <div class="zone-title" style="display:flex;align-items:center;justify-content:flex-start;gap:10px">
-          <span>Firmware</span>
-          <span style="margin-left:auto;display:flex;gap:6px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div class="zone-title" style="margin:0">Firmware</div>
+          <div style="margin-left:auto;display:flex;gap:6px">
             <button type="button" class="ghost" data-fw-action="ping"
               style="padding:2px 10px;font-size:.78rem">Scan now</button>
             <button type="button" class="ghost" data-fw-action="check-updates"
               style="padding:2px 10px;font-size:.78rem">Check updates</button>
-          </span>
+          </div>
         </div>
         <div class="zone-meta">Boards announce via MQTT every 30 s — powered-off boards hide until they return.</div>
         ${devices.length
@@ -1812,7 +1812,7 @@ class HomeClimatePanel extends HTMLElement {
         <div class="fw-cat">
           <div>
             <label style="display:block;font-size:.85rem;margin-bottom:6px">Board model</label>
-            <select id="hcc-board-sel" style="width:100%;padding:8px;margin-top:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+            <select id="hcc-board-sel" style="width:100%;padding:8px;margin-top:14px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
               ${boardOptions}
             </select>
             <label style="display:block;margin-top:14px;font-size:.85rem">Flash this image to a new board</label>
