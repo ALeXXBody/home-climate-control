@@ -411,6 +411,42 @@ check(
     JSON.stringify(foot.textContent.slice(0, 60))
 );
 
+
+// ── Floor plan gates ─────────────────────────────────────────────────
+el._status.systems[0].zones = [
+  { name: "Office", floor: 0, current_temperature: 18.0, target_temperature: 20,
+    effective_setpoint: 20, demand_level: 0.4, hvac_action: "heating",
+    heat_control: "smart", window_open: false },
+  { name: "Attic", floor: 1, current_temperature: 22.5, target_temperature: 20,
+    effective_setpoint: 21, demand_level: 0, hvac_action: "idle",
+    heat_control: "manual", window_open: true },
+];
+el._tab = "floorplan";
+el._render();
+await new Promise((r) => setTimeout(r, 10));
+const fp = el.shadowRoot.getElementById("hcc-fp-wrap")?.innerHTML || "";
+check(fp.includes("Ground floor"), "floorplan: ground-floor label missing");
+check(fp.includes("1st floor"), "floorplan: upper-floor label missing");
+check(
+  (fp.match(/data-fp-zone=/g) || []).length === 2,
+  "floorplan: expected 2 clickable rooms"
+);
+check(fp.includes("manual"), "floorplan: manual-room marker missing");
+check(fp.includes("window"), "floorplan: open-window badge missing");
+check(fp.includes("🔥"), "floorplan: heating badge missing");
+check(/18\.0°/.test(fp), "floorplan: room temperature not rendered");
+
+// click-through: floor-plan room → rooms tab + highlighted card
+el.shadowRoot
+  .querySelector('[data-fp-zone="Attic"]')
+  .dispatchEvent(new w.Event("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 80));
+check(el._tab === "zones", "floorplan click did not switch to Rooms tab");
+check(!el._fpFocus, "fp focus flag not cleared after render");
+const flashed = el.shadowRoot.querySelector(".fp-flash");
+check(!!flashed && flashed.textContent.includes("Attic"),
+  "clicked room card not highlighted on Rooms tab");
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);

@@ -46,6 +46,13 @@ class HomeClimatePanel extends HTMLElement {
 
     root.addEventListener("click", (ev) => {
       const t = ev.target;
+      const fp = t.closest("[data-fp-zone]");
+      if (fp) {
+        this._fpFlashName = fp.getAttribute("data-fp-zone");
+        this._tab = "zones";
+        this._render();
+        return;
+      }
       const tab = t.closest("[data-tab]");
       if (tab) {
         this._tab = tab.getAttribute("data-tab");
@@ -333,7 +340,10 @@ class HomeClimatePanel extends HTMLElement {
       case "zones": {
         if (this._addingRoom || this._editingZone) return;
         const w = root.getElementById("hcc-zones-wrap");
-        if (w && !this._focusBlocked(w)) w.innerHTML = this._zonesHtml(sys);
+        if (w && !this._focusBlocked(w)) {
+          w.innerHTML = this._zonesHtml(sys);
+          this._applyRoomFlash(root); // survive polls while animating
+        }
         break;
       }
       case "firmware": {
@@ -352,6 +362,11 @@ class HomeClimatePanel extends HTMLElement {
           }
           this._renderBoardPreview();
         }
+        break;
+      }
+      case "floorplan": {
+        const w = root.getElementById("hcc-fp-wrap");
+        if (w && sys) w.innerHTML = this._floorplanHtml(sys);
         break;
       }
       case "settings": {
@@ -699,6 +714,27 @@ class HomeClimatePanel extends HTMLElement {
           .fw-cat { grid-template-columns: 1fr; }
         }
 
+        /* ── Floor plan ─────────────────────────────────────────── */
+        .fp-floor-label {
+          font-size: .8rem; letter-spacing: .08em; text-transform: uppercase;
+          color: var(--secondary-text-color, #aaa); margin: 14px 0 4px;
+        }
+        .fp-svg { width: 100%; height: auto; display: block; }
+        .fp-room { cursor: pointer; }
+        .fp-room rect.r {
+          rx: 10; ry: 10;
+          stroke: var(--divider-color, #333); stroke-width: 1.5;
+          transition: filter .15s;
+        }
+        .fp-room:hover rect.r { filter: brightness(1.35); }
+        .fp-room.manual rect.r { stroke-dasharray: 6 4; }
+        .fp-name { font-size: 13px; font-weight: 600; fill: #fff; }
+        .fp-temp { font-size: 20px; font-weight: 700; fill: #fff; }
+        .fp-sub  { font-size: 11px; fill: rgba(255,255,255,.75); }
+        .fp-badge { font-size: 11px; }
+        .fp-flash { animation: fpflash 1.6s ease-out 2; }
+        @keyframes fpflash { 0%,100% { outline: none; } 40% { box-shadow: 0 0 0 3px var(--primary-color,#03a9f4) inset; } }
+
       </style>
       <div class="wrap">
         <header>
@@ -727,6 +763,7 @@ class HomeClimatePanel extends HTMLElement {
       </div>
     `;
     if (savedRoom) this._restoreAddRoomForm(savedRoom);
+    this._applyRoomFlash(root);
     if (this._selectedBoardId) {
       const bsel = root.getElementById("hcc-board-sel");
       if (bsel) bsel.value = this._selectedBoardId;
@@ -840,10 +877,7 @@ class HomeClimatePanel extends HTMLElement {
       case "zones":
         return `<div id="hcc-zones-wrap">${this._zonesHtml(sys)}</div>`;
       case "floorplan":
-        return this._placeholder(
-          "Floor plan",
-          "Coming soon: interactive house layout with room temperatures and heat demand."
-        );
+        return `<div id="hcc-fp-wrap">${this._floorplanHtml(sys)}</div>`;
       case "firmware":
         return `<div id="hcc-fw-wrap">${this._firmwareHtml()}</div>`;
       case "board":
@@ -897,6 +931,117 @@ class HomeClimatePanel extends HTMLElement {
               `<div class="sub">⚠ <strong>${this._esc(name)}</strong> — struggles to reach target at full flow. Check radiator size, bleeding (air/sludge), or the TRV.</div>`
           )
           .join("")}
+      </div>`;
+  }
+
+  /* Highlight + scroll to a room card on the Rooms tab. Survives the
+     poll: _fpFlashName stays set until the animation completes and is
+     re-applied after every live swap of the zones list. */
+  _applyRoomFlash(root) {
+    const name = this._fpFlashName;
+    if (!name || this._tab !== "zones") return;
+    for (const el of root.querySelectorAll(".zone-title")) {
+      if (!el.textContent.includes(name)) continue;
+      const card = el.closest(".card") || el;
+      if (card.classList.contains("fp-flash")) break; // already animating
+      card.classList.add("fp-flash");
+      requestAnimationFrame(() => {
+        if (card.scrollIntoView)
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      setTimeout(() => {
+        card.classList.remove("fp-flash");
+        if (this._fpFlashName === name) this._fpFlashName = null;
+      }, 3400);
+      break;
+    }
+  }
+
+  /* ── Floor plan ────────────────────────────────────────────────────
+     SVG bands per floor (highest floor first, ground at bottom).
+     Room fill encodes comfort delta: blue=cold, green=at-target,
+     orange=over. Zero backend dependencies — everything comes from
+     get_status zones + this._hass states. */
+  static FP_TEMP_SPAN = 2.0; // °C around setpoint mapped to full color sweep
+
+  static _fpColor(delta) {
+    const span = HomeClimatePanel.FP_TEMP_SPAN;
+    const x = Math.max(-span, Math.min(span, delta)); // -2..+2
+    // three-stop lerp: 210°(blue) → 130°(green) → 30°(orange)
+    let h;
+    if (x < 0) h = 210 + (130 - 210) * ((x + span) / span);
+    else h = 130 + (30 - 130) * (x / span);
+    return `hsl(${h.toFixed(0)}, 55%, 26%)`;
+  }
+
+  static _fpEsc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  _floorplanHtml(sys) {
+    const zones = sys?.zones || [];
+    if (!zones.length)
+      return this._placeholder("Floor plan", "No rooms configured yet.");
+    const byFloor = new Map();
+    for (const z of zones) {
+      const f = Number.isFinite(z.floor) ? z.floor : 0;
+      if (!byFloor.has(f)) byFloor.set(f, []);
+      byFloor.get(f).push(z);
+    }
+    const floors = [...byFloor.keys()].sort((a, b) => a - b);
+
+    const RH = 108, GAP = 10, PAD = 6;   // room height / gaps
+    const bands = [];
+    let y = 0;
+    for (let i = floors.length - 1; i >= 0; i--) {   // top floor rendered first
+      const f = floors[i];
+      const rooms = byFloor.get(f);
+      const W = Math.max(320, rooms.length * 150);
+      const labelY = y + 12;
+      const rectY = y + 20;
+      let rects = "";
+      let x = PAD;
+      const w = (W - PAD * 2 - GAP * (rooms.length - 1)) / rooms.length;
+      for (const z of rooms) {
+        const cur = typeof z.current_temperature === "number" ? z.current_temperature : null;
+        const tgt = z.effective_setpoint ?? z.target_temperature;
+        const delta = cur != null && typeof tgt === "number" ? cur - tgt : null;
+        const fill = delta == null ? "#3a3f44" : HomeClimatePanel._fpColor(delta);
+        const heating = String(z.hvac_action || "") === "heating";
+        const demandPct = z.demand_level != null ? Math.round(z.demand_level * 100) : 0;
+        const manual = z.heat_control === "manual";
+        const cx = x + w / 2;
+        const tempTxt = cur != null ? `${cur.toFixed(1)}°` : "—";
+        const subBits = [];
+        if (typeof tgt === "number") subBits.push(`→ ${tgt.toFixed(0)}°`);
+        if (manual) subBits.push("✋ manual");
+        if (z.window_open) subBits.push("🪟 window");
+        const badges = [];
+        if (heating) badges.push(`<tspan class="fp-badge" fill="#ff8a65">🔥</tspan>`);
+        if (demandPct > 0) badges.push(`<tspan class="fp-badge" fill="#4fc3f7">${demandPct}%</tspan>`);
+        rects += `
+        <g class="fp-room${manual ? " manual" : ""}" data-fp-zone="${HomeClimatePanel._fpEsc(z.name)}">
+          <rect class="r" x="${x.toFixed(1)}" y="${rectY}" width="${w.toFixed(1)}" height="${RH}"
+            fill="${fill}"></rect>
+          <text class="fp-name" x="${cx}" y="${rectY + 24}" text-anchor="middle">${HomeClimatePanel._fpEsc(z.name)}</text>
+          <text class="fp-temp" x="${cx}" y="${rectY + 52}" text-anchor="middle">${tempTxt}</text>
+          <text class="fp-sub" x="${cx}" y="${rectY + 72}" text-anchor="middle">${HomeClimatePanel._fpEsc(subBits.join(" · "))}</text>
+          <text class="fp-sub" x="${cx}" y="${rectY + RH - 14}" text-anchor="middle">${badges.join(" ")}</text>
+        </g>`;
+        x += w + GAP;
+      }
+      bands.push(`
+        <div class="fp-floor-label">${HomeClimatePanel.FLOOR_LABEL(f)}</div>
+        <svg class="fp-svg" viewBox="0 0 ${W} ${rectY + RH + PAD}" role="img"
+             aria-label="Floor plan, ${HomeClimatePanel.FLOOR_LABEL(f)}">${rects}
+        </svg>`);
+      y = rectY + RH + PAD + 14;
+    }
+    return `<div class="card wide" style="padding:14px">
+        <p class="sub" style="margin-top:0">Live comfort map — click a room to manage it.
+        <span style="opacity:.7">Blue = below target · Green = at target · Orange = above.</span></p>
+      ${bands.join("\n")}
       </div>`;
   }
 
