@@ -141,7 +141,7 @@ el.hass = {
 await new Promise((r) => setTimeout(r, 50)); // let initial render+refresh settle
 
 // switch to firmware tab
-el.shadowRoot.querySelector('[data-tab="firmware"]').click();
+el.shadowRoot.querySelector('[data-tab="devices"]').click();
 await new Promise((r) => setTimeout(r, 20));
 
 const html = el.shadowRoot.innerHTML;
@@ -262,7 +262,7 @@ await new Promise((r) => setTimeout(r, 20));
   check(saveCall?.settings?.device_name === "Renamed", "edited field missing in payload");
   check(!("ota_password" in (saveCall?.settings || {})), "empty password must not be sent");
 }
-el.shadowRoot.querySelector('[data-tab="firmware"]').click();
+el.shadowRoot.querySelector('[data-tab="devices"]').click();
 await new Promise((r) => setTimeout(r, 20));
 
 // 6) failure box carries the board's error reason
@@ -331,7 +331,7 @@ check(!!catFlash, "flash-catalog ws not called");
 check(catFlash?.catalog_id === "hcs-1.0.2-lolin_c3_mini", "flash-catalog wrong image");
 
 // 6) Board tab replicates the ESP control page
-el._tab = "board";
+el._tab = "devices";
 el._render();
 await new Promise((r) => setTimeout(r, 10));
 let h = el.shadowRoot.innerHTML;
@@ -421,10 +421,10 @@ el._status.systems[0].zones = [
     effective_setpoint: 21, demand_level: 0, hvac_action: "idle",
     heat_control: "manual", window_open: true },
 ];
-el._tab = "floorplan";
+el._tab = "home";
 el._render();
 await new Promise((r) => setTimeout(r, 10));
-const fp = el.shadowRoot.getElementById("hcc-fp-wrap")?.innerHTML || "";
+const fp = el.shadowRoot.getElementById("hcc-live")?.innerHTML || "";
 check(fp.includes("Ground floor"), "floorplan: ground-floor label missing");
 check(fp.includes("1st floor"), "floorplan: upper-floor label missing");
 check(
@@ -441,7 +441,7 @@ el.shadowRoot
   .querySelector('[data-fp-zone="Attic"]')
   .dispatchEvent(new w.Event("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 80));
-check(el._tab === "zones", "floorplan click did not switch to Rooms tab");
+check(el._tab === "rooms", "floorplan click did not switch to Rooms tab");
 check(!el._fpFocus, "fp focus flag not cleared after render");
 const flashed = el.shadowRoot.querySelector(".fp-flash");
 check(!!flashed && flashed.textContent.includes("Attic"),
@@ -453,7 +453,7 @@ el._otlogNodeId = "hcs-test";
 el._otlogLines = [
   "[  12.30] READ Status      0041 -> OK   R-ACK Status     0141 = 21.50",
 ];
-el._tab = "board";
+el._tab = "devices";
 el._render();
 await new Promise((r) => setTimeout(r, 10));
 const pre = el.shadowRoot.getElementById("hcc-otlog-pre");

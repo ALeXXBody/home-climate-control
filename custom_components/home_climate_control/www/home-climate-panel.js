@@ -9,7 +9,7 @@ class HomeClimatePanel extends HTMLElement {
     this._hass = null;
     this._narrow = false;
     this._status = null;
-    this._tab = "overview";
+    this._tab = "home";
     this._loading = true;
     this._error = null;
     this._notice = null;
@@ -33,7 +33,7 @@ class HomeClimatePanel extends HTMLElement {
         const active = (this._status?.devices || []).some((d) =>
           HomeClimatePanel.OTA_ACTIVE.has(d.ota_state)
         );
-        if (active || this._tab === "board") this._refresh();
+        if (active || this._tab === "devices") this._refresh();
       }, 2000);
     }
   }
@@ -49,7 +49,7 @@ class HomeClimatePanel extends HTMLElement {
       const fp = t.closest("[data-fp-zone]");
       if (fp) {
         this._fpFlashName = fp.getAttribute("data-fp-zone");
-        this._tab = "zones";
+        this._tab = "rooms";
         this._render();
         return;
       }
@@ -346,7 +346,7 @@ class HomeClimatePanel extends HTMLElement {
 
     // Per-tab live region
     switch (this._tab) {
-      case "zones": {
+      case "rooms": {
         if (this._addingRoom || this._editingZone) return;
         const w = root.getElementById("hcc-zones-wrap");
         if (w && !this._focusBlocked(w)) {
@@ -355,41 +355,33 @@ class HomeClimatePanel extends HTMLElement {
         }
         break;
       }
-      case "firmware": {
-        const w = root.getElementById("hcc-fw-wrap");
-        if (w && !this._focusBlocked(w)) w.innerHTML = this._firmwareHtml();
-        break;
-      }
-      case "board": {
+      case "devices": {
         this._otAutoTick_();
-        if (HomeClimatePanel._boardEditing(root)) return;
-        const w = root.getElementById("hcc-board-wrap");
-        if (w && !this._focusBlocked(w)) {
-          w.innerHTML = this._boardHtml();
-          if (this._selectedBoardId) {
-            const bsel = root.getElementById("hcc-board-sel");
-            if (bsel) bsel.value = this._selectedBoardId;
+        const fw = root.getElementById("hcc-fw-wrap");
+        if (fw && !this._focusBlocked(fw)) fw.innerHTML = this._firmwareHtml();
+        if (!HomeClimatePanel._boardEditing(root)) {
+          const bw = root.getElementById("hcc-board-wrap");
+          if (bw && !this._focusBlocked(bw)) {
+            bw.innerHTML = this._boardHtml();
+            if (this._selectedBoardId) {
+              const bsel = root.getElementById("hcc-board-sel");
+              if (bsel) bsel.value = this._selectedBoardId;
+            }
+            this._renderBoardPreview();
           }
-          this._renderBoardPreview();
         }
         break;
       }
-      case "floorplan": {
-        const w = root.getElementById("hcc-fp-wrap");
-        if (w && sys) w.innerHTML = this._floorplanHtml(sys);
-        break;
-      }
-      case "settings": {
-        // Only the telemetry cards swap; config forms stay put.
-        const w = root.getElementById("hcc-settings-live");
+      case "diagnostics": {
+        const w = root.getElementById("hcc-diag-wrap");
         if (w && sys) w.innerHTML = this._settingsLiveHtml(sys);
         break;
       }
-      default: {
+      default: { // home
         const w = root.getElementById("hcc-live");
         if (w && sys)
           w.innerHTML =
-            `${this._boilerPictureHtml(sys)}${this._overviewHtml(sys)}`;
+            `${this._boilerPictureHtml(sys)}${this._homeHtml(sys)}`;
         break;
       }
     }
@@ -754,12 +746,11 @@ class HomeClimatePanel extends HTMLElement {
           <button class="ghost refresh" type="button" data-action="refresh">Refresh</button>
         </header>
         <nav class="tabs">
-          ${this._tabBtn("overview", "Overview")}
-          ${this._tabBtn("zones", "Rooms")}
-          ${this._tabBtn("floorplan", "Floor plan")}
-          ${this._tabBtn("firmware", "Firmware")}
-          ${this._tabBtn("board", "Board")}
+          ${this._tabBtn("home", "Home")}
+          ${this._tabBtn("rooms", "Rooms")}
+          ${this._tabBtn("devices", "Devices")}
           ${this._tabBtn("settings", "Settings")}
+          ${this._tabBtn("diagnostics", "Diagnostics")}
         </nav>
         <div id="hcc-error" class="error" ${this._error ? "" : "hidden"}>${this._esc(this._error || "")}</div>
         <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
@@ -884,19 +875,21 @@ class HomeClimatePanel extends HTMLElement {
         </div>`;
     }
     switch (this._tab) {
-      case "zones":
+      case "rooms":
         return `<div id="hcc-zones-wrap">${this._zonesHtml(sys)}</div>`;
-      case "floorplan":
-        return `<div id="hcc-fp-wrap">${this._floorplanHtml(sys)}</div>`;
-      case "firmware":
-        return `<div id="hcc-fw-wrap">${this._firmwareHtml()}</div>`;
-      case "board":
-        return `<div id="hcc-board-wrap">${this._boardHtml()}</div>
+      case "devices":
+        return `<div id="hcc-fw-wrap">${this._firmwareHtml()}</div>
+          <div id="hcc-board-wrap">${this._boardHtml()}</div>
           ${this._otConsoleHtml()}`;
       case "settings":
         return this._settingsHtml(sys);
-      default:
-        return `<div id="hcc-live" style="position:relative">${this._boilerPictureHtml(sys)}${this._overviewHtml(sys)}</div>`;
+      case "diagnostics":
+        return `<div id="hcc-diag-wrap">
+          <p class="sub" style="margin-top:0">Engineering telemetry — safe to ignore, fun to watch.</p>
+          ${this._settingsLiveHtml(sys)}
+        </div>`;
+      default: // home
+        return `<div id="hcc-live" style="position:relative">${this._boilerPictureHtml(sys)}${this._homeHtml(sys)}</div>`;
     }
   }
 
@@ -1019,7 +1012,7 @@ class HomeClimatePanel extends HTMLElement {
      re-applied after every live swap of the zones list. */
   _applyRoomFlash(root) {
     const name = this._fpFlashName;
-    if (!name || this._tab !== "zones") return;
+    if (!name || this._tab !== "rooms") return;
     for (const el of root.querySelectorAll(".zone-title")) {
       if (!el.textContent.includes(name)) continue;
       const card = el.closest(".card") || el;
@@ -1123,6 +1116,60 @@ class HomeClimatePanel extends HTMLElement {
         <span style="opacity:.7">Blue = below target · Green = at target · Orange = above.</span></p>
       ${bands.join("\n")}
       </div>`;
+  }
+
+  /* ── Home tab: status-only dashboard ───────────────────────────── */
+  _homeHtml(sys) {
+    const b = sys?.boiler || {};
+    const gas = sys?.gas;
+    const ch = b.ch_active || b.flame_on
+      ? `<span class="badge heat">Heating</span>`
+      : `<span class="badge off">Idle</span>`;
+    const flame = b.flame_on ? `<span class="badge heat">🔥 Flame</span>` : "";
+    const mod = this._fmt(b.modulation_level);
+    const flowT = this._fmt(b.flow_temp);
+    const retT = this._fmt(b.return_temp);
+    const gasToday = gas ? `${this._esc(gas.today_kwh)}<span class="unit">kWh today</span>` : "—";
+
+    return `
+      ${this._alertsRow(sys)}
+      <div class="card wide" style="margin-bottom:12px">
+        <div class="zone-title" style="justify-content:flex-start;gap:10px">
+          Boiler ${ch} ${flame}
+          <span style="margin-left:auto;font-weight:400" class="fp-sub">mod ${mod}% · flow ${flowT}°C · return ${retT}°C</span>
+        </div>
+        <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px">
+          <div><div class="metric" style="font-size:1.5rem">${gasToday}</div><div class="sub">gas estimate</div></div>
+          <div><div class="metric" style="font-size:1.5rem">${this._fmt(sys.outdoor_temp)}<span class="unit">°C</span></div><div class="sub">outdoor</div></div>
+          <div><div class="metric" style="font-size:1.5rem">${Math.round((sys.total_demand || 0) * 100)}<span class="unit">% demand</span></div>
+            <div class="sub">active: ${this._esc((sys.active_zones || []).join(", ") || "none")}</div></div>
+        </div>
+      </div>
+      ${this._floorplanHtml(sys)}
+    `;
+  }
+
+  _alertsRow(sys) {
+    const alerts = [];
+    for (const [, r] of Object.entries(sys?.boiler?.health?.rooms || {})) {
+      if (r.flag) alerts.push(`⚠ Room struggles to reach target — check radiators/TRV`);
+      break;
+    }
+    for (const d of this._status?.devices || []) {
+      if (!d.online)
+        alerts.push(`⚠ Board offline: ${this._esc(d.name || d.node_id)}`);
+      if (HomeClimatePanel.OTA_ACTIVE.has(d.ota_state))
+        alerts.push(`⏳ Update running on ${this._esc(d.name || d.node_id)} (${this._esc(d.ota_state)})`);
+    }
+    const fs = sys?.boiler?.failsafe;
+    if (fs && !["OFF", "connected"].includes(fs))
+      alerts.push(`🚨 Failsafe ${this._esc(fs)}`);
+    if (sys?.update_info?.available)
+      alerts.push(`⬆ HCC update available`);
+    if (!alerts.length) return "";
+    return `<div class="card wide" style="border-color:#a33;margin-bottom:12px;padding:10px 14px">
+      ${alerts.map((a) => `<div class="sub" style="margin:2px 0">${a}</div>`).join("")}
+    </div>`;
   }
 
   static FLOOR_LABEL = (f) =>
@@ -1461,7 +1508,6 @@ class HomeClimatePanel extends HTMLElement {
       ? `<p class="sub">Detected from boiler MemberID ${bi.member_id ?? "?"}: <strong>${this._esc(bi.detected_make)}</strong></p>`
       : `<p class="sub">No MemberID received yet — select manually.</p>`;
     return `
-      <div id="hcc-settings-live">${this._settingsLiveHtml(sys)}</div>
       <div class="card">
         <h3>Your boiler</h3>
         ${detected}
@@ -1499,9 +1545,8 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
-  /* Live-updated portion of the Settings tab (read-only telemetry cards).
-     Swapped in place by _applyStatus — the config forms below it are never
-     touched by the poll, so selections/typing can't be interrupted. */
+  /* Diagnostics tab body (read-only engineering telemetry).
+     Swapped in place by _applyStatus. */
   _settingsLiveHtml(sys) {
     return `
       <div class="grid">
