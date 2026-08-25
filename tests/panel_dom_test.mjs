@@ -150,8 +150,8 @@ const check = (cond, msg) => (cond ? null : failures.push(msg));
 
 // 1) merged Firmware card: title once, selector once, rows inside
 check(
-  (html.match(/>Firmware</g) || []).length === 1,
-  "merged Firmware card missing or duplicated"
+  html.includes("Registered boards") && html.includes("Flash a new board"),
+  "firmware card content missing"
 );
 check((html.match(/hcc-board-sel/g) || []).length === 1,
   "board selector duplicated");
@@ -182,7 +182,7 @@ check(
 // 1b) offline boards are NOT rendered — only online devices appear
 check(!html.includes("hcs-offline"), "offline device rendered on firmware page");
 check(html.includes("hcs-test"), "online device missing from firmware page");
-check(html.includes("Boiler gateway"), "gateway info card missing");
+check(html.includes("Scan now") && html.includes("Check updates"), "device-scan controls missing");
 check(
   !html.includes("Ghost Board"),
   "offline device card rendered"

@@ -357,8 +357,10 @@ class HomeClimatePanel extends HTMLElement {
       }
       case "devices": {
         this._otAutoTick_();
+        const hd = root.getElementById("hcc-fw-head-wrap");
+        if (hd && !this._focusBlocked(hd)) hd.innerHTML = this._fwHeadHtml();
         const fw = root.getElementById("hcc-fw-wrap");
-        if (fw && !this._focusBlocked(fw)) fw.innerHTML = this._firmwareHtml();
+        if (fw && !this._focusBlocked(fw)) fw.innerHTML = this._fwCardHtml();
         if (!HomeClimatePanel._boardEditing(root)) {
           const bw = root.getElementById("hcc-board-wrap");
           if (bw && !this._focusBlocked(bw)) {
@@ -881,9 +883,10 @@ class HomeClimatePanel extends HTMLElement {
       case "rooms":
         return `<div id="hcc-zones-wrap">${this._zonesHtml(sys)}</div>`;
       case "devices":
-        return `<div id="hcc-fw-wrap">${this._firmwareHtml()}</div>
+        return `<div id="hcc-fw-head-wrap">${this._fwHeadHtml()}</div>
           <div id="hcc-board-wrap">${this._boardHtml()}</div>
-          ${this._otConsoleHtml()}`;
+          ${this._otConsoleHtml()}
+          <div id="hcc-fw-wrap">${this._fwCardHtml()}</div>`;
       case "settings":
         return this._settingsHtml(sys);
       case "diagnostics":
@@ -1684,27 +1687,16 @@ class HomeClimatePanel extends HTMLElement {
     }).join("");
   }
 
-  _firmwareHtml() {
-    // Only currently-online boards — a powered-off module re-registers
-    // within seconds of coming back, so no need to keep dead cards around.
-    const devices = (this._status?.devices || []).filter((d) => d.online);
-    let catalog = [...(this._status?.firmware_catalog || [])];
-    const online = devices.filter((d) => d.online).length;
+  /* Devices tab — slim header strip + merged Firmware card. */
+  _fwHeadHtml() {
     const ui = this._status?.systems?.[0]?.update_info || null;
-    const outdatedIds = new Set(
-      (ui?.outdated_devices || []).map((d) => d.node_id)
-    );
-
-    const emptyState = devices.length
-      ? ""
-      : (this._status?.devices || []).length
-      ? `<p class="sub" style="margin-top:10px">Your board is powered off or unreachable — it reappears here within seconds of coming back.</p>`
-      : `<p class="sub" style="margin-top:10px">No board found yet — flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on; it registers here automatically.</p>`;
-
     let banner = "";
     if (ui?.error) {
       banner = `<div class="card placeholder"><p class="sub">Update check failed: ${this._esc(ui.error)}</p></div>`;
     } else if (ui?.available) {
+      const outdatedIds = new Set(
+        (ui?.outdated_devices || []).map((d) => d.node_id)
+      );
       banner = `
       <div class="card" style="border-color:var(--warning-color,#f6ad55)">
         <h3>New firmware ${this._esc(ui.latest_tag)} available</h3>
@@ -1718,7 +1710,15 @@ class HomeClimatePanel extends HTMLElement {
           ${ui.url ? `<a href="${this._esc(ui.url)}" target="_blank" rel="noopener" style="font-size:.85rem">Release page ↗</a>` : ""}
         </details>
       </div>`;
-    } // "up to date" state moved onto each device card as a pill
+    }
+    return banner;
+  }
+
+  _fwCardHtml() {
+    // Only currently-online boards — a powered-off module re-registers
+    // within seconds of coming back, so no need to keep dead cards around.
+    const devices = (this._status?.devices || []).filter((d) => d.online);
+    let catalog = [...(this._status?.firmware_catalog || [])];
 
     const deviceCards = devices
       .map((d) => {
@@ -1770,6 +1770,7 @@ class HomeClimatePanel extends HTMLElement {
       })
       .join("");
 
+
     if (this._selectedBoardId) {
       // keep the user's choice sticky across periodic re-renders
       const wanted = catalog.find((c) => c.id === this._selectedBoardId);
@@ -1781,32 +1782,30 @@ class HomeClimatePanel extends HTMLElement {
           `<option value="${this._esc(c.id)}"${c.id === this._selectedBoardId ? " selected" : ""}>${this._esc(HomeClimatePanel._modelLabel(c))}</option>`
       )
       .join("");
-    // Registered boards first, then the flash-new-board catalog.
-    const registeredLabel =
-      `<div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:2px 0 6px">Registered boards</div>`;
-    const flashLabel =
-      `<div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:18px 0 6px">Flash a new board</div>`;
+
+    const emptyState = devices.length
+      ? ""
+      : (this._status?.devices || []).length
+      ? `<p class="sub" style="margin-top:10px">Your board is powered off or unreachable — it reappears here within seconds of coming back.</p>`
+      : `<p class="sub" style="margin-top:10px">No board found yet — flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on; it registers here automatically.</p>`;
 
     return `
-      <div class="card zone" style="margin-bottom:16px">
-        <div>
-          <div class="zone-title">Boiler gateway${devices.length === 1 ? "" : "s"}</div>
-          <div class="zone-meta">${devices.length === 1
-            ? "This board bridges Home Assistant to your boiler (OpenTherm). It announces itself on MQTT — power it off and it hides until it returns."
-            : `${devices.length} gateways online — boards announce via MQTT every 30 s; powered-off boards are hidden until they return`}</div>
-        </div>
-        <div class="controls">
-          <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
-          <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
-        </div>
-      </div>
-      ${banner}
       <div class="card zone">
-        <div class="zone-title" style="margin-bottom:10px">Firmware</div>
+        <div class="zone-title" style="justify-content:flex-start;gap:10px">
+          Firmware
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
+            <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
+          </span>
+        </div>
+        <div class="zone-meta">Boards announce via MQTT every 30 s — powered-off boards hide until they return.</div>
         ${devices.length
-          ? registeredLabel + `<div class="zones">${deviceCards}</div>`
+          ? `<div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:12px 0 6px">Registered boards</div>
+        <div class="zones">${deviceCards}</div>`
           : emptyState}
-        ${flashLabel}
+        <div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:18px 0 6px">
+          Flash a new board
+        </div>
         <div class="fw-cat">
           <div>
             <label style="display:block;font-size:.85rem;margin-bottom:6px">Board model</label>
