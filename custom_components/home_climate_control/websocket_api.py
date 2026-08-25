@@ -77,6 +77,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_device_control)
     websocket_api.async_register_command(hass, ws_reboot_device)
     websocket_api.async_register_command(hass, ws_firmware_catalog)
+    websocket_api.async_register_command(hass, ws_get_ot_log)
     hass.data[key] = True
 
 
@@ -884,3 +885,21 @@ async def ws_set_github_token(
         return
     await uc.async_set_token(msg.get("token"))
     connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/get_ot_log",
+        vol.Required("node_id"): str,
+        vol.Optional("clear", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_get_ot_log(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    mgr = await async_setup_firmware_manager(hass)
+    result = await mgr.async_get_ot_log(msg["node_id"], msg["clear"])
+    connection.send_result(msg["id"], result)

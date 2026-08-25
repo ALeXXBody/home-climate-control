@@ -75,6 +75,11 @@ class HomeClimatePanel extends HTMLElement {
         this._onFwAction(fw);
         return;
       }
+      const otl = t.closest("[data-otlog]");
+      if (otl) {
+        this._fetchOtLog(otl.getAttribute("data-otlog") === "clear");
+        return;
+      }
       if (t.closest('[data-action="save-board"]')) {
         this._onSaveBoard();
         return;
@@ -113,6 +118,10 @@ class HomeClimatePanel extends HTMLElement {
         this._bsSel = t.value;
         this._bsDraft = null;
         this._render();
+      } else if (t.id === "hcc-otlog-node") {
+        this._otlogNodeId = t.value;
+        this._otlogLines = null;
+        this._fetchOtLog();
       } else if (t.id === "hcc-board-sel") {
         this._selectedBoardId = t.value;
         this._renderBoardPreview();
@@ -352,6 +361,7 @@ class HomeClimatePanel extends HTMLElement {
         break;
       }
       case "board": {
+        this._otAutoTick_();
         if (HomeClimatePanel._boardEditing(root)) return;
         const w = root.getElementById("hcc-board-wrap");
         if (w && !this._focusBlocked(w)) {
@@ -881,7 +891,8 @@ class HomeClimatePanel extends HTMLElement {
       case "firmware":
         return `<div id="hcc-fw-wrap">${this._firmwareHtml()}</div>`;
       case "board":
-        return `<div id="hcc-board-wrap">${this._boardHtml()}</div>`;
+        return `<div id="hcc-board-wrap">${this._boardHtml()}</div>
+          ${this._otConsoleHtml()}`;
       case "settings":
         return this._settingsHtml(sys);
       default:
@@ -932,6 +943,75 @@ class HomeClimatePanel extends HTMLElement {
           )
           .join("")}
       </div>`;
+  }
+
+  /* ── OpenTherm console (Board tab) ─────────────────────────────────
+     Frames come from the board via the integration proxy (server-side
+     HTTP fetch — no CORS). Lives outside hcc-board-wrap so the poll's
+     telemetry swap never scrolls away what you're reading. */
+  _otConsoleHtml() {
+    const devs = (this._status?.devices || []).filter((d) => d.online);
+    if (!devs.length) return "";
+    const sel = this._otlogNodeId ||
+      (this._selectedBoardId && devs.some(d=>d.node_id===this._selectedBoardId)
+        ? this._selectedBoardId : devs[0].node_id);
+    this._otlogNodeId = sel;
+    const opts = devs.map(
+      (d) => `<option value="${d.node_id}"${d.node_id === sel ? " selected" : ""}>${this._esc(d.name || d.node_id)}</option>`
+    ).join("");
+    const lines = this._otlogLines;
+    const body = lines == null
+      ? "loading…"
+      : (lines.length ? this._esc(lines.join("\n")) : "(no frames yet)");
+    return `
+      <div class="card wide" style="margin-top:14px">
+        <div class="zone-title" style="justify-content:space-between">
+          <span>OpenTherm console</span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <select id="hcc-otlog-node" style="background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px;padding:4px">${opts}</select>
+            <button type="button" class="ghost" data-otlog="refresh" title="Refresh">⟳</button>
+            <button type="button" class="ghost" data-otlog="clear" title="Clear log">✕</button>
+          </span>
+        </div>
+        <pre id="hcc-otlog-pre" style="max-height:260px;overflow:auto;font-size:.72rem;line-height:1.35;margin:8px 0 0;white-space:pre">${body}</pre>
+      </div>`;
+  }
+
+  _otAutoTick_() {
+    const now = Date.now();
+    if (now - (this._otlogLastMs || 0) < 5000) return;
+    this._otlogLastMs = now;
+    this._fetchOtLog();
+  }
+
+  async _fetchOtLog(clear = false) {
+    const node = this._otlogNodeId;
+    if (!node || !this._hass || this._otlogBusy) return;
+    this._otlogBusy = true;
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/get_ot_log",
+        node_id: node,
+        clear,
+      });
+      if (res?.ok) {
+        const pre = this.shadowRoot.getElementById("hcc-otlog-pre");
+        const stick = pre
+          ? pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4
+          : true;
+        this._otlogLines = res.lines || [];
+        if (pre) {
+          pre.textContent = this._otlogLines.length
+            ? this._otlogLines.join("\n")
+            : "(no frames yet)";
+          if (stick) pre.scrollTop = pre.scrollHeight;
+        }
+      } else if (pre) {
+        pre.textContent = "error: " + (res?.error || "unknown");
+      }
+    } finally {
+      this._otlogBusy = false;
+    }
   }
 
   /* Highlight + scroll to a room card on the Rooms tab. Survives the

@@ -447,6 +447,28 @@ const flashed = el.shadowRoot.querySelector(".fp-flash");
 check(!!flashed && flashed.textContent.includes("Attic"),
   "clicked room card not highlighted on Rooms tab");
 
+
+// ── OpenTherm console gates (Board tab) ──────────────────────────────
+el._otlogNodeId = "hcs-test";
+el._otlogLines = [
+  "[  12.30] READ Status      0041 -> OK   R-ACK Status     0141 = 21.50",
+];
+el._tab = "board";
+el._render();
+await new Promise((r) => setTimeout(r, 10));
+const pre = el.shadowRoot.getElementById("hcc-otlog-pre");
+check(!!pre, "otlog: console <pre> missing");
+check(pre.textContent.includes("Status") && pre.textContent.includes("21.50"),
+  "otlog: cached frame lines not rendered");
+check(!!el.shadowRoot.querySelector('[data-otlog="refresh"]'),
+  "otlog: refresh button missing");
+// poll-swap of board telemetry must NOT wipe the console
+const before = el.shadowRoot.getElementById("hcc-otlog-pre");
+el._applyStatus();
+await new Promise((r) => setTimeout(r, 5));
+check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
+  "otlog: console node rebuilt by telemetry swap");
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);

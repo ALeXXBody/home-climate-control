@@ -1236,6 +1236,23 @@ class FirmwareManager:
             "url": url,
         }
 
+    async def async_get_ot_log(self, node_id: str, clear: bool = False) -> dict[str, Any]:
+        """Proxy the board's OpenTherm frame console (server-side fetch —
+        the panel cannot hit board HTTP directly across origins)."""
+        dev = self.devices.get(node_id)
+        if not dev or not dev.ip:
+            return {"ok": False, "error": "unknown or unreachable device"}
+        url = f"http://{dev.ip}/api/otlog" + ("?clear=1" if clear else "")
+        try:
+            session = async_get_clientsession(self.hass)
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    return {"ok": False, "error": f"HTTP {resp.status}"}
+                data = await resp.json(content_type=None)
+                return {"ok": True, "lines": data.get("lines", [])}
+        except Exception as err:  # noqa: BLE001
+            return {"ok": False, "error": str(err)}
+
     async def async_reboot(self, node_id: str) -> dict[str, Any]:
         if not valid_node_id(node_id):
             return {"ok": False, "error": "invalid node id"}
