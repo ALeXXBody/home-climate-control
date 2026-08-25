@@ -148,11 +148,13 @@ const html = el.shadowRoot.innerHTML;
 const failures = [];
 const check = (cond, msg) => (cond ? null : failures.push(msg));
 
-// 1) single devices section + single catalog
+// 1) merged Firmware card: title once, selector once, rows inside
 check(
-  (html.match(/Firmware catalog/g) || []).length === 1,
-  "firmware catalog section duplicated"
+  (html.match(/>Firmware</g) || []).length === 1,
+  "merged Firmware card missing or duplicated"
 );
+check((html.match(/hcc-board-sel/g) || []).length === 1,
+  "board selector duplicated");
 check(
   (html.match(/No HCS devices discovered yet/g) || []).length <= 1,
   "empty-devices placeholder duplicated"
@@ -180,14 +182,17 @@ check(
 // 1b) offline boards are NOT rendered — only online devices appear
 check(!html.includes("hcs-offline"), "offline device rendered on firmware page");
 check(html.includes("hcs-test"), "online device missing from firmware page");
-check(html.includes("Boiler gateway"), "gateway-centric section title missing");
+check(html.includes("Boiler gateway"), "gateway info card missing");
 check(
   !html.includes("Ghost Board"),
   "offline device card rendered"
 );
 
-// 1c) catalog card: dropdown LEFT, image RIGHT, model-only labels
+// 1c) catalog block + registered-boards area both live in the merged card
 check(!!el.shadowRoot.querySelector(".fw-cat"), "catalog grid layout missing");
+check(html.includes("Registered boards"), "registered-boards label missing");
+check(html.indexOf("fw-cat") < html.indexOf("Registered boards"),
+  "catalog should sit above the registered boards list");
 const opts = [...el.shadowRoot.querySelectorAll("#hcc-board-sel option")].map(
   (o) => o.textContent
 );

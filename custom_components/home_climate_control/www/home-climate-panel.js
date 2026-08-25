@@ -1732,7 +1732,7 @@ class HomeClimatePanel extends HTMLElement {
           `<option value="__custom__">Custom URL…</option>`,
         ].join("");
         return `
-      <div class="card zone">
+      <div class="zone">
         <div>
           <div class="zone-title">${this._esc(d.name || d.node_id)}
             ${d.online ? '<span class="badge on">online</span>' : '<span class="badge off">offline</span>'}
@@ -1776,6 +1776,12 @@ class HomeClimatePanel extends HTMLElement {
       )
       .join("");
 
+    const emptyState = devices.length
+      ? ""
+      : (this._status?.devices || []).length
+      ? `<p class="sub" style="margin-top:10px">Your board is powered off or unreachable — it reappears here within seconds of coming back.</p>`
+      : `<p class="sub" style="margin-top:10px">No board found yet — flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on; it registers here automatically.</p>`;
+
     return `
       <div class="card zone" style="margin-bottom:16px">
         <div>
@@ -1791,32 +1797,31 @@ class HomeClimatePanel extends HTMLElement {
 
       </div>
       ${banner}
-      ${
-        devices.length
-          ? `<div class="zones">${deviceCards}</div>`
-          : (this._status?.devices || []).length
-          ? `<div class="empty card">Gateway offline.<p class="sub">Your board is powered off or unreachable — it reappears here within seconds of coming back.</p></div>`
-          : `<div class="empty card">No boiler gateway found yet.<p class="sub">Flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on — it announces itself on MQTT (<code>hcs/discovery/&lt;node&gt;</code>) and appears here automatically.</p></div>`
-      }
-      <h3 style="margin:24px 0 8px;font-size:1rem;font-weight:500">Firmware catalog</h3>
-      <div class="card fw-cat">
-        <div>
-          <label style="display:block;font-size:.85rem;margin-bottom:6px">Board model</label>
-          <select id="hcc-board-sel" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
-            ${boardOptions}
-          </select>
-          <label style="display:block;margin-top:14px;font-size:.85rem">Flash this image to a device</label>
-          <div style="display:flex;gap:6px;margin-top:4px">
-            <input id="hcc-cat-node" placeholder="node id (hcs-…)"
-              style="flex:1;padding:6px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
-            <button type="button" class="ghost" data-fw-action="flash-catalog"
-              style="padding:6px 12px">Flash</button>
+      <div class="card zone">
+        <div class="zone-title" style="margin-bottom:10px">Firmware</div>
+        <div class="fw-cat">
+          <div>
+            <label style="display:block;font-size:.85rem;margin-bottom:6px">Board model</label>
+            <select id="hcc-board-sel" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+              ${boardOptions}
+            </select>
+            <label style="display:block;margin-top:14px;font-size:.85rem">Flash this image to a new board</label>
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <input id="hcc-cat-node" placeholder="node id (hcs-…)"
+                style="flex:1;padding:6px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+              <button type="button" class="ghost" data-fw-action="flash-catalog"
+                style="padding:6px 12px">Flash</button>
+            </div>
+          </div>
+          <div id="hcc-board-preview" style="text-align:center">
+            <img alt="" style="max-width:170px;width:100%;border-radius:10px">
+            <p class="sub" style="margin-top:6px"></p>
           </div>
         </div>
-        <div id="hcc-board-preview" style="text-align:center">
-          <img alt="" style="max-width:170px;width:100%;border-radius:10px">
-          <p class="sub" style="margin-top:6px"></p>
+        <div style="font-size:.85rem;color:var(--secondary-text-color,#aaa);margin:18px 0 6px">
+          Registered boards
         </div>
+        ${devices.length ? `<div class="zones">${deviceCards}</div>` : emptyState}
       </div>
 `;
   }
