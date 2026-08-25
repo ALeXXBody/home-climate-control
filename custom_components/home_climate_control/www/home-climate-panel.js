@@ -987,6 +987,7 @@ class HomeClimatePanel extends HTMLElement {
     const node = this._otlogNodeId;
     if (!node || !this._hass || this._otlogBusy) return;
     this._otlogBusy = true;
+    const pre = this.shadowRoot.getElementById("hcc-otlog-pre");
     try {
       const res = await this._hass.callWS({
         type: "home_climate_control/get_ot_log",
@@ -994,7 +995,6 @@ class HomeClimatePanel extends HTMLElement {
         clear,
       });
       if (res?.ok) {
-        const pre = this.shadowRoot.getElementById("hcc-otlog-pre");
         const stick = pre
           ? pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4
           : true;
