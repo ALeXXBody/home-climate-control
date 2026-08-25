@@ -1099,7 +1099,7 @@ class HomeClimatePanel extends HTMLElement {
         rects += `
         <g class="fp-room${manual ? " manual" : ""}" data-fp-zone="${HomeClimatePanel._fpEsc(z.name)}">
           <rect class="r" x="${x.toFixed(1)}" y="${rectY}" width="${w.toFixed(1)}" height="${RH}"
-            fill="${fill}"></rect>
+            rx="12" ry="12" fill="${fill}"></rect>
           <text class="fp-name" x="${cx}" y="${rectY + 24}" text-anchor="middle">${HomeClimatePanel._fpEsc(z.name)}</text>
           <text class="fp-temp" x="${cx}" y="${rectY + 52}" text-anchor="middle">${tempTxt}</text>
           <text class="fp-sub" x="${cx}" y="${rectY + 72}" text-anchor="middle">${HomeClimatePanel._fpEsc(subBits.join(" · "))}</text>
