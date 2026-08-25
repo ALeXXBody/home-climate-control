@@ -29,6 +29,9 @@ class _FakeHass:
         self.tasks.append(coro)
         return coro
 
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
 
 @pytest.fixture
 def root(tmp_path):

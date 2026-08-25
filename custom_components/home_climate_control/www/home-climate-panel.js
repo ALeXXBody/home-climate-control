@@ -255,13 +255,20 @@ class HomeClimatePanel extends HTMLElement {
           color: var(--primary-text-color, #eee);
           font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
           box-sizing: border-box;
+          overflow-y: auto;
         }
         * { box-sizing: border-box; }
         .wrap {
           position: relative;
+          display: flex;
+          flex-direction: column;
+          min-height: 100%;
           max-width: 1100px;
           margin: 0 auto;
-          padding: 16px 20px 40px;
+          padding: 16px 20px 0;
+        }
+        .wrap > :not(header):not(nav):not(footer):not(.error):not(.notice) {
+          flex: 1;
         }
         .boiler-pic {
           position: absolute;
@@ -339,11 +346,14 @@ class HomeClimatePanel extends HTMLElement {
         .tabs {
           display: flex;
           gap: 4px;
-          flex-wrap: wrap;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
           margin-bottom: 20px;
           border-bottom: 1px solid var(--divider-color, #333);
           padding-bottom: 8px;
         }
+        .tabs::-webkit-scrollbar { display: none; }
         .tab {
           background: transparent;
           border: none;
@@ -352,11 +362,17 @@ class HomeClimatePanel extends HTMLElement {
           border-radius: 8px 8px 0 0;
           cursor: pointer;
           font-size: 0.95rem;
+          white-space: nowrap;
+          flex-shrink: 0;
         }
         .tab.active {
           color: var(--primary-color, #03a9f4);
           background: var(--secondary-background-color, #1c1c1c);
           font-weight: 600;
+        }
+        @media (max-width: 480px) {
+          .tabs { gap: 0; padding-bottom: 4px; }
+          .tab { padding: 8px 10px; font-size: 0.85rem; }
         }
         .grid {
           display: grid;
@@ -431,6 +447,12 @@ class HomeClimatePanel extends HTMLElement {
         }
         @media (max-width: 640px) {
           .zone { grid-template-columns: 1fr; }
+          .controls { flex-wrap: wrap; }
+          .temp-row { flex-wrap: wrap; }
+          .row { flex-wrap: wrap; }
+          .row label { flex: 0 0 100%; margin-bottom: 4px; }
+          header { gap: 8px; }
+          h1 { font-size: 1.2rem; }
         }
         .zone-title { font-size: 1.1rem; font-weight: 500; }
         .zone-meta { font-size: 0.85rem; color: var(--secondary-text-color, #aaa); margin-top: 4px; }
@@ -494,8 +516,8 @@ class HomeClimatePanel extends HTMLElement {
         }
         .placeholder ul { text-align: left; max-width: 480px; margin: 16px auto; }
         footer {
-          margin-top: 32px;
-          padding-top: 16px;
+          margin-top: auto;
+          padding: 16px 0;
           border-top: 1px solid var(--divider-color, #333);
           font-size: 0.85rem;
           color: var(--secondary-text-color, #aaa);
@@ -918,20 +940,19 @@ class HomeClimatePanel extends HTMLElement {
               <div class="zone-meta">
                 <span title="${manual ? "Valve turned by hand — HCC observes only" : "Addressable TRV — HCC commands it"}"
                   style="opacity:.85">${manual ? "✋ Manual radiator" : "⚡ Smart TRV"}</span>
-                · ${this._fmt(z.current_temperature)}°C → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C
-                · demand ${Math.round((z.demand_level || 0) * 100)}%
-                ${rate ? ` · <span title="Learned warm-up rate">warms ${rate} °C/h</span>` : ""}
-                ${dt != null ? ` · <span title="Learned boiler-to-room response delay">responds in ~${dt} min</span>` : ""}
-                ${ins?.label ? ` · <span title="Heat-loss factor k=${ins.k} of the indoor-outdoor gap per hour, learned from cool-downs">insulation: ${this._esc(ins.label)}</span>` : ""}
+                · ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C · demand ${Math.round((z.demand_level || 0) * 100)}%`}
+                ${!manual && rate ? ` · <span title="Learned warm-up rate">warms ${rate} °C/h</span>` : ""}
+                ${!manual && dt != null ? ` · <span title="Learned boiler-to-room response delay">responds in ~${dt} min</span>` : ""}
+                ${!manual && ins?.label ? ` · <span title="Heat-loss factor k=${ins.k} of the indoor-outdoor gap per hour, learned from cool-downs">insulation: ${this._esc(ins.label)}</span>` : ""}
                 ${!manual && z.trv ? ` · TRV ${this._esc(z.trv)}` : ""}
-                ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (z.temp_source === "trv" && !manual ? " · temp from TRV" : "")}
+                ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (!manual && z.temp_source === "trv" ? " · temp from TRV" : "")}
                 ${(z.window_sensors || []).length
                   ? ` · window ${this._esc((z.window_sensors || []).join(", "))}`
                   : ""}
                 ${z.window_open ? ' · <span class="badge heat">window/door open</span>' : ""}
-                ${heat ? ' · <span class="badge heat">heating</span>' : ""}
-                ${health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
-                ${calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
+                ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
+                ${!manual && health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
+                ${!manual && calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
               </div>
             </div>
             ${
@@ -939,6 +960,27 @@ class HomeClimatePanel extends HTMLElement {
                 ? ""
                 : `
             <div class="controls">
+              ${manual ? `
+              <div class="temp-row">
+                <button type="button" class="ghost" data-zone-action="control"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Click if this radiator actually has a smart TRV">⚡ Switch to Smart TRV</button>
+                <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
+                  title="Which floor is this room on?">
+                  ${[0, 1, 2, 3]
+                    .map(
+                      (f) =>
+                        `<option value="${f}" ${(Number.isFinite(z.floor) ? z.floor : 0) === f ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`
+                    )
+                    .join("")}
+                </select>
+                <button type="button" class="ghost" data-zone-action="edit"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Edit this room's settings">✎</button>
+                <button type="button" class="ghost" data-zone-action="remove"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Remove this room">🗑</button>
+              </div>` : `
               <div class="temp-row">
                 <button type="button" data-zone-action="dec" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">−</button>
                 <input type="number" step="0.5" min="5" max="30" value="${z.target_temperature ?? 20}"
@@ -950,7 +992,7 @@ class HomeClimatePanel extends HTMLElement {
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
                 <button type="button" class="ghost" data-zone-action="control"
                   data-zone-name="${this._esc(z.name || "")}"
-                  title="${manual ? "This room has a hand-turned valve; click if it actually has a smart TRV" : "Click if this radiator's valve is turned by hand (HCC will observe only)"}">${manual ? "✋ Manual" : "⚡ Smart TRV"}</button>
+                  title="Click if this radiator's valve is turned by hand (HCC will observe only)">✋ Manual</button>
                 <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
                   title="Which floor is this room on?">
                   ${[0, 1, 2, 3]
@@ -979,6 +1021,7 @@ class HomeClimatePanel extends HTMLElement {
                   )
                   .join("")}
               </select>
+              `}
             </div>`
             }
           </div>`;

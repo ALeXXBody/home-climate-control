@@ -382,7 +382,8 @@ class FirmwareManager:
             return
         if node in self._suppressed:
             return
-        state = (msg.payload or b"").decode("utf-8", errors="replace").strip()
+        raw = msg.payload or b""
+        state = raw.decode("utf-8", errors="replace").strip() if isinstance(raw, bytes) else str(raw).strip()
         if self._in_grace():
             # Retained replay — wipe and ignore; live boards answer the
             # post-grace ping within seconds.
@@ -847,6 +848,10 @@ class FirmwareManager:
             data = json.loads(payload)
         except (json.JSONDecodeError, UnicodeError) as err:
             _LOGGER.debug("bad discovery payload: %s", err)
+            return
+
+        if not isinstance(data, dict):
+            _LOGGER.debug("unexpected discovery payload type: %s", type(data).__name__)
             return
 
         if self._in_grace():

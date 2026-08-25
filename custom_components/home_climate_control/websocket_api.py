@@ -42,11 +42,14 @@ def _integration_version() -> str:
         try:
             manifest = Path(__file__).parent / "manifest.json"
             _VERSION_CACHE = str(
-                json.loads(manifest.read_text(encoding="utf-8")).get("version", "")
+                json.loads(manifest.read_bytes().decode("utf-8")).get("version", "")
             )
         except (OSError, ValueError):
             _VERSION_CACHE = ""
     return _VERSION_CACHE
+
+
+_version_preloaded = _integration_version()  # noqa: S604 — preload at import
 
 
 @callback
@@ -462,6 +465,7 @@ async def ws_rename_zone(
     if new_name:
         controller.rename_zone_learning(msg["zone"], new_name)
     hass.config_entries.async_update_entry(entry, options=new_options)
+    await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
@@ -518,6 +522,7 @@ async def ws_add_zone(
     hass.config_entries.async_update_entry(
         entry, options={**entry.options, CONF_ZONES: zones_cfg}
     )
+    await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
@@ -550,6 +555,7 @@ async def ws_remove_zone(
         return
     new_options = {**entry.options, CONF_ZONES: new_zones}
     hass.config_entries.async_update_entry(entry, options=new_options)
+    await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 

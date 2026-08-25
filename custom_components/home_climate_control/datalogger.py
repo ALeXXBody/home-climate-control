@@ -113,25 +113,31 @@ class TrainingDataLogger:
     async def _async_write(self, rows: list[dict[str, Any]]) -> None:
         try:
             assert self._dir is not None
-            self._dir.mkdir(parents=True, exist_ok=True)
-            by_month: dict[str, list[dict[str, Any]]] = {}
-            for r in rows:
-                by_month.setdefault(_month_key(r["ts"]), []).append(r)
-            for month, mrows in sorted(by_month.items()):
-                path = self._dir / f"data-{month}.jsonl"
-                with open(path, "a", encoding="utf-8") as fh:
-                    for r in mrows:
-                        fh.write(json.dumps(r, separators=(",", ":")) + "\n")
-                self.rows_total += len(mrows)
-                _LOGGER.debug("Training log: %d row(s) -> %s", len(mrows), path.name)
-            self._write_meta()
-            self._prune_old_months()
+            await self.hass.async_add_executor_job(
+                self._sync_write, rows
+            )
         except Exception:  # noqa: BLE001 - never break heating over logs
             _LOGGER.warning("Training-log flush failed", exc_info=True)
             # keep rows rather than lose them: requeue at the front
             self._buf = rows + self._buf
             if len(self._buf) > 5000:  # absolute safety cap
                 del self._buf[5000:]
+
+    def _sync_write(self, rows: list[dict[str, Any]]) -> None:
+        assert self._dir is not None
+        self._dir.mkdir(parents=True, exist_ok=True)
+        by_month: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            by_month.setdefault(_month_key(r["ts"]), []).append(r)
+        for month, mrows in sorted(by_month.items()):
+            path = self._dir / f"data-{month}.jsonl"
+            with open(path, "a", encoding="utf-8") as fh:
+                for r in mrows:
+                    fh.write(json.dumps(r, separators=(",", ":")) + "\n")
+            self.rows_total += len(mrows)
+            _LOGGER.debug("Training log: %d row(s) -> %s", len(mrows), path.name)
+        self._write_meta()
+        self._prune_old_months()
 
     def _write_meta(self) -> None:
         try:
