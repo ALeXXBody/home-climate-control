@@ -1790,12 +1790,14 @@ class HomeClimatePanel extends HTMLElement {
       : `<p class="sub" style="margin-top:10px">No board found yet — flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on; it registers here automatically.</p>`;
 
     return `
-      <div class="card zone">
+      <div class="card zone" style="margin-top:20px">
         <div class="zone-title" style="justify-content:flex-start;gap:10px">
           Firmware
           <span style="margin-left:auto;display:flex;gap:6px">
-            <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
-            <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
+            <button type="button" class="ghost" data-fw-action="ping"
+              style="padding:2px 10px;font-size:.78rem">Scan now</button>
+            <button type="button" class="ghost" data-fw-action="check-updates"
+              style="padding:2px 10px;font-size:.78rem">Check updates</button>
           </span>
         </div>
         <div class="zone-meta">Boards announce via MQTT every 30 s — powered-off boards hide until they return.</div>
