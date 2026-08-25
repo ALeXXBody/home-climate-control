@@ -204,6 +204,11 @@ class HomeClimatePanel extends HTMLElement {
     if (!this._hass) return;
     // Avoid stacking renders while a flash/reboot is in flight.
     if (Object.keys(this._busy || {}).length) return;
+    // Never wipe the DOM while the user is operating a form control
+    // (open <select> popup, input being typed in, …) — otherwise the
+    // interaction is cancelled by the rebuild.
+    const ae = this.shadowRoot.activeElement;
+    if (ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName)) return;
     try {
       this._status = await this._hass.callWS({
         type: "home_climate_control/get_status",
@@ -216,6 +221,8 @@ class HomeClimatePanel extends HTMLElement {
     if (this._tab === "board" && HomeClimatePanel._boardEditing(this.shadowRoot))
       return; // user is typing/dragging — values catch up next cycle
     if (this._addingRoom || this._editingZone) return; // don't destroy form mid-interaction
+    const ae2 = this.shadowRoot.activeElement;
+    if (ae2 && /^(SELECT|INPUT|TEXTAREA)$/.test(ae2.tagName)) return;
     this._render();
   }
 
@@ -249,26 +256,31 @@ class HomeClimatePanel extends HTMLElement {
     root.innerHTML = `
       <style>
         :host {
-          display: block;
-          height: 100%;
+          /* Fill whatever container HA gives us and scroll internally.
+             This isolates layout from HA ancestors whose transforms would
+             otherwise break position:fixed/sticky on the footer. */
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: flex;
+          flex-direction: column;
+          overflow-y: auto;
           background: var(--primary-background-color, #111);
           color: var(--primary-text-color, #eee);
           font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
           box-sizing: border-box;
-          overflow-y: auto;
         }
         * { box-sizing: border-box; }
         .wrap {
-          position: relative;
+          flex: 1 0 auto;
           display: flex;
           flex-direction: column;
-          min-height: 100%;
           max-width: 1100px;
+          width: 100%;
           margin: 0 auto;
-          padding: 16px 20px 0;
-        }
-        .wrap > :not(header):not(nav):not(footer):not(.error):not(.notice) {
-          flex: 1;
+          padding: 16px 20px 16px;
         }
         .boiler-pic {
           position: absolute;
@@ -281,7 +293,10 @@ class HomeClimatePanel extends HTMLElement {
           border-radius: 12px;
           padding: 8px 8px 6px;
         }
-        .boiler-pic img { width: 100%; height: auto; display: block; border-radius: 6px; }
+        .boiler-pic img {
+          width: 100%; height: auto; display: block;
+          filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
+        }
         .boiler-pic .bp-cap {
           font-size: 0.78rem; color: var(--secondary-text-color, #bbb);
           margin-top: 4px; line-height: 1.25;
@@ -517,7 +532,10 @@ class HomeClimatePanel extends HTMLElement {
         .placeholder ul { text-align: left; max-width: 480px; margin: 16px auto; }
         footer {
           margin-top: auto;
-          padding: 16px 0;
+          position: sticky;
+          bottom: 0;
+          padding: 14px 20px;
+          background: var(--primary-background-color, #111);
           border-top: 1px solid var(--divider-color, #333);
           font-size: 0.85rem;
           color: var(--secondary-text-color, #aaa);
@@ -644,9 +662,12 @@ class HomeClimatePanel extends HTMLElement {
     const makeSel = this.shadowRoot.getElementById("hcc-bi-make");
     if (!makeSel || makeSel.options.length > 1) return; // already populated
     try {
-      const cat = await this._hass.callWS({
-        type: "home_climate_control/get_boiler_catalog",
-      });
+      if (!this._boilerCat) {
+        this._boilerCat = await this._hass.callWS({
+          type: "home_climate_control/get_boiler_catalog",
+        });
+      }
+      const cat = this._boilerCat;
       const sys = (this._status?.systems || [])[0] || {};
       const bi = sys.boiler_info || {};
       for (const mk of cat.makes) {
@@ -657,9 +678,12 @@ class HomeClimatePanel extends HTMLElement {
       }
       makeSel.value = bi.make || "";
       this._fillBoilerModels(cat, bi);
-      makeSel.addEventListener("change", () =>
-        this._fillBoilerModels(cat, null)
-      );
+      if (!makeSel.dataset.wired) {
+        makeSel.dataset.wired = "1";
+        makeSel.addEventListener("change", () =>
+          this._fillBoilerModels(this._boilerCat, null)
+        );
+      }
     } catch (err) {
       /* catalog unavailable */
     }
@@ -683,21 +707,23 @@ class HomeClimatePanel extends HTMLElement {
   }
 
   async _onSaveBoilerInfo() {
-    const msg = this.shadowRoot.getElementById("hcc-bi-msg");
     try {
       await this._hass.callWS({
         type: "home_climate_control/set_boiler_info",
         make: this.shadowRoot.getElementById("hcc-bi-make").value || null,
         model: this.shadowRoot.getElementById("hcc-bi-model").value || null,
       });
+      await this._refresh(); // rebuild DOM, then show the message on the fresh node
+      const msg = this.shadowRoot.getElementById("hcc-bi-msg");
       if (msg) msg.textContent = "Saved";
-      this._refresh();
+      setTimeout(() => {
+        const m = this.shadowRoot.getElementById("hcc-bi-msg");
+        if (m) m.textContent = "";
+      }, 3000);
     } catch (err) {
+      const msg = this.shadowRoot.getElementById("hcc-bi-msg");
       if (msg) msg.textContent = "Failed: " + (err?.message || String(err));
     }
-    setTimeout(() => {
-      if (msg) msg.textContent = "";
-    }, 3000);
   }
 
   async _onSaveFailsafe() {

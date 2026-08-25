@@ -12,8 +12,9 @@ Member-ID table sources:
   - community compatibility lists
 
 Images: the panel looks up `www/boilers/<make>_<model>.<ext>` first, then
-`www/boilers/<make>.<ext>`, then falls back to `generic.svg`. Drop your own
-photo there to personalise it (PNG/JPG/SVG all work).
+`www/boilers/<make>.<ext>`, then falls back to `generic.svg`.  Every model
+in BOILER_CATALOG has a dedicated product photo; brand SVGs are used as
+fallback for makes without a manual model selection.
 """
 
 from __future__ import annotations
