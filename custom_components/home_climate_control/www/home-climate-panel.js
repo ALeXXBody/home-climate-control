@@ -620,6 +620,25 @@ class HomeClimatePanel extends HTMLElement {
         }
         .ota-done { color: #a5d6a7; font-size: 13px; margin-top: 8px; }
         .zones { display: flex; flex-direction: column; gap: 12px; }
+        /* Rooms tab — compact cards */
+        #hcc-zones-wrap .zones { gap: 8px; }
+        #hcc-zones-wrap .card {
+          padding: 10px 14px;
+        }
+        #hcc-zones-wrap .zone-title { font-size: 1rem; }
+        #hcc-zones-wrap .zone-meta { margin-top: 2px; font-size: 0.8rem; }
+        #hcc-zones-wrap .controls button,
+        #hcc-zones-wrap .temp-row button { padding: 4px 10px; }
+        #hcc-zones-wrap .controls select { padding: 4px 8px; }
+        .z-insights { margin-top: 4px; font-size: .78rem; color: var(--secondary-text-color,#aaa); }
+        .z-insights summary {
+          cursor: pointer; opacity: .7; user-select: none;
+          list-style: none;
+        }
+        .z-insights summary::before { content: "▸ "; }
+        .z-insights[open] summary::before { content: "▾ "; }
+        .z-insights[open] summary { opacity: 1; }
+
         .zone {
           display: grid;
           grid-template-columns: 1fr auto;
@@ -1333,21 +1352,25 @@ class HomeClimatePanel extends HTMLElement {
               <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
               <div class="zone-meta">
                 <span title="${manual ? "Valve turned by hand — HCC observes only" : "Addressable TRV — HCC commands it"}"
-                  style="opacity:.85">${manual ? "✋ Manual radiator" : "⚡ Smart TRV"}</span>
-                · ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C · demand ${Math.round((z.demand_level || 0) * 100)}%`}
-                ${!manual && rate ? ` · <span title="Learned warm-up rate">warms ${rate} °C/h</span>` : ""}
-                ${!manual && dt != null ? ` · <span title="Learned boiler-to-room response delay">responds in ~${dt} min</span>` : ""}
-                ${!manual && ins?.label ? ` · <span title="Heat-loss factor k=${ins.k} of the indoor-outdoor gap per hour, learned from cool-downs">insulation: ${this._esc(ins.label)}</span>` : ""}
-                ${!manual && z.trv ? ` · TRV ${this._esc(z.trv)}` : ""}
-                ${z.temp_sensor ? ` · sensor ${this._esc(z.temp_sensor)}` : (!manual && z.temp_source === "trv" ? " · temp from TRV" : "")}
-                ${(z.window_sensors || []).length
-                  ? ` · window ${this._esc((z.window_sensors || []).join(", "))}`
-                  : ""}
-                ${z.window_open ? ' · <span class="badge heat">window/door open</span>' : ""}
+                  style="opacity:.85">${manual ? "✋" : "⚡"}</span>
+                ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
+                ${!manual ? ` · demand ${Math.round((z.demand_level || 0) * 100)}%` : ""}
                 ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
+                ${z.window_open ? ' · <span class="badge heat">🪟 open</span>' : ""}
                 ${!manual && health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
                 ${!manual && calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
               </div>
+              <details class="z-insights">
+                <summary>insights</summary>
+                <div class="zone-meta">
+                  ${!manual && rate ? `warms ${rate} °C/h · ` : ""}
+                  ${!manual && dt != null ? `responds ~${dt} min · ` : ""}
+                  ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}
+                  temp source: ${z.temp_sensor || (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
+                  ${!manual && z.trv ? `TRV: ${this._esc(z.trv)}<br>` : ""}
+                  ${(z.window_sensors || []).length ? `window sensors: ${this._esc((z.window_sensors || []).join(", "))}` : "no window sensors"}
+                </div>
+              </details>
             </div>
             ${
               compact
