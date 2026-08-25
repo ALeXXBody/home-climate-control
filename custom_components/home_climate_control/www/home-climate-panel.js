@@ -14,6 +14,7 @@ class HomeClimatePanel extends HTMLElement {
     this._error = null;
     this._notice = null;
     this._addingRoom = false;
+    this._editingZone = null;
     this._busy = {};
     this._poll = null;
     this._selectedBoardId = null;
@@ -214,7 +215,7 @@ class HomeClimatePanel extends HTMLElement {
     this._loading = false;
     if (this._tab === "board" && HomeClimatePanel._boardEditing(this.shadowRoot))
       return; // user is typing/dragging — values catch up next cycle
-    if (this._addingRoom) return; // don't destroy add-room form mid-interaction
+    if (this._addingRoom || this._editingZone) return; // don't destroy form mid-interaction
     this._render();
   }
 
@@ -244,7 +245,7 @@ class HomeClimatePanel extends HTMLElement {
     const systems = this._systems();
     const sys = systems[0];
 
-    const savedRoom = this._addingRoom ? this._saveAddRoomForm() : null;
+    const savedRoom = (this._addingRoom || this._editingZone) ? this._saveAddRoomForm() : null;
     root.innerHTML = `
       <style>
         :host {
@@ -812,25 +813,27 @@ class HomeClimatePanel extends HTMLElement {
 
   _saveAddRoomForm() {
     const r = this.shadowRoot;
+    const prefix = this._editingZone ? "er" : "nr";
     return {
-      name: r.getElementById("nr-name")?.value || "",
-      control: r.getElementById("nr-control")?.value || "smart",
-      floor: r.getElementById("nr-floor")?.value || "0",
-      trv: r.getElementById("nr-trv")?.value || "",
-      sensor: r.getElementById("nr-sensor")?.value || "",
-      window: r.getElementById("nr-window")?.value || "",
+      prefix,
+      name: r.getElementById(prefix + "-name")?.value || "",
+      control: r.getElementById(prefix + "-control")?.value || "smart",
+      floor: r.getElementById(prefix + "-floor")?.value || "0",
+      trv: r.getElementById(prefix + "-trv")?.value || "",
+      sensor: r.getElementById(prefix + "-sensor")?.value || "",
+      window: r.getElementById(prefix + "-window")?.value || "",
     };
   }
 
   _restoreAddRoomForm(s) {
     const r = this.shadowRoot;
     const set = (id, v) => { const e = r.getElementById(id); if (e) e.value = v; };
-    set("nr-name", s.name);
-    set("nr-control", s.control);
-    set("nr-floor", s.floor);
-    set("nr-trv", s.trv);
-    set("nr-sensor", s.sensor);
-    set("nr-window", s.window);
+    set(s.prefix + "-name", s.name);
+    set(s.prefix + "-control", s.control);
+    set(s.prefix + "-floor", s.floor);
+    set(s.prefix + "-trv", s.trv);
+    set(s.prefix + "-sensor", s.sensor);
+    set(s.prefix + "-window", s.window);
   }
 
   _addRoomHtml() {
@@ -839,44 +842,68 @@ class HomeClimatePanel extends HTMLElement {
         <button type="button" data-zone-action="add" style="width:100%;padding:10px">+ Add room</button>
       </div>`;
     }
-    const climates = Object.keys(this._hass?.states || {})
+    return this._roomFormHtml(null);
+  }
+
+  _roomFormHtml(z) {
+    const isEdit = z != null;
+    const prefix = isEdit ? "er" : "nr";
+    const hass = this._hass?.states || {};
+    const friendly = (id) => hass[id]?.attributes?.friendly_name || id;
+    const climates = Object.keys(hass)
       .filter((id) => id.startsWith("climate."))
-      .sort();
-    const sensors = Object.keys(this._hass?.states || {})
-      .filter((id) => id.startsWith("sensor."))
-      .sort();
-    const friendly = (id) => this._hass?.states?.[id]?.attributes?.friendly_name || id;
+      .sort((a, b) => friendly(a).localeCompare(friendly(b)));
+    const tempSensors = Object.keys(hass)
+      .filter((id) => id.startsWith("sensor.")
+        && (hass[id]?.attributes?.device_class === "temperature"
+          || hass[id]?.attributes?.state_class === "measurement"))
+      .sort((a, b) => friendly(a).localeCompare(friendly(b)));
+    const windowSensors = Object.keys(hass)
+      .filter((id) => id.startsWith("binary_sensor.")
+        && hass[id]?.attributes?.device_class === "opening")
+      .sort((a, b) => friendly(a).localeCompare(friendly(b)));
+    const curTrv = isEdit ? (z.trv || "") : "";
+    const curSensor = isEdit ? (z.temp_sensor || "") : "";
+    const curWindows = isEdit ? (z.window_sensors || []).join(", ") : "";
+    const curName = isEdit ? (z.name || "") : "";
+    const curControl = isEdit ? (z.heat_control || "smart") : "smart";
+    const curFloor = isEdit ? String(z.floor ?? 0) : "0";
+    const action = isEdit ? "save-edit" : "create";
     return `
       <div class="card" style="margin-top:12px">
-        <h3>New room</h3>
-        <div class="row"><label>Name</label>
-          <input id="nr-name" type="text" placeholder="e.g. Kitchen" style="flex:1"></div>
+        <h3>${isEdit ? "Edit room" : "New room"}</h3>
+        ${isEdit ? "" : `<div class="row"><label>Name</label>
+          <input id="${prefix}-name" type="text" placeholder="e.g. Kitchen" value="${this._esc(curName)}" style="flex:1"></div>`}
         <div class="row"><label>Heater control</label>
-          <select id="nr-control" style="flex:1">
-            <option value="smart">⚡ Smart TRV (controlled)</option>
-            <option value="manual">✋ Manual radiator (observed)</option>
+          <select id="${prefix}-control" style="flex:1">
+            <option value="smart" ${curControl === "smart" ? "selected" : ""}>⚡ Smart TRV (controlled)</option>
+            <option value="manual" ${curControl === "manual" ? "selected" : ""}>✋ Manual radiator (observed)</option>
           </select></div>
         <div class="row"><label>Floor</label>
-          <select id="nr-floor" style="flex:1">
-            ${[0, 1, 2, 3].map((f) => `<option value="${f}">${HomeClimatePanel.FLOOR_LABEL(f)}</option>`).join("")}
+          <select id="${prefix}-floor" style="flex:1">
+            ${[0, 1, 2, 3].map((f) => `<option value="${f}" ${curFloor === String(f) ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`).join("")}
           </select></div>
         <div class="row"><label>TRV climate<br><span style="font-weight:400">(required for smart)</span></label>
-          <input id="nr-trv" list="nr-climates" placeholder="climate.… (blank for manual)" style="flex:1">
-          <datalist id="nr-climates">${climates.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
+          <input id="${prefix}-trv" list="${prefix}-climates" value="${this._esc(curTrv)}" placeholder="climate.… (blank for manual)" style="flex:1">
+          <datalist id="${prefix}-climates">${climates.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div class="row"><label>Temp sensor<br><span style="font-weight:400">(optional)</span></label>
-          <input id="nr-sensor" list="nr-sensors" placeholder="sensor.… (else TRV's own)" style="flex:1">
-          <datalist id="nr-sensors">${sensors.slice(0, 400).map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
+          <input id="${prefix}-sensor" list="${prefix}-sensors" value="${this._esc(curSensor)}" placeholder="sensor… (else TRV's own)" style="flex:1">
+          <datalist id="${prefix}-sensors">${tempSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div class="row"><label>Window/door<br><span style="font-weight:400">(optional, comma-sep)</span></label>
-          <input id="nr-window" type="text" placeholder="binary_sensor.…" style="flex:1"></div>
+          <input id="${prefix}-window" list="${prefix}-windows" value="${this._esc(curWindows)}" placeholder="binary_sensor.…" style="flex:1">
+          <datalist id="${prefix}-windows">${windowSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div style="display:flex;gap:8px;margin-top:10px">
-          <button type="button" class="a" data-zone-action="create" style="flex:1">Create room</button>
-          <button type="button" class="ghost" data-zone-action="cancel-add" style="flex:1">Cancel</button>
+          <button type="button" class="a" data-zone-action="${action}" ${isEdit ? `data-zone-name="${this._esc(z.name || "")}"` : ""} style="flex:1">${isEdit ? "Save changes" : "Create room"}</button>
+          <button type="button" class="ghost" data-zone-action="${isEdit ? "cancel-edit" : "cancel-add"}" style="flex:1">Cancel</button>
         </div>
       </div>`;
   }
 
   _zoneCard(z, ctx) {
     const { compact, cal, rates, dts, health, insul } = ctx;
+    if (this._editingZone === z.name && !compact) {
+      return this._roomFormHtml(z);
+    }
     const heat =
       String(z.hvac_action).includes("heat") || z.hvac_action === "heating";
     const rate = rates[z.name]?.warm_rate;
@@ -933,9 +960,9 @@ class HomeClimatePanel extends HTMLElement {
                     )
                     .join("")}
                 </select>
-                <button type="button" class="ghost" data-zone-action="rename"
+                <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
-                  title="Rename this room">✎</button>
+                  title="Edit this room's settings">✎</button>
                 <button type="button" class="ghost" data-zone-action="remove"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Remove this room">🗑</button>
@@ -1612,12 +1639,33 @@ class HomeClimatePanel extends HTMLElement {
       });
       return;
     }
-    if (action === "rename") {
+    if (action === "edit") {
+      this._editingZone = el.getAttribute("data-zone-name");
+      this._render();
+      return;
+    }
+    if (action === "cancel-edit") {
+      this._editingZone = null;
+      this._render();
+      return;
+    }
+    if (action === "save-edit") {
       const zoneName = el.getAttribute("data-zone-name");
       if (!zoneName) return;
-      const newName = prompt(`Rename "${zoneName}" to:`, zoneName);
-      if (!newName || newName.trim() === zoneName) return;
-      this._adminZone("rename_zone", { zone: zoneName, new_name: newName.trim() });
+      const root = this.shadowRoot;
+      const heat_control = root.getElementById("er-control")?.value || "smart";
+      const floor = parseInt(root.getElementById("er-floor")?.value || "0", 10);
+      const trv = root.getElementById("er-trv")?.value?.trim();
+      const temp_sensor = root.getElementById("er-sensor")?.value?.trim();
+      const window_sensors = (root.getElementById("er-window")?.value || "")
+        .split(",").map((x) => x.trim()).filter(Boolean);
+      this._editingZone = null;
+      this._adminZone("rename_zone", {
+        zone: zoneName, heat_control, floor,
+        trv_climates: trv ? [trv] : [],
+        temp_sensor: temp_sensor || null,
+        window_sensors,
+      });
       return;
     }
     if (action === "control") {

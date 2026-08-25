@@ -391,6 +391,9 @@ def validate_zone_update(
         vol.Optional("new_name"): str,
         vol.Optional("floor"): vol.All(vol.Coerce(int), vol.Range(min=0, max=FLOOR_MAX)),
         vol.Optional("heat_control"): vol.In(HEAT_CONTROLS),
+        vol.Optional("trv_climates"): [str],
+        vol.Optional("temp_sensor"): vol.Any(str, None),
+        vol.Optional("window_sensors"): [str],
     }
 )
 @websocket_api.async_response
@@ -399,7 +402,7 @@ async def ws_rename_zone(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Update a room: rename and/or set floor / heater-control type.
+    """Update a room: rename and/or set floor / heater-control / devices.
 
     Any rename migrates learned history to the new key first; the options
     update reloads platforms so changes apply live.
@@ -412,6 +415,9 @@ async def ws_rename_zone(
     new_name = (msg.get("new_name") or "").strip() or None
     floor = msg.get("floor")
     heat_control = msg.get("heat_control")
+    trv_climates = msg.get("trv_climates")
+    temp_sensor = msg.get("temp_sensor")
+    window_sensors = msg.get("window_sensors")
     err = validate_zone_update(
         [n for n in names if n != msg["zone"]],
         new_name=new_name,
@@ -436,6 +442,20 @@ async def ws_rename_zone(
             z[CONF_ZONE_FLOOR] = int(floor)
         if heat_control is not None:
             z[CONF_ZONE_HEAT_CONTROL] = heat_control
+        if trv_climates is not None:
+            z[CONF_ZONE_TRV_CLIMATES] = [
+                t.strip() for t in trv_climates if t and t.strip()
+            ]
+        if "temp_sensor" in msg:
+            sensor = (temp_sensor or "").strip() or None
+            if sensor:
+                z[CONF_ZONE_TEMP_SENSOR] = sensor
+            else:
+                z.pop(CONF_ZONE_TEMP_SENSOR, None)
+        if window_sensors is not None:
+            z[CONF_ZONE_WINDOW_SENSORS] = [
+                w.strip() for w in window_sensors if w and w.strip()
+            ]
         new_zones.append(z)
     new_options = {**entry.options, CONF_ZONES: new_zones}
     # Migrate learned history before the reload swaps the entity out.
