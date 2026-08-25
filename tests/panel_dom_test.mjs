@@ -148,10 +148,15 @@ const html = el.shadowRoot.innerHTML;
 const failures = [];
 const check = (cond, msg) => (cond ? null : failures.push(msg));
 
-// 1) single devices section + single catalog
+// 1) single devices section + single catalog (merged "Firmware" card)
 check(
-  (html.match(/Firmware catalog/g) || []).length === 1,
-  "firmware catalog section duplicated"
+  (html.match(/data-tab="devices"/g) || []).length === 1 &&
+  (html.match(/>Firmware</g) || []).length === 1,
+  "firmware card missing or duplicated"
+);
+check(
+  (html.match(/hcc-board-sel/g) || []).length === 1,
+  "board selector duplicated"
 );
 check(
   (html.match(/No HCS devices discovered yet/g) || []).length <= 1,
@@ -180,14 +185,19 @@ check(
 // 1b) offline boards are NOT rendered — only online devices appear
 check(!html.includes("hcs-offline"), "offline device rendered on firmware page");
 check(html.includes("hcs-test"), "online device missing from firmware page");
-check(html.includes("Boiler gateway"), "gateway-centric section title missing");
+check(html.includes(">Firmware<"), "merged firmware card title missing");
 check(
   !html.includes("Ghost Board"),
   "offline device card rendered"
 );
 
-// 1c) catalog card: dropdown LEFT, image RIGHT, model-only labels
-check(!!el.shadowRoot.querySelector(".fw-cat"), "catalog grid layout missing");
+// 1c) merged card: preview + selector + custom-node flash all present
+check(!!el.shadowRoot.getElementById("hcc-board-preview"),
+  "catalog preview missing from merged firmware card");
+check(!!el.shadowRoot.getElementById("hcc-cat-node"),
+  "custom-node flash input missing from merged firmware card");
+check(!!el.shadowRoot.querySelector('[data-fw-action="ping"]'),
+  "scan-now control missing from merged firmware card");
 const opts = [...el.shadowRoot.querySelectorAll("#hcc-board-sel option")].map(
   (o) => o.textContent
 );
