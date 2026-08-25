@@ -25,29 +25,107 @@ class HomeClimatePanel extends HTMLElement {
     const first = this._hass == null;
     this._hass = hass;
     if (first) {
+      this._wireOnce();
       this._render();
       this._refresh();
       this._poll = setInterval(() => this._refresh(), 5000);
-      this.shadowRoot.addEventListener("input", (ev) => {
-        if (ev.target.dataset && ev.target.dataset.draftKey != null)
-          this._boardDraftFromEvent(ev);
-      });
-      this.shadowRoot.addEventListener("change", (ev) => {
-        const r = ev.target;
-        if (r.dataset && r.dataset.rangeLive != null) {
-          const v = Number(r.value);
-          this._sendCtl(r.dataset.ctlNode, r.dataset.ctlKey, v);
-        }
-      });
-      this.shadowRoot.addEventListener("click", (ev) => this._onBoardClick(ev));
       this._otaFast = setInterval(() => {
         const active = (this._status?.devices || []).some((d) =>
           HomeClimatePanel.OTA_ACTIVE.has(d.ota_state)
         );
         if (active || this._tab === "board") this._refresh();
       }, 2000);
-
     }
+  }
+
+  /* ── One-time delegated event wiring ──────────────────────────────
+     All listeners live on the shadow ROOT, so they survive every
+     innerHTML swap (polls, tab switches). No re-binding ever. */
+  _wireOnce() {
+    const root = this.shadowRoot;
+
+    root.addEventListener("click", (ev) => {
+      const t = ev.target;
+      const tab = t.closest("[data-tab]");
+      if (tab) {
+        this._tab = tab.getAttribute("data-tab");
+        this._render();
+        return;
+      }
+      if (t.closest('[data-action="refresh"]')) {
+        this._loading = true;
+        this._render();
+        this._refresh();
+        return;
+      }
+      const za = t.closest("[data-zone-action]");
+      if (za) {
+        this._onZoneAction(za);
+        return;
+      }
+      const fw = t.closest("[data-fw-action]");
+      if (fw) {
+        this._onFwAction(fw);
+        return;
+      }
+      if (t.closest('[data-action="save-board"]')) {
+        this._onSaveBoard();
+        return;
+      }
+      if (t.closest('[data-action="save-failsafe"]')) {
+        this._onSaveFailsafe();
+        return;
+      }
+      if (t.closest('[data-action="save-boiler-info"]')) {
+        this._onSaveBoilerInfo();
+        return;
+      }
+      this._onBoardClick(ev); // board/WC controls (no-op when unmatched)
+    });
+
+    root.addEventListener("change", (ev) => {
+      const t = ev.target;
+      if (t.dataset && t.dataset.rangeLive != null) {
+        this._sendCtl(t.dataset.ctlNode, t.dataset.ctlKey, Number(t.value));
+        return;
+      }
+      if (t.matches("[data-zone-mode]")) {
+        this._setZone(t.getAttribute("data-entity"), { hvac_mode: t.value });
+      } else if (t.matches("[data-zone-preset]")) {
+        this._setZone(t.getAttribute("data-entity"), { preset_mode: t.value });
+      } else if (t.matches("[data-zone-floor]")) {
+        const zoneName = t.getAttribute("data-zone-name");
+        if (zoneName)
+          this._adminZone("rename_zone", {
+            zone: zoneName,
+            floor: parseInt(t.value, 10),
+          });
+      } else if (t.id === "hcc-bi-make") {
+        this._fillBoilerModels(this._boilerCat, null);
+      } else if (t.id === "hcc-bs-device") {
+        this._bsSel = t.value;
+        this._bsDraft = null;
+        this._render();
+      } else if (t.id === "hcc-board-sel") {
+        this._selectedBoardId = t.value;
+        this._renderBoardPreview();
+      }
+    });
+
+    root.addEventListener("input", (ev) => {
+      this._boardDraftFromEvent(ev);
+      const el = ev.target;
+      if (el.getAttribute && el.getAttribute("data-bs-field")) {
+        const node =
+          this._bsSel || root.getElementById("hcc-bs-device")?.value;
+        if (!node) return;
+        const d =
+          this._bsDraft && this._bsDraft.node === node
+            ? this._bsDraft
+            : (this._bsDraft = { node, v: {} });
+        d.v[el.getAttribute("data-bs-field")] = el.value;
+      }
+    });
   }
 
   get hass() {
@@ -120,8 +198,7 @@ class HomeClimatePanel extends HTMLElement {
         value,
       });
     } catch (err) {
-      this._notice = `Control failed (${key}): ${err.message || err}`;
-      this._render();
+      this._flashNotice(`Control failed (${key}): ${err.message || err}`);
     }
   }
 
@@ -146,8 +223,7 @@ class HomeClimatePanel extends HTMLElement {
           curve,
         });
       } catch (err) {
-        this._notice = `WC apply failed: ${err.message || err}`;
-        this._render();
+        this._flashNotice(`WC apply failed: ${err.message || err}`);
       }
       return;
     }
@@ -181,8 +257,7 @@ class HomeClimatePanel extends HTMLElement {
       fields[k] = k === "mqtt_port" ? parseInt(v, 10) || 1883 : v;
     });
     if (!Object.keys(fields).length) {
-      this._notice = "Nothing to save.";
-      this._render();
+      this._flashNotice("Nothing to save.");
       return;
     }
     try {
@@ -191,12 +266,11 @@ class HomeClimatePanel extends HTMLElement {
         node_id: node,
         settings: fields,
       });
-      this._notice = "Settings sent — board is saving and will reboot.";
+      this._flashNotice("Settings sent — board is saving and will reboot.");
       this._bsDraft = null;
     } catch (err) {
-      this._error = err?.message || String(err);
+      this._showError(err?.message || String(err));
     }
-    this._render();
     setTimeout(() => this._refresh(), 4000);
   }
 
@@ -217,13 +291,83 @@ class HomeClimatePanel extends HTMLElement {
     } catch (err) {
       this._error = err?.message || String(err);
     }
+    const wasLoading = this._loading;
     this._loading = false;
-    if (this._tab === "board" && HomeClimatePanel._boardEditing(this.shadowRoot))
-      return; // user is typing/dragging — values catch up next cycle
-    if (this._addingRoom || this._editingZone) return; // don't destroy form mid-interaction
-    const ae2 = this.shadowRoot.activeElement;
-    if (ae2 && /^(SELECT|INPUT|TEXTAREA)$/.test(ae2.tagName)) return;
-    this._render();
+    if (wasLoading || !this.shadowRoot.getElementById("hcc-ver")) {
+      this._render(); // chrome not built yet (first load / Refresh click)
+      return;
+    }
+    this._applyStatus();
+  }
+
+  /* True when a form control inside `scope` currently has focus — its
+     region must not be swapped while the user is interacting with it. */
+  _focusBlocked(scope) {
+    const ae = this.shadowRoot.activeElement;
+    return Boolean(ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName) &&
+      (scope === this.shadowRoot || scope.contains(ae)));
+  }
+
+  /* Poll-time update: refresh only live regions, never forms.
+     The static chrome (header/tabs/footer/forms) is left untouched. */
+  _applyStatus() {
+    const root = this.shadowRoot;
+    const systems = this._systems();
+    const sys = systems[0];
+
+    // Chrome-level live bits
+    const pill = root.getElementById("hcc-pill");
+    if (pill) pill.innerHTML = this._boilerPillHtml(sys);
+    const eBox = root.getElementById("hcc-error");
+    if (eBox) { eBox.hidden = !this._error; eBox.textContent = this._error || ""; }
+    if (!this._notice) {
+      const nBox = root.getElementById("hcc-notice");
+      if (nBox) { nBox.hidden = true; nBox.textContent = ""; }
+    }
+    const ver = root.getElementById("hcc-ver");
+    if (ver && this._status?.version)
+      ver.textContent = `Home Climate Control v${this._status.version}`;
+
+    // Per-tab live region
+    switch (this._tab) {
+      case "zones": {
+        if (this._addingRoom || this._editingZone) return;
+        const w = root.getElementById("hcc-zones-wrap");
+        if (w && !this._focusBlocked(w)) w.innerHTML = this._zonesHtml(sys);
+        break;
+      }
+      case "firmware": {
+        const w = root.getElementById("hcc-fw-wrap");
+        if (w && !this._focusBlocked(w)) w.innerHTML = this._firmwareHtml();
+        break;
+      }
+      case "board": {
+        if (HomeClimatePanel._boardEditing(root)) return;
+        const w = root.getElementById("hcc-board-wrap");
+        if (w && !this._focusBlocked(w)) {
+          w.innerHTML = this._boardHtml();
+          if (this._selectedBoardId) {
+            const bsel = root.getElementById("hcc-board-sel");
+            if (bsel) bsel.value = this._selectedBoardId;
+          }
+          this._renderBoardPreview();
+        }
+        break;
+      }
+      case "settings": {
+        // Only the telemetry cards swap; config forms stay put.
+        const w = root.getElementById("hcc-settings-live");
+        if (w && sys) w.innerHTML = this._settingsLiveHtml(sys);
+        break;
+      }
+      default: {
+        const w = root.getElementById("hcc-live");
+        if (w && sys)
+          w.innerHTML =
+            `${this._boilerPictureHtml(sys)}${this._overviewHtml(sys)}`;
+        break;
+      }
+    }
   }
 
   async _setZone(entityId, patch) {
@@ -560,7 +704,7 @@ class HomeClimatePanel extends HTMLElement {
         <header>
           <img class="hcc-logo" src="/home_climate_control_static/brand/icon.png" alt="Home Climate Control logo">
           <h1>Home Climate ${sys?.demo ? '<span class="badge heat" style="font-size:0.7rem;vertical-align:middle">DEMO</span>' : ""}</h1>
-          ${this._boilerPillHtml(sys)}
+          <span id="hcc-pill">${this._boilerPillHtml(sys)}</span>
           <button class="ghost refresh" type="button" data-action="refresh">Refresh</button>
         </header>
         <nav class="tabs">
@@ -571,11 +715,11 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("board", "Board")}
           ${this._tabBtn("settings", "Settings")}
         </nav>
-        ${this._error ? `<div class="error">${this._esc(this._error)}</div>` : ""}
-        ${this._notice ? `<div class="notice">${this._esc(this._notice)}</div>` : ""}
+        <div id="hcc-error" class="error" ${this._error ? "" : "hidden"}>${this._esc(this._error || "")}</div>
+        <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
-          <span>Home Climate Control${this._status?.version ? ` v${this._status.version}` : ""}</span>
+          <span id="hcc-ver">Home Climate Control${this._status?.version ? ` v${this._status.version}` : ""}</span>
           <a href="https://github.com/ALeXXBody/home-climate-control" target="_blank" rel="noopener">Software</a>
           <a href="https://github.com/ALeXXBody/home-climate-system" target="_blank" rel="noopener">Hardware</a>
           <a href="https://buymeacoffee.com/alexxbody" target="_blank" rel="noopener">Buy me a coffee</a>
@@ -583,77 +727,10 @@ class HomeClimatePanel extends HTMLElement {
       </div>
     `;
     if (savedRoom) this._restoreAddRoomForm(savedRoom);
-
-    root.querySelectorAll("[data-tab]").forEach((el) => {
-      el.addEventListener("click", () => {
-        this._tab = el.getAttribute("data-tab");
-        this._render();
-      });
-    });
-    root.querySelector('[data-action="refresh"]')?.addEventListener("click", () => {
-      this._loading = true;
-      this._render();
-      this._refresh();
-    });
-    root.querySelectorAll("[data-zone-action]").forEach((el) => {
-      el.addEventListener("click", () => this._onZoneAction(el));
-    });
-    root.querySelectorAll("[data-zone-mode]").forEach((el) => {
-      el.addEventListener("change", () => {
-        const id = el.getAttribute("data-entity");
-        this._setZone(id, { hvac_mode: el.value });
-      });
-    });
-    root.querySelectorAll("[data-zone-preset]").forEach((el) => {
-      el.addEventListener("change", () => {
-        const id = el.getAttribute("data-entity");
-        this._setZone(id, { preset_mode: el.value });
-      });
-    });
-    root.querySelectorAll("[data-zone-floor]").forEach((el) => {
-      el.addEventListener("change", () => {
-        const zoneName = el.getAttribute("data-zone-name");
-        if (zoneName) {
-          this._adminZone("rename_zone", {
-            zone: zoneName,
-            floor: parseInt(el.value, 10),
-          });
-        }
-      });
-    });
-    root.querySelectorAll("[data-fw-action]").forEach((el) => {
-      el.addEventListener("click", () => this._onFwAction(el));
-    });
-    root.getElementById("hcc-bs-device")?.addEventListener("change", (e) => {
-      this._bsSel = e.target.value;
-      this._bsDraft = null;
-      this._render();
-    });
-    root.querySelectorAll("[data-bs-field]").forEach((el) => {
-      el.addEventListener("input", () => {
-        const node =
-          this._bsSel ||
-          root.getElementById("hcc-bs-device")?.value;
-        if (!node) return;
-        const d = this._bsDraft && this._bsDraft.node === node
-          ? this._bsDraft
-          : (this._bsDraft = { node, v: {} });
-        d.v[el.getAttribute("data-bs-field")] = el.value;
-      });
-    });
-    root.querySelector('[data-action="save-board"]')?.addEventListener("click", () => this._onSaveBoard());
-    root
-      .querySelector('[data-action="save-failsafe"]')
-      ?.addEventListener("click", () => this._onSaveFailsafe());
-    root
-      .querySelector('[data-action="save-boiler-info"]')
-      ?.addEventListener("click", () => this._onSaveBoilerInfo());
-    const bsel = this.shadowRoot.getElementById("hcc-board-sel");
-    bsel?.addEventListener("change", () => {
-      this._selectedBoardId = bsel.value;
-      this._renderBoardPreview();
-    });
-    if (this._selectedBoardId && bsel) bsel.value = this._selectedBoardId;
+    if (this._selectedBoardId) {
+      const bsel = root.getElementById("hcc-board-sel");
+      if (bsel) bsel.value = this._selectedBoardId;
+    }
     this._renderBoardPreview();
     this._populateBoilerCatalog();
   }
@@ -761,20 +838,20 @@ class HomeClimatePanel extends HTMLElement {
     }
     switch (this._tab) {
       case "zones":
-        return this._zonesHtml(sys);
+        return `<div id="hcc-zones-wrap">${this._zonesHtml(sys)}</div>`;
       case "floorplan":
         return this._placeholder(
           "Floor plan",
           "Coming soon: interactive house layout with room temperatures and heat demand."
         );
       case "firmware":
-        return this._firmwareHtml();
+        return `<div id="hcc-fw-wrap">${this._firmwareHtml()}</div>`;
       case "board":
-        return this._boardHtml();
+        return `<div id="hcc-board-wrap">${this._boardHtml()}</div>`;
       case "settings":
         return this._settingsHtml(sys);
       default:
-        return `<div style="position:relative">${this._boilerPictureHtml(sys)}${this._overviewHtml(sys)}</div>`;
+        return `<div id="hcc-live" style="position:relative">${this._boilerPictureHtml(sys)}${this._overviewHtml(sys)}</div>`;
     }
   }
 
@@ -1159,30 +1236,7 @@ class HomeClimatePanel extends HTMLElement {
       ? `<p class="sub">Detected from boiler MemberID ${bi.member_id ?? "?"}: <strong>${this._esc(bi.detected_make)}</strong></p>`
       : `<p class="sub">No MemberID received yet — select manually.</p>`;
     return `
-      <div class="grid">
-        <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
-        ${sys.autotune ? `<p class="sub">auto-tune: ${this._esc(sys.autotune.last_action || "")}${sys.autotune.mean_error != null ? ` · err ${this._esc(sys.autotune.mean_error)}°C` : ""} · ${sys.autotune.adjustments} adjustment${sys.autotune.adjustments === 1 ? "" : "s"}</p>` : ""}</div>
-        <div class="card"><h3>Min flow</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit">°C</span></div></div>
-        <div class="card"><h3>Max flow</h3><div class="metric">${this._fmt(sys.max_flow)}<span class="unit">°C</span></div></div>
-        ${sys.cycle_guard ? `<div class="card"><h3>Burner cycles</h3><div class="metric">${sys.cycle_guard.starts_1h}<span class="unit">/h</span></div><p class="sub">${this._esc(sys.cycle_guard.last_reason || sys.cycle_guard.state)} · patience ×${this._esc(sys.cycle_guard.multiplier)}</p></div>` : ""}
-        ${sys.gas ? `<div class="card"><h3>Gas (est.)</h3>
-          <div class="metric">${this._esc(sys.gas.today_kwh)}<span class="unit">kWh today</span></div>
-          <p class="sub">${this._esc(sys.gas.mode)} · ${this._esc(sys.gas.rated_power_kw)} kW${sys.gas.min_power_kw ? `–${this._esc(sys.gas.min_power_kw)} kW` : ""} nameplate</p>
-          <p class="sub">${sys.gas.last_rate_kw != null ? `now: ${this._esc(sys.gas.last_rate_kw)} kW · ` : ""}${sys.gas.total_kwh != null ? `total: ${this._esc(sys.gas.total_kwh)} kWh` : ""}${sys.gas.today_cost != null ? ` · ~${this._esc(sys.gas.today_cost)} today` : ""}</p>
-        </div>` : ""}
-        ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
-          ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
-        </div>` : ""}
-        ${sys.boiler?.datalogger ? `<div class="card"><h3>Training data</h3>
-          <div class="metric">${sys.boiler.datalogger.rows_total ?? 0}<span class="unit">rows logged</span></div>
-          <p class="sub">${sys.boiler.datalogger.last_row_ts ? `last: ${this._esc(sys.boiler.datalogger.last_row_ts)} · ` : ""}buffered: ${this._esc(sys.boiler.datalogger.rows_buffered ?? 0)}</p>
-          <p class="sub" style="opacity:.75">Saved to <code>${this._esc(sys.boiler.datalogger.directory || "")}</code> as monthly JSONL — survives integration updates.</p>
-        </div>` : ""}
-        ${(sys.probes && sys.probes.length) ? `<div class="card"><h3>1-Wire probes</h3>
-          ${sys.probes.map(p => `<p class="sub"><strong>${this._esc((p.addr || "").slice(-8) || "?")}</strong>: ${p.temp_c != null ? this._esc(p.temp_c) + "°C" : "—"} · ${this._esc(p.health || "?")} · ${this._esc(p.role || "none")}${p.name ? " · " + this._esc(p.name) : ""}</p>`).join("")}
-        </div>` : ""}
-        <div class="card"><h3>Entry</h3><div class="sub">${this._esc(sys.entry_id || "")}</div></div>
-      </div>
+      <div id="hcc-settings-live">${this._settingsLiveHtml(sys)}</div>
       <div class="card">
         <h3>Your boiler</h3>
         ${detected}
@@ -1217,6 +1271,37 @@ class HomeClimatePanel extends HTMLElement {
       ${boardCard}
       <div class="card placeholder">
         <p>Tune curve and flow limits via <strong>Settings → Devices &amp; services → Home Climate Control → Configure</strong>.</p>
+      </div>`;
+  }
+
+  /* Live-updated portion of the Settings tab (read-only telemetry cards).
+     Swapped in place by _applyStatus — the config forms below it are never
+     touched by the poll, so selections/typing can't be interrupted. */
+  _settingsLiveHtml(sys) {
+    return `
+      <div class="grid">
+        <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
+        ${sys.autotune ? `<p class="sub">auto-tune: ${this._esc(sys.autotune.last_action || "")}${sys.autotune.mean_error != null ? ` · err ${this._esc(sys.autotune.mean_error)}°C` : ""} · ${sys.autotune.adjustments} adjustment${sys.autotune.adjustments === 1 ? "" : "s"}</p>` : ""}</div>
+        <div class="card"><h3>Min flow</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit">°C</span></div></div>
+        <div class="card"><h3>Max flow</h3><div class="metric">${this._fmt(sys.max_flow)}<span class="unit">°C</span></div></div>
+        ${sys.cycle_guard ? `<div class="card"><h3>Burner cycles</h3><div class="metric">${sys.cycle_guard.starts_1h}<span class="unit">/h</span></div><p class="sub">${this._esc(sys.cycle_guard.last_reason || sys.cycle_guard.state)} · patience ×${this._esc(sys.cycle_guard.multiplier)}</p></div>` : ""}
+        ${sys.gas ? `<div class="card"><h3>Gas (est.)</h3>
+          <div class="metric">${this._esc(sys.gas.today_kwh)}<span class="unit">kWh today</span></div>
+          <p class="sub">${this._esc(sys.gas.mode)} · ${this._esc(sys.gas.rated_power_kw)} kW${sys.gas.min_power_kw ? `–${this._esc(sys.gas.min_power_kw)} kW` : ""} nameplate</p>
+          <p class="sub">${sys.gas.last_rate_kw != null ? `now: ${this._esc(sys.gas.last_rate_kw)} kW · ` : ""}${sys.gas.total_kwh != null ? `total: ${this._esc(sys.gas.total_kwh)} kWh` : ""}${sys.gas.today_cost != null ? ` · ~${this._esc(sys.gas.today_cost)} today` : ""}</p>
+        </div>` : ""}
+        ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
+          ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
+        </div>` : ""}
+        ${sys.boiler?.datalogger ? `<div class="card"><h3>Training data</h3>
+          <div class="metric">${sys.boiler.datalogger.rows_total ?? 0}<span class="unit">rows logged</span></div>
+          <p class="sub">${sys.boiler.datalogger.last_row_ts ? `last: ${this._esc(sys.boiler.datalogger.last_row_ts)} · ` : ""}buffered: ${this._esc(sys.boiler.datalogger.rows_buffered ?? 0)}</p>
+          <p class="sub" style="opacity:.75">Saved to <code>${this._esc(sys.boiler.datalogger.directory || "")}</code> as monthly JSONL — survives integration updates.</p>
+        </div>` : ""}
+        ${(sys.probes && sys.probes.length) ? `<div class="card"><h3>1-Wire probes</h3>
+          ${sys.probes.map(p => `<p class="sub"><strong>${this._esc((p.addr || "").slice(-8) || "?")}</strong>: ${p.temp_c != null ? this._esc(p.temp_c) + "°C" : "—"} · ${this._esc(p.health || "?")} · ${this._esc(p.role || "none")}${p.name ? " · " + this._esc(p.name) : ""}</p>`).join("")}
+        </div>` : ""}
+        <div class="card"><h3>Entry</h3><div class="sub">${this._esc(sys.entry_id || "")}</div></div>
       </div>`;
   }
 
@@ -1480,8 +1565,7 @@ class HomeClimatePanel extends HTMLElement {
       const node =
         this.shadowRoot.getElementById("hcc-cat-node").value.trim();
       if (!node) {
-        this._error = "Enter the target device node id (e.g. hcs-aabbccddeeff).";
-        this._render();
+        this._showError("Enter the target device node id (e.g. hcs-aabbccddeeff).");
         return;
       }
       this._hass
@@ -1497,8 +1581,7 @@ class HomeClimatePanel extends HTMLElement {
           );
         })
         .catch((err) => {
-          this._error = err?.message || String(err);
-          this._render();
+          this._showError(err?.message || String(err));
         });
       return;
     }
@@ -1524,9 +1607,9 @@ class HomeClimatePanel extends HTMLElement {
       this._status = { ...(this._status || {}), devices: res.devices };
       this._flashNotice(`Board ${nodeId} removed.`);
     } catch (err) {
-      this._error = err?.message || String(err);
+      this._showError(err?.message || String(err));
     }
-    this._render();
+    setTimeout(() => this._refresh(), 500);
   }
 
   async _flashAllOutdated() {
@@ -1543,15 +1626,34 @@ class HomeClimatePanel extends HTMLElement {
     this._refresh();
   }
 
-  /** Transient notice: auto-clears after ms (default 4s). */
+  /** Transient notice: auto-clears after ms (default 4s).
+      Targeted DOM update — never rebuilds the panel. */
   _flashNotice(msg, ms = 4000) {
     this._notice = msg;
-    this._render();
+    const n = this.shadowRoot.getElementById("hcc-notice");
+    if (n) {
+      n.hidden = false;
+      n.textContent = msg;
+    }
     clearTimeout(this._noticeTimer);
     this._noticeTimer = setTimeout(() => {
       this._notice = null;
-      this._render();
+      const m = this.shadowRoot.getElementById("hcc-notice");
+      if (m) {
+        m.hidden = true;
+        m.textContent = "";
+      }
     }, ms);
+  }
+
+  /** Persistent error banner, shown without rebuilding the panel. */
+  _showError(msg) {
+    this._error = msg || null;
+    const e = this.shadowRoot.getElementById("hcc-error");
+    if (e) {
+      e.hidden = !msg;
+      e.textContent = msg || "";
+    }
   }
 
   async _pingDevices() {
@@ -1564,9 +1666,8 @@ class HomeClimatePanel extends HTMLElement {
       this._flashNotice("Discovery ping sent.");
       setTimeout(() => this._refresh(), 3000);
     } catch (err) {
-      this._error = err?.message || String(err);
+      this._showError(err?.message || String(err));
     }
-    this._render();
   }
 
   _selectedFirmware(nodeId, devices, catalog) {
@@ -1592,10 +1693,10 @@ class HomeClimatePanel extends HTMLElement {
         if (match) selection = match.id;
       }
       if (!selection) {
-        this._error =
+        this._showError(
           "No firmware image matches this device's board" +
-          (dev?.board ? ` ('${dev.board}')` : "") + ".";
-        this._render();
+          (dev?.board ? ` ('${dev.board}')` : "") + "."
+        );
         return;
       }
       const item = catalog.find((c) => c.id === selection);
@@ -1612,8 +1713,7 @@ class HomeClimatePanel extends HTMLElement {
 
       this._busy[nodeId] = true;
       this._notice = null;
-      this._error = null;
-      this._render();
+      this._showError(null);
       await this._hass.callWS({
         type: "home_climate_control/flash_device",
         node_id: nodeId,
@@ -1628,7 +1728,7 @@ class HomeClimatePanel extends HTMLElement {
       this._error = err?.message || String(err);
     } finally {
       delete this._busy[nodeId];
-      this._render();
+      setTimeout(() => this._refresh(), 300);
     }
   }
 
@@ -1641,8 +1741,7 @@ class HomeClimatePanel extends HTMLElement {
       });
       this._flashNotice(`Reboot command sent to ${nodeId}.`);
     } catch (err) {
-      this._error = err?.message || String(err);
-      this._render();
+      this._showError(err?.message || String(err));
     }
   }
 

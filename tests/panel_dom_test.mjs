@@ -253,7 +253,7 @@ await new Promise((r) => setTimeout(r, 20));
     "ota password must not be pre-filled (write-only)"
   );
   el.shadowRoot.getElementById("hcc-bs-name").value = "Renamed";
-  el.shadowRoot.getElementById("hcc-bs-name").dispatchEvent(new w.Event("input"));
+  el.shadowRoot.getElementById("hcc-bs-name").dispatchEvent(new w.Event("input", { bubbles: true }));
   el.shadowRoot.querySelector('[data-action="save-board"]').click();
   await new Promise((r) => setTimeout(r, 30));
   const saveCall = wsCalls.find((c) => c.type === "home_climate_control/set_device_settings");
@@ -307,7 +307,7 @@ check(
 // 4) catalog selection survives re-render
 const sel2 = el.shadowRoot.getElementById("hcc-board-sel");
 sel2.value = "hcs-1.0.2-lolin_c3_mini";
-sel2.dispatchEvent(new w.Event("change"));
+sel2.dispatchEvent(new w.Event("change", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 10));
 el._render();
 await new Promise((r) => setTimeout(r, 10));
@@ -360,7 +360,7 @@ const dhwIn = el.shadowRoot.querySelector(
   '[data-draft-node="hcs-test"][data-draft-key="dhw_setpoint"]'
 );
 dhwIn.value = "52";
-dhwIn.dispatchEvent(new w.Event("input"));
+dhwIn.dispatchEvent(new w.Event("input", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 5));
 el.shadowRoot
   .querySelector('[data-ctl-key="dhw_setpoint"][data-ctl-from-input]')
@@ -382,7 +382,7 @@ for (const [k, v] of [
 ]) {
   const inp = el.shadowRoot.querySelector(`[data-draft-key="${k}"]`);
   inp.value = v;
-  inp.dispatchEvent(new w.Event("input"));
+  inp.dispatchEvent(new w.Event("input", { bubbles: true }));
 }
 el.shadowRoot.querySelector('[data-wc-apply="hcs-test"]').click();
 await new Promise((r) => setTimeout(r, 20));
