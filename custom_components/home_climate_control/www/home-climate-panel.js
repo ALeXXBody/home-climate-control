@@ -381,7 +381,7 @@ class HomeClimatePanel extends HTMLElement {
         const w = root.getElementById("hcc-live");
         if (w && sys)
           w.innerHTML =
-            `${this._boilerPictureHtml(sys)}${this._homeHtml(sys)}`;
+            this._homeHtml(sys);
         break;
       }
     }
@@ -443,24 +443,27 @@ class HomeClimatePanel extends HTMLElement {
           margin: 0 auto;
           padding: 16px 20px 16px;
         }
-        .boiler-pic {
-          position: absolute;
-          top: -6px;
-          right: 0;
-          width: 120px;
-          text-align: center;
+        .bp-hero {
+          display: flex; gap: 16px; align-items: stretch; margin-bottom: 12px;
+        }
+        .bp-hero-img {
+          flex: 0 0 132px; display: flex; flex-direction: column;
+          justify-content: center; text-align: center;
           background: var(--secondary-background-color, #16181c);
           border: 1px solid var(--divider-color, #2a2e33);
-          border-radius: 12px;
-          padding: 8px 8px 6px;
+          border-radius: 10px; padding: 8px;
         }
-        .boiler-pic img {
-          width: 100%; height: auto; display: block;
+        .bp-hero-img img {
+          width: 100%; height: auto; max-height: 118px; object-fit: contain;
           filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
         }
-        .boiler-pic .bp-cap {
-          font-size: 0.78rem; color: var(--secondary-text-color, #bbb);
+        .bp-hero-img .bp-cap {
+          font-size: 0.75rem; color: var(--secondary-text-color, #bbb);
           margin-top: 4px; line-height: 1.25;
+        }
+        .bp-hero-stats {
+          flex: 1; min-width: 0; display: flex;
+          flex-direction: column; justify-content: center; gap: 6px;
         }
         header {
           display: flex;
@@ -889,7 +892,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._settingsLiveHtml(sys)}
         </div>`;
       default: // home
-        return `<div id="hcc-live" style="position:relative">${this._boilerPictureHtml(sys)}${this._homeHtml(sys)}</div>`;
+        return `<div id="hcc-live">${this._homeHtml(sys)}</div>`;
     }
   }
 
@@ -1122,6 +1125,12 @@ class HomeClimatePanel extends HTMLElement {
   _homeHtml(sys) {
     const b = sys?.boiler || {};
     const gas = sys?.gas;
+    const bi = sys?.boiler_info || {};
+    const make = bi.make || bi.detected_make || "";
+    const model = bi.model || "";
+    const imgHtml = (bi && bi.image)
+      ? `<img src="${bi.image}" alt="${this._esc(make)}"><div class="bp-cap">${this._esc(make)}${model ? `<br>${this._esc(model)}` : ""}</div>`
+      : `<div class="bp-cap">no boiler info</div>`;
     const ch = b.ch_active || b.flame_on
       ? `<span class="badge heat">Heating</span>`
       : `<span class="badge off">Idle</span>`;
@@ -1133,16 +1142,21 @@ class HomeClimatePanel extends HTMLElement {
 
     return `
       ${this._alertsRow(sys)}
-      <div class="card wide" style="margin-bottom:12px">
-        <div class="zone-title" style="justify-content:flex-start;gap:10px">
-          Boiler ${ch} ${flame}
-          <span style="margin-left:auto;font-weight:400" class="fp-sub">mod ${mod}% · flow ${flowT}°C · return ${retT}°C</span>
+      <div class="card wide bp-hero">
+        <div class="bp-hero-img">
+          ${imgHtml}
         </div>
-        <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px">
-          <div><div class="metric" style="font-size:1.5rem">${gasToday}</div><div class="sub">gas estimate</div></div>
-          <div><div class="metric" style="font-size:1.5rem">${this._fmt(sys.outdoor_temp)}<span class="unit">°C</span></div><div class="sub">outdoor</div></div>
-          <div><div class="metric" style="font-size:1.5rem">${Math.round((sys.total_demand || 0) * 100)}<span class="unit">% demand</span></div>
-            <div class="sub">active: ${this._esc((sys.active_zones || []).join(", ") || "none")}</div></div>
+        <div class="bp-hero-stats">
+          <div class="zone-title" style="justify-content:flex-start;gap:10px">
+            Boiler ${ch} ${flame}
+            <span style="margin-left:auto;font-weight:400" class="fp-sub">mod ${mod}% · flow ${flowT}°C · return ${retT}°C</span>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px">
+            <div><div class="metric" style="font-size:1.5rem">${gasToday}</div><div class="sub">gas estimate</div></div>
+            <div><div class="metric" style="font-size:1.5rem">${this._fmt(sys.outdoor_temp)}<span class="unit">°C</span></div><div class="sub">outdoor</div></div>
+            <div><div class="metric" style="font-size:1.5rem">${Math.round((sys.total_demand || 0) * 100)}<span class="unit">% demand</span></div>
+              <div class="sub">active: ${this._esc((sys.active_zones || []).join(", ") || "none")}</div></div>
+          </div>
         </div>
       </div>
       ${this._floorplanHtml(sys)}
