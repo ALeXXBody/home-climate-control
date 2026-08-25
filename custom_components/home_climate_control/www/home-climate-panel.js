@@ -214,6 +214,7 @@ class HomeClimatePanel extends HTMLElement {
     this._loading = false;
     if (this._tab === "board" && HomeClimatePanel._boardEditing(this.shadowRoot))
       return; // user is typing/dragging — values catch up next cycle
+    if (this._addingRoom) return; // don't destroy add-room form mid-interaction
     this._render();
   }
 
