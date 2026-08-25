@@ -963,14 +963,16 @@ class HomeClimatePanel extends HTMLElement {
       ? "loading…"
       : (lines.length ? this._esc(lines.join("\n")) : "(no frames yet)");
     return `
-      <div class="card wide" style="margin-top:14px">
-        <div class="zone-title" style="justify-content:space-between">
-          <span>OpenTherm console</span>
-          <span style="display:flex;gap:6px;align-items:center">
-            <select id="hcc-otlog-node" style="background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px;padding:4px">${opts}</select>
-            <button type="button" class="ghost" data-otlog="refresh" title="Refresh">⟳</button>
-            <button type="button" class="ghost" data-otlog="clear" title="Clear log">✕</button>
-          </span>
+      <div class="card wide" style="margin-top:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div class="zone-title" style="margin:0">OpenTherm console</div>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+            <select id="hcc-otlog-node" style="background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px;padding:3px 8px;font-size:.78rem">${opts}</select>
+            <button type="button" class="ghost" data-otlog="refresh" title="Refresh"
+              style="padding:2px 10px;font-size:.78rem">⟳ Refresh</button>
+            <button type="button" class="ghost" data-otlog="clear" title="Clear log"
+              style="padding:2px 10px;font-size:.78rem">✕ Clear</button>
+          </div>
         </div>
         <pre id="hcc-otlog-pre" style="max-height:260px;overflow:auto;font-size:.72rem;line-height:1.35;margin:8px 0 0;white-space:pre">${body}</pre>
       </div>`;
