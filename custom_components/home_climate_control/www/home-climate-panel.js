@@ -1789,7 +1789,7 @@ class HomeClimatePanel extends HTMLElement {
       : `<p class="sub" style="margin-top:10px">No board found yet — flash any supported board below with Home Climate System firmware, wire it to the boiler's OpenTherm bus and power it on; it registers here automatically.</p>`;
 
     return `
-      <div class="card zone" style="margin-top:20px">
+      <div class="card" style="margin-top:20px">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
           <div class="zone-title" style="margin:0">Firmware</div>
           <div style="margin-left:auto;display:flex;gap:6px">
