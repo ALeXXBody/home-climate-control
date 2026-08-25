@@ -1619,8 +1619,10 @@ class HomeClimatePanel extends HTMLElement {
     }
     if (action === "control") {
       const zoneName = el.getAttribute("data-zone-name");
-      const now = el.getAttribute("data-now") || "smart";
       if (!zoneName) return;
+      const sys = (this._status?.systems || [])[0];
+      const zone = (sys?.zones || []).find(z => z.name === zoneName);
+      const now = zone?.heat_control || "smart";
       const next = now === "manual" ? "smart" : "manual";
       const msg =
         next === "manual"

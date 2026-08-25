@@ -163,8 +163,6 @@ class CentralController:
         }
         self.calibration.start(zone_name, temp=cur)
 
-        import homeassistant.util.dt as dt_util
-
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
@@ -218,7 +216,7 @@ class CentralController:
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Restoring setpoint after calibration failed")
 
-    def _calibration_tick(self, now_mono: float) -> None:
+    def _calibration_tick(self, _now: float) -> None:
         """Expire stale sessions; runs inside the control tick."""
         import time as _time
 

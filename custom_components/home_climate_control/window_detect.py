@@ -46,7 +46,6 @@ class SlopeWindowDetector:
         self.samples: list[tuple[float, float]] = []  # (ts, temp), ascending
         self.open = False
         self._opened_at: float | None = None
-        self._min_seen: float | None = None   # lowest temp since opening
         self._last_drop_check: float | None = None
 
     # ------------------------------------------------------------------ feed
@@ -129,7 +128,6 @@ class SlopeWindowDetector:
     def _close(self, ts: float) -> None:
         self.open = False
         self._opened_at = None
-        self._min_seen = None
         self.samples = self.samples[-2:]  # re-arm on recent context only
 
     # ---------------------------------------------------------------- output
