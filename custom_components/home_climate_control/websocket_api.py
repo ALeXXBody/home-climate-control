@@ -16,8 +16,13 @@ from .const import (
     CONF_ZONE_FLOOR,
     CONF_ZONE_HEAT_CONTROL,
     CONF_ZONE_NAME,
+    CONF_ZONE_TEMP_SENSOR,
+    CONF_ZONE_TRV_CLIMATES,
+    CONF_ZONE_WINDOW_SENSORS,
     CONF_ZONES,
+    DEFAULT_ZONE_SETPOINT,
     DOMAIN,
+    HEAT_CONTROL_SMART,
 )
 from .firmware_manager import (
     async_setup_firmware_manager,
@@ -53,6 +58,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_set_zone)
     websocket_api.async_register_command(hass, ws_calibrate_zone)
+    websocket_api.async_register_command(hass, ws_add_zone)
     websocket_api.async_register_command(hass, ws_rename_zone)
     websocket_api.async_register_command(hass, ws_remove_zone)
     websocket_api.async_register_command(hass, ws_set_failsafe)
@@ -314,6 +320,49 @@ FLOOR_MAX = 30
 HEAT_CONTROLS = ("smart", "manual")
 
 
+def build_zone_config(
+    names: list[str | None],
+    *,
+    name: str,
+    heat_control: str = HEAT_CONTROL_SMART,
+    floor: int = 0,
+    trv_climates: list[str] | None = None,
+    temp_sensor: str | None = None,
+    window_sensors: list[str] | None = None,
+) -> dict[str, Any]:
+    """Validate a new-room request; returns the zone dict or raises ValueError.
+
+    Mirrors the config flow's zone step: a controlled (smart) room needs at
+    least one addressable TRV; a manual-radiator room legitimately has none.
+    """
+    name = (name or "").strip()
+    err = validate_zone_name(names, name)
+    if err:
+        raise ValueError(err)
+    if heat_control not in HEAT_CONTROLS:
+        raise ValueError("heat_control must be 'smart' or 'manual'")
+    floor = max(0, min(FLOOR_MAX, int(floor or 0)))
+    trvs = [t.strip() for t in (trv_climates or []) if t and t.strip()]
+    if heat_control == HEAT_CONTROL_SMART and not trvs:
+        raise ValueError("A smart room needs at least one TRV climate entity")
+    for t in trvs:
+        if not t.startswith("climate."):
+            raise ValueError(f"'{t}' is not a climate entity")
+    sensor = (temp_sensor or "").strip() or None
+    if sensor and not sensor.startswith("sensor."):
+        raise ValueError(f"'{sensor}' is not a sensor entity")
+    windows = [w.strip() for w in (window_sensors or []) if w and w.strip()]
+    return {
+        CONF_ZONE_NAME: name,
+        CONF_ZONE_TRV_CLIMATES: trvs,
+        CONF_ZONE_TEMP_SENSOR: sensor,
+        CONF_ZONE_WINDOW_SENSORS: windows,
+        CONF_ZONE_FLOOR: floor,
+        CONF_ZONE_HEAT_CONTROL: heat_control,
+        "setpoint": DEFAULT_ZONE_SETPOINT,
+    }
+
+
 def validate_zone_update(
     names: list[str | None],
     *,
@@ -393,6 +442,62 @@ async def ws_rename_zone(
     if new_name:
         controller.rename_zone_learning(msg["zone"], new_name)
     hass.config_entries.async_update_entry(entry, options=new_options)
+    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/add_zone",
+        vol.Required("name"): str,
+        vol.Optional("heat_control", default=HEAT_CONTROL_SMART): vol.In(HEAT_CONTROLS),
+        vol.Optional("floor", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=FLOOR_MAX)),
+        vol.Optional("trv_climates", default=[]): [str],
+        vol.Optional("temp_sensor"): str,
+        vol.Optional("window_sensors", default=[]): [str],
+    }
+)
+@websocket_api.async_response
+async def ws_add_zone(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Create a room from the panel; the options reload adds its entity."""
+    # Any configured entry owns the room list (single-install typical).
+    entry = None
+    existing: list[str | None] = []
+    for entry_id, data in (hass.data.get(DOMAIN) or {}).items():
+        if isinstance(data, dict) and "controller" in data:
+            entry = hass.config_entries.async_get_entry(entry_id)
+            if entry is not None:
+                existing = [
+                    getattr(z, "name", None)
+                    for z in getattr(data["controller"], "zones", [])
+                ]
+                break
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "No configured system found")
+        return
+
+    try:
+        zone = build_zone_config(
+            existing,
+            name=msg["name"],
+            heat_control=msg["heat_control"],
+            floor=msg["floor"],
+            trv_climates=msg["trv_climates"],
+            temp_sensor=msg.get("temp_sensor"),
+            window_sensors=msg["window_sensors"],
+        )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_zone", str(err))
+        return
+
+    zones_cfg = list(entry.options.get(CONF_ZONES, []))
+    zones_cfg.append(zone)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_ZONES: zones_cfg}
+    )
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 

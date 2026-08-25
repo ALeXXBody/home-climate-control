@@ -8,6 +8,7 @@ from custom_components.home_climate_control.health import RoomHealthMonitor
 from custom_components.home_climate_control.insulation import InsulationScorer
 from custom_components.home_climate_control.setback import SetbackLearner
 from custom_components.home_climate_control.websocket_api import (
+    build_zone_config,
     validate_zone_name,
     validate_zone_update,
 )
@@ -134,3 +135,48 @@ def test_zone_defaults_and_custom_house_fields():
     # garbage input falls back to safe defaults
     room3 = _make_room({"floor": "attic", "heat_control": "telepathy"})
     assert room3.floor == 0 and room3.heater_control == "smart"
+
+
+# ------------------------------------------------------------ add new room
+
+def test_build_zone_config_defaults():
+    z = build_zone_config(["Living"], name="Kitchen", heat_control="manual")
+    assert z["name"] == "Kitchen"
+    assert z["heat_control"] == "manual"
+    assert z["floor"] == 0
+    assert z["setpoint"] == 20.0
+
+
+def test_build_zone_config_smart_requires_trv():
+    with pytest.raises(ValueError, match="TRV"):
+        build_zone_config([], name="Study", heat_control="smart")
+    z = build_zone_config([], name="Study", heat_control="smart",
+                          trv_climates=["climate.trv_study"])
+    assert z["trv_climates"] == ["climate.trv_study"]
+
+
+def test_build_zone_config_manual_needs_no_trv():
+    z = build_zone_config([], name="Hall", heat_control="manual")
+    assert z["trv_climates"] == []
+
+
+def test_build_zone_config_rejects_bad_entities():
+    with pytest.raises(ValueError, match="climate"):
+        build_zone_config([], name="A", heat_control="smart",
+                          trv_climates=["switch.foo"])
+    with pytest.raises(ValueError, match="sensor"):
+        build_zone_config([], name="A", heat_control="manual",
+                          temp_sensor="binary_sensor.x")
+
+
+def test_build_zone_config_duplicate_and_empty_names():
+    with pytest.raises(ValueError, match="already exists"):
+        build_zone_config(["A", "B"], name="b")
+    with pytest.raises(ValueError):
+        build_zone_config([], name="   ")
+
+
+def test_build_zone_config_floor_clamped():
+    kw = {"heat_control": "manual"}
+    assert build_zone_config([], name="A", floor=99, **kw)["floor"] == 30
+    assert build_zone_config([], name="A", floor=-3, **kw)["floor"] == 0

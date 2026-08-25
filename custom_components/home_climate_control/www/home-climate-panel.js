@@ -13,6 +13,7 @@ class HomeClimatePanel extends HTMLElement {
     this._loading = true;
     this._error = null;
     this._notice = null;
+    this._addingRoom = false;
     this._busy = {};
     this._poll = null;
     this._selectedBoardId = null;
@@ -794,13 +795,57 @@ class HomeClimatePanel extends HTMLElement {
       byFloor.get(f).push(z);
     }
     const floors = [...byFloor.keys()].sort((a, b) => a - b);
-    return floors
+    const body = floors
       .map((f) => `
         ${compact ? "" : `<div class="floor-head">${HomeClimatePanel.FLOOR_LABEL(f)}</div>`}
         <div class="zones">
           ${byFloor.get(f).map((z) => this._zoneCard(z, ctx)).join("")}
         </div>`)
       .join("");
+    if (compact) return body;
+    return `${body}
+      ${this._addRoomHtml()}`;
+  }
+
+  _addRoomHtml() {
+    if (!this._addingRoom) {
+      return `<div class="card" style="text-align:center">
+        <button type="button" data-zone-action="add" style="width:100%;padding:10px">+ Add room</button>
+      </div>`;
+    }
+    const climates = Object.keys(this._hass?.states || {})
+      .filter((id) => id.startsWith("climate."))
+      .sort();
+    const sensors = Object.keys(this._hass?.states || {})
+      .filter((id) => id.startsWith("sensor."))
+      .sort();
+    return `
+      <div class="card" style="margin-top:12px">
+        <h3>New room</h3>
+        <div class="row"><label>Name</label>
+          <input id="nr-name" type="text" placeholder="e.g. Kitchen" style="flex:1"></div>
+        <div class="row"><label>Heater control</label>
+          <select id="nr-control" style="flex:1">
+            <option value="smart">⚡ Smart TRV (controlled)</option>
+            <option value="manual">✋ Manual radiator (observed)</option>
+          </select></div>
+        <div class="row"><label>Floor</label>
+          <select id="nr-floor" style="flex:1">
+            ${[0, 1, 2, 3].map((f) => `<option value="${f}">${HomeClimatePanel.FLOOR_LABEL(f)}</option>`).join("")}
+          </select></div>
+        <div class="row"><label>TRV climate<br><span style="font-weight:400">(required for smart)</span></label>
+          <input id="nr-trv" list="nr-climates" placeholder="climate.… (blank for manual)" style="flex:1">
+          <datalist id="nr-climates">${climates.map((c) => `<option value="${this._esc(c)}">`).join("")}</datalist></div>
+        <div class="row"><label>Temp sensor<br><span style="font-weight:400">(optional)</span></label>
+          <input id="nr-sensor" list="nr-sensors" placeholder="sensor.… (else TRV's own)" style="flex:1">
+          <datalist id="nr-sensors">${sensors.slice(0, 400).map((c) => `<option value="${this._esc(c)}">`).join("")}</datalist></div>
+        <div class="row"><label>Window/door<br><span style="font-weight:400">(optional, comma-sep)</span></label>
+          <input id="nr-window" type="text" placeholder="binary_sensor.…" style="flex:1"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button type="button" class="a" data-zone-action="create" style="flex:1">Create room</button>
+          <button type="button" class="ghost" data-zone-action="cancel-add" style="flex:1">Cancel</button>
+        </div>
+      </div>`;
   }
 
   _zoneCard(z, ctx) {
@@ -1535,6 +1580,35 @@ class HomeClimatePanel extends HTMLElement {
       if (!zoneName) return;
       if (!confirm("Calibrate this room? The target will be raised ~2 °C for up to 90 minutes while the room's warm-up speed is measured. Keep windows/doors closed.")) return;
       this._calibrateZone("start", zoneName, id);
+    }
+    if (action === "add") {
+      this._addingRoom = true;
+      this._render();
+      return;
+    }
+    if (action === "cancel-add") {
+      this._addingRoom = false;
+      this._render();
+      return;
+    }
+    if (action === "create") {
+      const root = this.shadowRoot;
+      const name = root.getElementById("nr-name")?.value?.trim();
+      const heat_control = root.getElementById("nr-control")?.value || "smart";
+      const floor = parseInt(root.getElementById("nr-floor")?.value || "0", 10);
+      const trv = root.getElementById("nr-trv")?.value?.trim();
+      const temp_sensor = root.getElementById("nr-sensor")?.value?.trim();
+      const window_sensors = (root.getElementById("nr-window")?.value || "")
+        .split(",").map((x) => x.trim()).filter(Boolean);
+      if (!name) { this._error = "Room name is required"; this._render(); return; }
+      this._addingRoom = false;
+      this._adminZone("add_zone", {
+        name, heat_control, floor,
+        trv_climates: trv ? [trv] : [],
+        temp_sensor: temp_sensor || undefined,
+        window_sensors,
+      });
+      return;
     }
     if (action === "rename") {
       const zoneName = el.getAttribute("data-zone-name");
