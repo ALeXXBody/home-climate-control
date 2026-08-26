@@ -26,6 +26,7 @@ from .const import (
     DUTY_CYCLE_MIN_ON_SECONDS,
     OUTDOOR_STALE_AFTER_SECONDS,
 )
+from .condense import as_dict_snapshot as condense_snapshot, condense_pull
 from .dutycycle import DutyCycler
 from .health import FLOW_NEAR_MAX_K, RoomHealthMonitor
 from .heating_curve import clamp, flow_for_outdoor
@@ -84,6 +85,8 @@ class CentralController:
         self.active_zone_names: list[str] = []
         self.estimated_gas_percent: float | None = None
         self.outdoor_source: str | None = None  # boiler | ha | design
+        self._condense_pull_c: float = 0.0
+        self._condense_active: bool = False
 
         self._unsub_loop = None
         self._ch_on: bool = False
@@ -392,6 +395,27 @@ class CentralController:
             worst_pid_extra = max(z.pid_flow_contribution() for z in demanding)
             target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
 
+            # Condensing pull-down: if return water is above dew-point, shave
+            # flow so the boiler can stay in condensing mode (comfort first).
+            worst_def = None
+            for z in demanding:
+                cur = (
+                    getattr(z, "current_temperature", None)
+                    or getattr(z, "_current_temp", None)
+                )
+                if cur is not None:
+                    d = z.effective_setpoint() - cur
+                    worst_def = d if worst_def is None else max(worst_def, d)
+            ret = getattr(self.backend, "return_temp", None)
+            target_flow, pull = condense_pull(
+                target_flow,
+                ret,
+                min_flow=self.min_flow,
+                worst_deficit_c=worst_def,
+            )
+            self._condense_pull_c = pull
+            self._condense_active = pull > 0.05
+
             await self.backend.async_set_flow_setpoint(target_flow)
 
             self.flow_setpoint = target_flow
@@ -448,6 +472,8 @@ class CentralController:
                     deficit_c=deficit,
                     flow_at_max=sat,
                     tick_s=CONTROL_LOOP_SECONDS,
+                    outdoor=outdoor,
+                    design_outdoor=self.design_outdoor,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("health feed failed", exc_info=True)
@@ -564,6 +590,11 @@ class CentralController:
         data["duty_cycle"] = self.dutycycle.as_dict()
         data["outdoor_source"] = self.outdoor_source
         data["outdoor_sensor"] = self.outdoor_sensor
+        data["condense"] = condense_snapshot(
+            return_c=getattr(self.backend, "return_temp", None),
+            pull_c=self._condense_pull_c,
+            active=self._condense_active,
+        )
         data.update(self.backend.diagnostics())
         data["boiler_connected"] = getattr(self.backend, "connected", True)
         return data

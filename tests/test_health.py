@@ -5,13 +5,15 @@ import pytest
 from custom_components.home_climate_control.health import (
     CLEAR_AFTER_S,
     STRUGGLE_AFTER_S,
+    STRUGGLE_AFTER_MAX_S,
     RoomHealthMonitor,
+    load_patience_s,
 )
 
 TICK = 60.0
 
 
-def feed(m, name, ts, demanding, deficit=1.2, flow_at_max=True):
+def feed(m, name, ts, demanding, deficit=1.2, flow_at_max=True, outdoor=None):
     return m.feed(
         name,
         ts,
@@ -19,6 +21,7 @@ def feed(m, name, ts, demanding, deficit=1.2, flow_at_max=True):
         deficit_c=deficit if demanding else None,
         flow_at_max=flow_at_max,
         tick_s=TICK,
+        outdoor=outdoor,
     )
 
 
@@ -88,3 +91,31 @@ def test_flag_clears_after_idle_period():
         t += TICK
         feed(m, "Box Room", t, False)
     assert feed(m, "Box Room", t + TICK, False) is False
+
+
+def test_load_patience_scales_with_outdoor():
+    mild = load_patience_s(20.0)   # outdoor ≈ comfort → base
+    cool = load_patience_s(5.0)
+    cold = load_patience_s(-10.0)
+    assert mild == pytest.approx(STRUGGLE_AFTER_S, abs=1.0)
+    assert cool > mild
+    assert cold > cool
+    assert cold <= STRUGGLE_AFTER_MAX_S
+    assert load_patience_s(None) == STRUGGLE_AFTER_S
+
+
+def test_cold_day_needs_longer_streak():
+    """Design-cold outdoor must not trip at the mild-weather threshold."""
+    m = RoomHealthMonitor()
+    t = 0.0
+    while t < STRUGGLE_AFTER_S + 60:
+        t += TICK
+        feed(m, "Attic", t, True, outdoor=-10.0)
+    # Still within cold-day patience → no flag yet
+    assert m.flag_for("Attic") is None
+    # Keep going until cold-day threshold
+    need = load_patience_s(-10.0)
+    while t < need:
+        t += TICK
+        feed(m, "Attic", t, True, outdoor=-10.0)
+    assert m.flag_for("Attic") == "struggling"
