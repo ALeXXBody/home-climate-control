@@ -627,7 +627,8 @@ class HomeClimatePanel extends HTMLElement {
         #hcc-zones-wrap .card.zone {
           display: block;
           position: relative;
-          padding-top: 6px;
+          padding-top: 10px;
+          padding-right: 88px; /* room for mode-pill */
         }
 
         /* mode pill — passive indicator, top-right */
@@ -642,19 +643,25 @@ class HomeClimatePanel extends HTMLElement {
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
-        /* controls: thermostat grid (left) + dropdown+actions (right) */
-        #hcc-zones-wrap .controls {
-          display: flex; gap: 16px; align-items: flex-start;
-          margin-top: 6px;
+        /* single row: info | thermostat | mode/actions */
+        #hcc-zones-wrap .z-main {
+          display: flex; gap: 14px; align-items: center;
+          min-width: 0;
         }
-        #hcc-zones-wrap .z-left { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; }
+        #hcc-zones-wrap .z-info {
+          flex: 1 1 0; min-width: 120px;
+        }
+        #hcc-zones-wrap .z-left {
+          flex: 0 0 auto;
+          display: flex; justify-content: center;
+        }
         #hcc-zones-wrap .z-side {
-          flex: 0 0 264px;
+          flex: 0 0 200px;
           display: flex; flex-direction: column; gap: 4px; align-items: stretch;
         }
         #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 6px; }
         #hcc-zones-wrap .z-ddrow {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px;
+          display: grid; grid-template-columns: 1fr auto; gap: 6px 8px;
           align-items: end;
         }
         #hcc-zones-wrap .z-ddrow button {
@@ -666,10 +673,15 @@ class HomeClimatePanel extends HTMLElement {
         }
         .z-lbl {
           font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
-          color: var(--secondary-text-color, #999); margin-top: 3px;
+          color: var(--secondary-text-color, #999); margin-top: 0;
+          display: block;
         }
-        #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
-          #hcc-zones-wrap .z-insights { max-width: 100%; }
+        #hcc-zones-wrap .z-temp-grid { width: fit-content; }
+        #hcc-zones-wrap .z-insights { max-width: 100%; }
+        @media (max-width: 720px) {
+          #hcc-zones-wrap .z-main { flex-wrap: wrap; }
+          #hcc-zones-wrap .z-info { flex: 1 1 100%; }
+          #hcc-zones-wrap .card.zone { padding-right: 14px; }
         }
 
         /* thermostat-style 2-row button cluster */
@@ -1431,64 +1443,69 @@ class HomeClimatePanel extends HTMLElement {
     const ins = insul[z.name];
     const manual = z.heat_control === "manual";
     const calHere = cal.active && cal.zone === z.name;
-    return `
+    const infoHtml = `
+              <div class="z-info">
+                <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
+                <div class="zone-meta">
+                  ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
+                  ${!manual ? ` · demand ${Math.round((z.demand_level || 0) * 100)}%` : ""}
+                  ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
+                  ${z.window_open ? ' · <span class="badge heat">🪟 open</span>' : ""}
+                  ${!manual && health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
+                  ${!manual && calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
+                </div>
+                <details class="z-insights">
+                  <summary>insights</summary>
+                  <div class="zone-meta">
+                    ${!manual && rate ? `warms ${rate} °C/h · ` : ""}
+                    ${!manual && dt != null ? `responds ~${dt} min · ` : ""}
+                    ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}
+                    temp source: ${z.temp_sensor || (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
+                    ${!manual && z.trv ? `TRV: ${this._esc(z.trv)}<br>` : ""}
+                    ${(z.window_sensors || []).length ? `window sensors: ${this._esc((z.window_sensors || []).join(", "))}` : "no window sensors"}
+                  </div>
+                </details>
+              </div>`;
+    if (compact) {
+      return `
           <div class="card zone" style="position:relative">
             <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
-            <div>
-              <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
-              <div class="zone-meta">
-                ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
-                ${!manual ? ` · demand ${Math.round((z.demand_level || 0) * 100)}%` : ""}
-                ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
-                ${z.window_open ? ' · <span class="badge heat">🪟 open</span>' : ""}
-                ${!manual && health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
-                ${!manual && calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
-              </div>
-              <details class="z-insights">
-                <summary>insights</summary>
-                <div class="zone-meta">
-                  ${!manual && rate ? `warms ${rate} °C/h · ` : ""}
-                  ${!manual && dt != null ? `responds ~${dt} min · ` : ""}
-                  ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}
-                  temp source: ${z.temp_sensor || (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
-                  ${!manual && z.trv ? `TRV: ${this._esc(z.trv)}<br>` : ""}
-                  ${(z.window_sensors || []).length ? `window sensors: ${this._esc((z.window_sensors || []).join(", "))}` : "no window sensors"}
-                </div>
-              </details>
-            </div>
-            ${
-              compact
-                ? ""
-                : `
-            <div class="controls">
-              ${manual ? "" : `
+            ${infoHtml}
+          </div>`;
+    }
+    const tempHtml = manual
+      ? ""
+      : `
               <div class="z-left">
-              <div class="z-temp-grid">
-                <button type="button" class="z-tg" data-zone-action="dec" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">−</button>
-                <input type="number" step="0.5" min="5" max="30" value="${z.target_temperature ?? 20}"
-                  data-entity="${this._esc(z.entity_id || "")}" class="temp-input z-bigtemp" />
-                <button type="button" class="z-tg" data-zone-action="inc" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">+</button>
-                <button type="button" class="z-tg" data-zone-action="apply" data-entity="${this._esc(z.entity_id || "")}">Set</button>
-                <button type="button" ${cal.active ? "disabled" : ""} data-zone-action="calibrate"
-                  data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
-                  title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
-              </div>
-              </div>
+                <div class="z-temp-grid">
+                  <button type="button" class="z-tg" data-zone-action="dec" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">−</button>
+                  <input type="number" step="0.5" min="5" max="30" value="${z.target_temperature ?? 20}"
+                    data-entity="${this._esc(z.entity_id || "")}" class="temp-input z-bigtemp" />
+                  <button type="button" class="z-tg" data-zone-action="inc" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">+</button>
+                  <button type="button" class="z-tg" data-zone-action="apply" data-entity="${this._esc(z.entity_id || "")}">Set</button>
+                  <button type="button" ${cal.active ? "disabled" : ""} data-zone-action="calibrate"
+                    data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
+                    title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
+                </div>
+              </div>`;
+    const sideHtml = `
               <div class="z-side">
                 <div class="z-ddcol">
                   <div class="z-ddrow">
+                    ${manual ? "<div></div>" : `
                     <div>
                       <span class="z-lbl">Mode</span>
                       <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
                         <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
                         <option value="off" ${String(z.hvac_mode) === "off" ? "selected" : ""}>Off</option>
                       </select>
-                    </div>
+                    </div>`}
                     <button type="button" class="ghost" data-zone-action="edit"
                       data-zone-name="${this._esc(z.name || "")}"
                       title="Edit this room's settings">Edit</button>
                   </div>
                   <div class="z-ddrow">
+                    ${manual ? "<div></div>" : `
                     <div>
                       <span class="z-lbl">Profile</span>
                       <select data-zone-preset data-entity="${this._esc(z.entity_id || "")}">
@@ -1499,16 +1516,21 @@ class HomeClimatePanel extends HTMLElement {
                           )
                           .join("")}
                       </select>
-                    </div>
+                    </div>`}
                     <button type="button" class="ghost" data-zone-action="remove"
                       data-zone-name="${this._esc(z.name || "")}"
                       title="Remove this room">Delete</button>
                   </div>
                 </div>
-              </div>
-              `}
-            </div>`
-            }
+              </div>`;
+    return `
+          <div class="card zone" style="position:relative">
+            <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
+            <div class="z-main">
+              ${infoHtml}
+              ${tempHtml}
+              ${sideHtml}
+            </div>
           </div>`;
   }
 
