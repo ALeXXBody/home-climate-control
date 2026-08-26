@@ -627,8 +627,8 @@ class HomeClimatePanel extends HTMLElement {
         #hcc-zones-wrap .card.zone {
           display: block;
           position: relative;
-          padding-top: 10px;
-          padding-right: 88px; /* room for mode-pill */
+          min-height: 118px;
+          padding: 12px 14px;
         }
 
         /* mode pill — passive indicator, top-right */
@@ -643,30 +643,50 @@ class HomeClimatePanel extends HTMLElement {
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
-        /* single row: info | thermostat | mode/actions */
+        /* 3-col: info | centered tall thermostat | rail under pill */
         #hcc-zones-wrap .z-main {
-          display: flex; gap: 14px; align-items: center;
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: stretch;
+          gap: 12px;
+          min-height: 94px;
           min-width: 0;
         }
         #hcc-zones-wrap .z-info {
-          flex: 1 1 0; min-width: 120px;
+          justify-self: start;
+          align-self: center;
+          min-width: 0;
+          max-width: 100%;
+          padding-right: 8px;
         }
         #hcc-zones-wrap .z-left {
-          flex: 0 0 auto;
-          display: flex; justify-content: center;
+          justify-self: center;
+          align-self: stretch;
+          display: flex;
+          align-items: stretch;
         }
-        #hcc-zones-wrap .z-side {
-          flex: 0 0 200px;
-          display: flex; flex-direction: column; gap: 4px; align-items: stretch;
+        /* right rail: mode|edit / profile|delete — under pill, no overlap */
+        #hcc-zones-wrap .z-rail {
+          justify-self: end;
+          align-self: center;
+          width: 200px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding-top: 30px; /* clears mode-pill */
+          box-sizing: border-box;
         }
         #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 6px; }
         #hcc-zones-wrap .z-ddrow {
-          display: grid; grid-template-columns: 1fr auto; gap: 6px 8px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 6px 8px;
           align-items: end;
         }
         #hcc-zones-wrap .z-ddrow button {
           padding: 3px 10px; font-size: .78rem; height: 24px;
-          white-space: nowrap; background: var(--secondary-background-color,#16181c);
+          white-space: nowrap;
+          background: var(--secondary-background-color, #16181c);
         }
         #hcc-zones-wrap .z-ddrow select {
           width: 100%; height: 24px; padding-top: 0; padding-bottom: 0;
@@ -676,15 +696,21 @@ class HomeClimatePanel extends HTMLElement {
           color: var(--secondary-text-color, #999); margin-top: 0;
           display: block;
         }
-        #hcc-zones-wrap .z-temp-grid { width: fit-content; }
         #hcc-zones-wrap .z-insights { max-width: 100%; }
         @media (max-width: 720px) {
-          #hcc-zones-wrap .z-main { flex-wrap: wrap; }
-          #hcc-zones-wrap .z-info { flex: 1 1 100%; }
-          #hcc-zones-wrap .card.zone { padding-right: 14px; }
+          #hcc-zones-wrap .z-main {
+            grid-template-columns: 1fr;
+            min-height: 0;
+          }
+          #hcc-zones-wrap .z-left { justify-self: center; }
+          #hcc-zones-wrap .z-rail {
+            width: 100%;
+            padding-top: 8px;
+            align-self: stretch;
+          }
         }
 
-        /* thermostat-style 2-row button cluster */
+        /* thermostat-style 2-row button cluster — fills card height */
         #hcc-zones-wrap .temp-input,
         #hcc-zones-wrap input[type="number"].z-bigtemp {
           -moz-appearance: textfield;
@@ -699,17 +725,27 @@ class HomeClimatePanel extends HTMLElement {
         .z-temp-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 4px;
+          grid-template-rows: 1fr 1fr;
+          gap: 5px;
           align-items: stretch;
+          height: 100%;
+          min-height: 94px;
+          width: fit-content;
         }
-        #hcc-zones-wrap .z-temp-grid button { width: 100%; padding: 4px; }
+        #hcc-zones-wrap .z-temp-grid button {
+          width: 100%;
+          height: 100%;
+          padding: 6px 12px;
+          min-height: 0;
+        }
         .z-temp-grid .z-bigtemp {
           grid-column: 2; grid-row: 1 / 3;
-          width: 100%; min-width: 86px;
-          font-size: 1.2rem; font-weight: 600;
-          text-align: center; padding: 2px 6px;
+          width: 100%; min-width: 92px;
+          height: 100%;
+          font-size: 1.45rem; font-weight: 600;
+          text-align: center; padding: 4px 8px;
         }
-        .z-temp-grid .z-tg { padding: 4px 14px; }
+        .z-temp-grid .z-tg { padding: 6px 14px; }
         .z-row2 {
           display: flex; gap: 6px; align-items: center;
           margin-top: 8px; flex-wrap: wrap;
@@ -1474,7 +1510,7 @@ class HomeClimatePanel extends HTMLElement {
           </div>`;
     }
     const tempHtml = manual
-      ? ""
+      ? `<div class="z-left" aria-hidden="true"></div>`
       : `
               <div class="z-left">
                 <div class="z-temp-grid">
@@ -1488,8 +1524,8 @@ class HomeClimatePanel extends HTMLElement {
                     title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
                 </div>
               </div>`;
-    const sideHtml = `
-              <div class="z-side">
+    const railHtml = `
+              <div class="z-rail">
                 <div class="z-ddcol">
                   <div class="z-ddrow">
                     ${manual ? "<div></div>" : `
@@ -1529,7 +1565,7 @@ class HomeClimatePanel extends HTMLElement {
             <div class="z-main">
               ${infoHtml}
               ${tempHtml}
-              ${sideHtml}
+              ${railHtml}
             </div>
           </div>`;
   }
