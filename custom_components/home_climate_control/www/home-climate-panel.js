@@ -675,7 +675,8 @@ class HomeClimatePanel extends HTMLElement {
         .z-row2 select { padding: 4px 8px; }
 
 
-        #hcc-zones-wrap .zones { gap: 8px; }
+        #hcc-zones-wrap .zones { gap: 14px; }
+        #hcc-zones-wrap .floor-head { margin-bottom: 6px; }
         #hcc-zones-wrap .card {
           padding: 10px 14px;
         }
