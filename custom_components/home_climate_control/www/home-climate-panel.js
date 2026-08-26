@@ -673,6 +673,21 @@ class HomeClimatePanel extends HTMLElement {
         #hcc-zones-wrap .z-temp-grid { margin-inline: auto; }
         #hcc-zones-wrap .z-left { display: flex; justify-content: center; }
 
+
+        /* true card-centering for the thermostat cluster; dropdown rail right */
+        #hcc-zones-wrap .controls { display: block; }
+        #hcc-zones-wrap .z-left { display: block; }
+        #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
+        #hcc-zones-wrap .z-side {
+          position: absolute;
+          top: 108px; right: 12px; width: 140px;
+          flex-direction: column; gap: 4px; align-items: stretch;
+        }
+        #hcc-zones-wrap .card.zone {
+          padding-right: 164px;   /* right rail: mode/profile */
+          min-height: 240px;
+        }
+
         /* thermostat-style 2-row button cluster */
         #hcc-zones-wrap .temp-input,
         #hcc-zones-wrap input[type="number"].z-bigtemp {
@@ -1470,16 +1485,7 @@ class HomeClimatePanel extends HTMLElement {
                 ? ""
                 : `
             <div class="controls">
-              ${manual ? `
-              <div class="temp-row">
-
-                <button type="button" class="ghost" data-zone-action="edit"
-                  data-zone-name="${this._esc(z.name || "")}"
-                  title="Edit this room's settings">Edit</button>
-                <button type="button" class="ghost" data-zone-action="remove"
-                  data-zone-name="${this._esc(z.name || "")}"
-                  title="Remove this room">Delete</button>
-              </div>` : `
+              ${manual ? "" : `
               <div class="z-left">
               <div class="z-temp-grid">
                 <button type="button" class="z-tg" data-zone-action="dec" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">−</button>
