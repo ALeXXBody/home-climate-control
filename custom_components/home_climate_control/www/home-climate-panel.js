@@ -648,11 +648,16 @@ class HomeClimatePanel extends HTMLElement {
         #hcc-zones-wrap .controls { display: block; }
         #hcc-zones-wrap .z-left { display: block; }
         #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
-        .z-ddrow {
-          display: flex; gap: 16px; align-items: center;
-          margin-top: 12px; justify-content: center; flex-wrap: wrap;
+        .z-rail {
+          display: flex; flex-direction: column; gap: 4px;
+          align-items: stretch;
+          width: 132px; margin-left: auto; margin-top: -34px;
         }
-        .z-ddrow select { padding: 4px 8px; }
+        .z-rail select { padding: 4px 8px; }
+        #hcc-zones-wrap .card.zone { padding-right: 12px; }
+        #hcc-zones-wrap .zone-title,
+        #hcc-zones-wrap .zone-meta,
+        #hcc-zones-wrap .z-insights { padding-right: 126px; }
         .z-lbl {
           font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
           color: var(--secondary-text-color, #999); margin-top: 8px;
@@ -1493,7 +1498,7 @@ class HomeClimatePanel extends HTMLElement {
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
               </div>
               </div>
-              <div class="z-ddrow">
+              <div class="z-ddrow z-rail">
                 <span class="z-lbl" style="margin:0">Mode</span>
                 <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
                   <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
