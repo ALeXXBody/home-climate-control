@@ -180,7 +180,11 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
                 if not item:
                     continue
                 try:
-                    await mgr.async_trigger_ota(node, item["url"])
+                    await mgr.async_trigger_ota(
+                        node,
+                        item["url"],
+                        target_version=item.get("version"),
+                    )
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("OTA to %s failed: %s", node, err)
                 await asyncio.sleep(35)

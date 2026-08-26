@@ -193,7 +193,7 @@ def catalog_from_releases(
                     "url": asset.get("browser_download_url")
                     or asset.get("url", ""),
                     "notes": meta.get("notes", "")
-                    or f"Published {published[:10]}" if published else "",
+                    or (f"Published {published[:10]}" if published else ""),
                 }
             )
     # offline fallback: bundled entries not covered by any fetched release
@@ -503,13 +503,12 @@ class FirmwareManager:
         if not dev:
             return {"ok": False, "error": "unknown device"}
         try:
-            body = json.dumps(
-                {
-                    "t_out_ref": round(float(curve["wc_ref"]), 1),
-                    "t_out_design": round(float(curve["wc_design"]), 1),
-                    "flow_max": round(float(curve["wc_fmax"]), 1),
-                    "flow_min": round(float(curve["wc_fmin"]), 1),
-                }
+            # Firmware expects CSV: "<ref>,<design>,<fmax>,<fmin>"
+            body = (
+                f"{round(float(curve['wc_ref']), 1)},"
+                f"{round(float(curve['wc_design']), 1)},"
+                f"{round(float(curve['wc_fmax']), 1)},"
+                f"{round(float(curve['wc_fmin']), 1)}"
             )
         except (KeyError, TypeError, ValueError):
             return {"ok": False, "error": "curve needs wc_ref/wc_design/wc_fmax/wc_fmin"}
@@ -996,11 +995,13 @@ class FirmwareManager:
 
     @staticmethod
     def _mirror_fname(url: str) -> str | None:
-        """firmware-<board>.bin asset names only."""
+        """firmware-<board>.bin asset names only (basename, no path traversal)."""
+        import re
+
         if "/releases/download/" not in url:
             return None
-        fname = url.rsplit("/", 1)[-1]
-        if fname.startswith("firmware-") and fname.endswith(".bin"):
+        fname = Path(url.rsplit("/", 1)[-1]).name
+        if re.fullmatch(r"firmware-[A-Za-z0-9_]+\.bin", fname):
             return fname
         return None
 
@@ -1239,17 +1240,20 @@ class FirmwareManager:
     async def async_get_ot_log(self, node_id: str, clear: bool = False) -> dict[str, Any]:
         """Proxy the board's OpenTherm frame console (server-side fetch —
         the panel cannot hit board HTTP directly across origins)."""
+        import asyncio
+
         dev = self.devices.get(node_id)
         if not dev or not dev.ip:
             return {"ok": False, "error": "unknown or unreachable device"}
         url = f"http://{dev.ip}/api/otlog" + ("?clear=1" if clear else "")
         try:
             session = async_get_clientsession(self.hass)
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status != 200:
-                    return {"ok": False, "error": f"HTTP {resp.status}"}
-                data = await resp.json(content_type=None)
-                return {"ok": True, "lines": data.get("lines", [])}
+            async with asyncio.timeout(8):
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        return {"ok": False, "error": f"HTTP {resp.status}"}
+                    data = await resp.json(content_type=None)
+                    return {"ok": True, "lines": data.get("lines", [])}
         except Exception as err:  # noqa: BLE001
             return {"ok": False, "error": str(err)}
 

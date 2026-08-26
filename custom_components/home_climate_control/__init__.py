@@ -223,10 +223,17 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
             return
 
         if entity_id in window_entities:
-            window_open = new.state == "on"
+            # Aggregate: any open sensor keeps the room paused.
             for z in zones:
-                if entity_id in z.window_sensor_entities:
-                    z.on_sensor_update(None, window_open)
+                if entity_id not in z.window_sensor_entities:
+                    continue
+                any_open = False
+                for sid in z.window_sensor_entities:
+                    st = hass.states.get(sid)
+                    if st is not None and st.state == "on":
+                        any_open = True
+                        break
+                z.on_sensor_update(None, any_open)
 
     entry.async_on_unload(async_track_state_change_event(hass, watched, _on_state))
 
@@ -253,6 +260,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         bi = stored.get("boiler_info")
         if bi is not None:
             await bi.async_unload()
+            from .boiler_info import _ACTIVE as _bi_active
+
+            _bi_active.pop(entry.entry_id, None)
 
         unload_ok = await hass.config_entries.async_unload_platforms(
             entry, ["climate", "sensor", "update"]
@@ -274,5 +284,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             import custom_components.home_climate_control.update_checker as _uc_mod
 
             _uc_mod._ACTIVE = None
+
+        from .firmware_manager import get_firmware_manager
+
+        mgr = get_firmware_manager(hass)
+        if mgr is not None and hasattr(mgr, "async_stop"):
+            await mgr.async_stop()
+            hass.data.get(DOMAIN, {}).pop("firmware_manager", None)
 
     return unload_ok

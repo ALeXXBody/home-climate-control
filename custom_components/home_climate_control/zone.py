@@ -227,6 +227,9 @@ class ZoneClimateEntity(ClimateEntity):
     def wants_heat(self) -> bool:
         if self._hvac_mode != HVACMode.HEAT or self._window_open:
             return False
+        # Manual rooms never drive boiler demand — HCC observes only.
+        if self.heater_control == "manual":
+            return False
         # Prefer measured room error; fall back to TRV reporting heating.
         if self._current_temp is not None:
             return (self.effective_setpoint() - self._current_temp) > 0.1
@@ -244,7 +247,9 @@ class ZoneClimateEntity(ClimateEntity):
         return self._demand
 
     def pid_flow_contribution(self) -> float:
-        if self._current_temp is None:
+        if not self.wants_heat() or self._current_temp is None:
+            if not self.wants_heat():
+                self.pid.reset()
             self._pid_output = 0.0
             return 0.0
         error = self.effective_setpoint() - self._current_temp
@@ -406,7 +411,7 @@ class ZoneClimateEntity(ClimateEntity):
         return st.state == "heat"
 
     async def _push_setpoint_to_trv(self) -> None:
-        if not self._trv_entity:
+        if not self._trv_entity or self.heater_control == "manual":
             return
         try:
             await self.hass.services.async_call(
@@ -422,7 +427,7 @@ class ZoneClimateEntity(ClimateEntity):
             _LOGGER.debug("TRV setpoint push failed for %s", self._trv_entity)
 
     async def _push_hvac_to_trv(self, mode: HVACMode) -> None:
-        if not self._trv_entity:
+        if not self._trv_entity or self.heater_control == "manual":
             return
         try:
             await self.hass.services.async_call(

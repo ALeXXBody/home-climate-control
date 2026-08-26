@@ -155,11 +155,6 @@ class HcsMqttBackend(BoilerBackend):
             except Exception:  # noqa: BLE001
                 pass
             return
-        # Any real telemetry leaf doubles as a liveness heartbeat; set/*
-        # echoes and discovery pings do not count.
-        import time as _t
-
-        self._last_rx_mono = _t.monotonic()
         if "/" in key or key in ("online", "ping_discovery"):
             return  # set-topics & LWT noise
         text = (payload or "").strip()
@@ -182,7 +177,9 @@ class HcsMqttBackend(BoilerBackend):
             self._fault_text = text
 
     # --- commands ------------------------------------------------------------
-    async def _publish_cmd(self, command: str, payload: str, retain=True) -> None:
+    async def _publish_cmd(self, command: str, payload: str, retain=False) -> None:
+        # Commands must not be retained: a retained CH-on after HA unload can
+        # re-fire the boiler when the board reboots without HA connected.
         await mqtt.async_publish(
             self._hass, self._cmd_topic(command), payload, qos=0, retain=retain
         )

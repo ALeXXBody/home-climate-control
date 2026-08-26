@@ -185,7 +185,11 @@ class TrainingDataLogger:
         self._load_meta()
 
     async def async_stop(self) -> None:
-        self.schedule_flush()
+        if not self._buf:
+            return
+        rows = self._buf
+        self._buf = []
+        await self._async_write(rows)
 
     # --------------------------------------------------------------- output
     def stats(self) -> dict[str, Any]:

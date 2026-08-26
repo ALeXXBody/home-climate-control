@@ -308,15 +308,9 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
     """Options flow: retune curve / flow limits."""
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        if user_input is not None:
-            options = {**self.config_entry.options, **user_input}
-            return self.async_create_entry(title="", data=options)
-
+    def _options_schema(self) -> vol.Schema:
         opts = self.config_entry.options
-        schema = vol.Schema(
+        return vol.Schema(
             {
                 vol.Required(
                     CONF_MIN_FLOW,
@@ -377,4 +371,21 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                 ),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            mn = float(user_input.get(CONF_MIN_FLOW, DEFAULT_MIN_FLOW_TEMP))
+            mx = float(user_input.get(CONF_MAX_FLOW, DEFAULT_MAX_FLOW_TEMP))
+            if mn >= mx:
+                errors["base"] = "min_flow_above_max"
+            else:
+                options = {**self.config_entry.options, **user_input}
+                return self.async_create_entry(title="", data=options)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self._options_schema(),
+            errors=errors,
+        )

@@ -142,7 +142,7 @@ class SetbackLearner:
         ts: unix seconds. heating_allowed False (window open / HVAC off)
         freezes learning — those temps describe physics we don't control.
         """
-        if not self.enabled or temp is None:
+        if not self.enabled or temp is None or not heating_allowed:
             return
         st = self._room(zone)
         was = st.phase

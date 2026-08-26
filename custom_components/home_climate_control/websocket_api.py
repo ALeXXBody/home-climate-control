@@ -225,6 +225,22 @@ async def ws_set_zone(
     if not entity_id.startswith("climate."):
         connection.send_error(msg["id"], "invalid_entity", "Not a climate entity")
         return
+    # Only allow controlling HCC zone entities, not arbitrary climate.*
+    owned = False
+    for data in (hass.data.get(DOMAIN) or {}).values():
+        if not isinstance(data, dict) or "controller" not in data:
+            continue
+        for z in getattr(data["controller"], "zones", []) or []:
+            if getattr(z, "entity_id", None) == entity_id:
+                owned = True
+                break
+        if owned:
+            break
+    if not owned:
+        connection.send_error(
+            msg["id"], "invalid_entity", "Not a Home Climate Control zone"
+        )
+        return
 
     if "temperature" in msg:
         await hass.services.async_call(
@@ -251,12 +267,13 @@ async def ws_set_zone(
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/calibrate_zone",
         vol.Required("action"): vol.In(["start", "cancel"]),
-        vol.Inclusive("zone", "with_start"): str,
-        vol.Inclusive("entity_id", "with_start"): str,
+        vol.Optional("zone"): str,
+        vol.Optional("entity_id"): str,
     }
 )
 @websocket_api.async_response
@@ -267,18 +284,42 @@ async def ws_calibrate_zone(
 ) -> None:
     """Start or cancel a bootstrap heat-rate calibration for one room."""
     controller = None
-    for data in (hass.data.get(DOMAIN) or {}).values():
-        if isinstance(data, dict) and "controller" in data:
+    if msg["action"] == "start":
+        zone = msg.get("zone")
+        if not zone:
+            connection.send_error(msg["id"], "invalid", "zone required to start")
+            return
+        for data in (hass.data.get(DOMAIN) or {}).values():
+            if isinstance(data, dict) and "controller" in data:
+                candidate = data["controller"]
+                names = [
+                    getattr(z, "name", None) for z in getattr(candidate, "zones", [])
+                ]
+                if zone in names:
+                    controller = candidate
+                    break
+        if controller is None:
+            connection.send_error(msg["id"], "not_found", "Unknown zone")
+            return
+    else:
+        # Cancel: any controller with an active calibration session.
+        for data in (hass.data.get(DOMAIN) or {}).values():
+            if not isinstance(data, dict) or "controller" not in data:
+                continue
             candidate = data["controller"]
-            names = [
-                getattr(z, "name", None) for z in getattr(candidate, "zones", [])
-            ]
-            if msg.get("zone") in names:
+            cal = getattr(candidate, "calibration", None)
+            if cal is not None and getattr(cal, "active", lambda: False)():
                 controller = candidate
                 break
-    if controller is None:
-        connection.send_error(msg["id"], "not_found", "Unknown zone")
-        return
+        if controller is None:
+            # Fall back: cancel on first controller (no-op if idle).
+            for data in (hass.data.get(DOMAIN) or {}).values():
+                if isinstance(data, dict) and "controller" in data:
+                    controller = data["controller"]
+                    break
+        if controller is None:
+            connection.send_error(msg["id"], "not_found", "No controller")
+            return
 
     try:
         if msg["action"] == "start":
@@ -373,9 +414,15 @@ def validate_zone_update(
     new_name: str | None = None,
     floor: int | None = None,
     heat_control: str | None = None,
+    device_fields: bool = False,
 ) -> str | None:
     """Validate any combination of room edits; error string or None."""
-    if new_name is None and floor is None and heat_control is None:
+    if (
+        new_name is None
+        and floor is None
+        and heat_control is None
+        and not device_fields
+    ):
         return "Nothing to change"
     if new_name is not None:
         err = validate_zone_name(names, new_name)
@@ -388,6 +435,7 @@ def validate_zone_update(
     return None
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/rename_zone",
@@ -422,11 +470,17 @@ async def ws_rename_zone(
     trv_climates = msg.get("trv_climates")
     temp_sensor = msg.get("temp_sensor")
     window_sensors = msg.get("window_sensors")
+    device_fields = (
+        trv_climates is not None
+        or "temp_sensor" in msg
+        or window_sensors is not None
+    )
     err = validate_zone_update(
         [n for n in names if n != msg["zone"]],
         new_name=new_name,
         floor=floor,
         heat_control=heat_control,
+        device_fields=device_fields,
     )
     if err is not None:
         connection.send_error(msg["id"], "invalid_name", err)
@@ -447,11 +501,21 @@ async def ws_rename_zone(
         if heat_control is not None:
             z[CONF_ZONE_HEAT_CONTROL] = heat_control
         if trv_climates is not None:
-            z[CONF_ZONE_TRV_CLIMATES] = [
-                t.strip() for t in trv_climates if t and t.strip()
-            ]
+            trvs = [t.strip() for t in trv_climates if t and t.strip()]
+            for t in trvs:
+                if not t.startswith("climate."):
+                    connection.send_error(
+                        msg["id"], "invalid_zone", f"'{t}' is not a climate entity"
+                    )
+                    return
+            z[CONF_ZONE_TRV_CLIMATES] = trvs
         if "temp_sensor" in msg:
             sensor = (temp_sensor or "").strip() or None
+            if sensor and not sensor.startswith("sensor."):
+                connection.send_error(
+                    msg["id"], "invalid_zone", f"'{sensor}' is not a sensor entity"
+                )
+                return
             if sensor:
                 z[CONF_ZONE_TEMP_SENSOR] = sensor
             else:
@@ -470,6 +534,7 @@ async def ws_rename_zone(
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/add_zone",
@@ -527,6 +592,7 @@ async def ws_add_zone(
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/remove_zone",
@@ -565,8 +631,8 @@ async def ws_remove_zone(
     {
         vol.Required("type"): f"{DOMAIN}/set_failsafe",
         vol.Required("enable"): bool,
-        vol.Required("flow"): vol.Coerce(float),
-        vol.Required("grace_min"): vol.Coerce(int),
+        vol.Required("flow"): vol.All(vol.Coerce(float), vol.Range(min=10, max=90)),
+        vol.Required("grace_min"): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
     }
 )
 @websocket_api.async_response
@@ -644,6 +710,7 @@ async def ws_ping_devices(
     connection.send_result(msg["id"], {"ok": True, "devices": mgr.list_devices()})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/device_control",
@@ -819,6 +886,7 @@ async def ws_get_boiler_catalog(
     connection.send_result(msg["id"], catalog_payload())
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/set_boiler_info",

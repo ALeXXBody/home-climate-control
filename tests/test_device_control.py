@@ -79,12 +79,8 @@ def test_apply_wc_curve_body(mgr):
     assert res["ok"]
     topic, payload = mqtt.async_publish.call_args[0][1:3]
     assert topic == "hcs/hcs-a/set/weather_comp_cfg"
-    assert json.loads(payload) == {
-        "t_out_ref": 18.0,
-        "t_out_design": -10.0,
-        "flow_max": 65.0,
-        "flow_min": 25.0,
-    }
+    # Firmware expects CSV: "<ref>,<design>,<fmax>,<fmin>"
+    assert payload == "18.0,-10.0,65.0,25.0"
 
 
 def test_on_ctl_parses_snapshot_and_tolerates_garbage(mgr):

@@ -213,6 +213,17 @@ class CentralController:
                     },
                     blocking=True,
                 )
+            prev_hvac = restore.get("prev_hvac")
+            if prev_hvac:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {
+                        "entity_id": restore["entity_id"],
+                        "hvac_mode": prev_hvac,
+                    },
+                    blocking=True,
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Restoring setpoint after calibration failed")
 

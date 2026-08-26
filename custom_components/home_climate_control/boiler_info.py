@@ -123,6 +123,9 @@ async def async_setup_boiler_info(hass: HomeAssistant, entry_id: str) -> BoilerI
         info = BoilerInfo(hass, entry_id)
         _ACTIVE[entry_id] = info
         await info.async_load()
+    elif info._unsub is None:
+        # Reload after unload left the object in _ACTIVE without MQTT sub.
+        await info.async_load()
     return info
 
 

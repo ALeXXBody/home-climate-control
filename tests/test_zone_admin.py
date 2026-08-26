@@ -89,6 +89,7 @@ def test_calibration_cancelled_on_rename():
 
 def test_validate_update_requires_something():
     assert validate_zone_update(["A"]) is not None
+    assert validate_zone_update(["A"], device_fields=True) is None
 
 
 def test_validate_update_floor_bounds():
