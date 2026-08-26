@@ -626,15 +626,8 @@ class HomeClimatePanel extends HTMLElement {
 
         #hcc-zones-wrap .card.zone {
           padding-top: 12px;
-          padding-right: 178px;   /* reserve space for both pills */
+          padding-right: 96px;   /* reserve space for the mode pill */
           min-height: 104px;
-        }
-        .card-pills {
-          position: absolute; top: 10px; right: 12px;
-          display: flex; gap: 6px; align-items: center;
-        }
-        .mode-pill.floor {
-          color: var(--secondary-text-color, #bbb);
         }
 
         /* mode pill — passive indicator, top-right */
@@ -1410,10 +1403,7 @@ class HomeClimatePanel extends HTMLElement {
     const calHere = cal.active && cal.zone === z.name;
     return `
           <div class="card zone" style="position:relative">
-            <div class="card-pills">
-              <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
-              <span class="mode-pill floor" title="Floor">${HomeClimatePanel.FLOOR_LABEL(Number.isFinite(z.floor) ? z.floor : 0)}</span>
-            </div>
+            <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
             <div>
               <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
               <div class="zone-meta">
