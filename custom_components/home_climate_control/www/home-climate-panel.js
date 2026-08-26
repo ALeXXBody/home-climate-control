@@ -650,7 +650,7 @@ class HomeClimatePanel extends HTMLElement {
         }
         #hcc-zones-wrap .z-left { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; }
         #hcc-zones-wrap .z-side {
-          flex: 0 0 auto;
+          flex: 0 0 264px;
           display: flex; flex-direction: column; gap: 4px; align-items: stretch;
         }
         #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 8px; }
@@ -659,11 +659,11 @@ class HomeClimatePanel extends HTMLElement {
           align-items: end;
         }
         #hcc-zones-wrap .z-ddrow button {
-          padding: 3px 10px; font-size: .78rem; min-height: 24px;
+          padding: 3px 10px; font-size: .78rem; height: 24px;
           white-space: nowrap; background: var(--secondary-background-color,#16181c);
         }
         #hcc-zones-wrap .z-ddrow select {
-          min-height: 24px;
+          width: 100%; height: 24px; padding-top: 0; padding-bottom: 0;
         }
         .z-lbl {
           font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
