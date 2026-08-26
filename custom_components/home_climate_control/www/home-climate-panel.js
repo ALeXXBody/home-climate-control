@@ -622,6 +622,20 @@ class HomeClimatePanel extends HTMLElement {
         .zones { display: flex; flex-direction: column; gap: 12px; }
         /* Rooms tab — compact cards */
 
+
+        /* mode pill — passive indicator, top-right */
+        #hcc-zones-wrap .card.zone { position: relative; }
+        .mode-pill {
+          position: absolute; top: 10px; right: 12px;
+          font-size: .68rem; letter-spacing: .06em; text-transform: uppercase;
+          padding: 3px 10px; border-radius: 999px;
+          border: 1px solid var(--divider-color, #333);
+          background: var(--secondary-background-color, #16181c);
+          opacity: .9; pointer-events: none;
+        }
+        .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
+        .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
+
         /* thermostat-style 2-row button cluster */
         #hcc-zones-wrap .temp-input,
         #hcc-zones-wrap input[type="number"].z-bigtemp {
@@ -1380,12 +1394,11 @@ class HomeClimatePanel extends HTMLElement {
     const manual = z.heat_control === "manual";
     const calHere = cal.active && cal.zone === z.name;
     return `
-          <div class="card zone">
+          <div class="card zone" style="position:relative">
+            <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
             <div>
               <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
               <div class="zone-meta">
-                <span title="${manual ? "Valve turned by hand — HCC observes only" : "Addressable TRV — HCC commands it"}"
-                  style="opacity:.85">${manual ? "✋" : "⚡"}</span>
                 ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
                 ${!manual ? ` · demand ${Math.round((z.demand_level || 0) * 100)}%` : ""}
                 ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
@@ -1412,9 +1425,6 @@ class HomeClimatePanel extends HTMLElement {
             <div class="controls">
               ${manual ? `
               <div class="temp-row">
-                <button type="button" class="ghost" data-zone-action="control"
-                  data-zone-name="${this._esc(z.name || "")}"
-                  title="Click if this radiator actually has a smart TRV">⚡ Switch to Smart TRV</button>
                 <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
                   title="Which floor is this room on?">
                   ${[0, 1, 2, 3]
@@ -1440,9 +1450,6 @@ class HomeClimatePanel extends HTMLElement {
                 <button type="button" ${cal.active ? "disabled" : ""} data-zone-action="calibrate"
                   data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
-                <button type="button" class="ghost" data-zone-action="control"
-                  data-zone-name="${this._esc(z.name || "")}"
-                  title="Click if this radiator's valve is turned by hand (HCC will observe only)">✋ Manual</button>
               </div>
               <div class="z-row2">
                 <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
