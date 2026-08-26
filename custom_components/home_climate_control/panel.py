@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+from aiohttp import web
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
@@ -37,6 +38,21 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         return
 
     if not hass.data.get(_STATIC_REGISTERED):
+        # Exact-path route FIRST: serves the panel script with hard no-store
+        # headers so reverse proxies/CDNs never poison it (heuristic caching
+        # of unlabelled responses froze some installs on old builds).
+        async def _serve_panel_js(request):
+            f = www_dir / PANEL_JS
+            if not f.is_file():
+                return web.Response(status=404)
+            resp = web.FileResponse(f)
+            resp.headers["Cache-Control"] = "no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+            return resp
+
+        hass.http.app.router.add_get(
+            f"{PANEL_STATIC_URL}/{PANEL_JS}", _serve_panel_js
+        )
         await hass.http.async_register_static_paths(
             [StaticPathConfig(PANEL_STATIC_URL, str(www_dir), cache_headers=False)]
         )
