@@ -625,76 +625,64 @@ class HomeClimatePanel extends HTMLElement {
 
 
         #hcc-zones-wrap .card.zone {
+          display: block;
+          position: relative;
           padding-top: 12px;
-          padding-right: 96px;   /* reserve space for the mode pill */
           min-height: 104px;
         }
 
         /* mode pill — passive indicator, top-right */
-        #hcc-zones-wrap .card.zone { position: relative; }
         .mode-pill {
           position: absolute; top: 10px; right: 12px;
           font-size: .68rem; letter-spacing: .06em; text-transform: uppercase;
           padding: 3px 10px; border-radius: 999px;
           border: 1px solid var(--divider-color, #333);
           background: var(--secondary-background-color, #16181c);
-          opacity: .9; pointer-events: none;
+          opacity: .9; pointer-events: none; z-index: 2;
         }
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
+        /* edit/delete — pinned under pill, top-right */
+        .z-actions {
+          position: absolute; top: 42px; right: 12px;
+          display: flex; flex-direction: column; gap: 4px; z-index: 2;
+        }
+        #hcc-zones-wrap .z-actions button {
+          padding: 3px 10px; font-size: .78rem;
+          white-space: nowrap; background: var(--secondary-background-color,#16181c);
+        }
 
-        /* smart card columns: left = thermostat cluster, right = actions */
-        #hcc-zones-wrap .controls { gap: 16px; align-items: stretch; }
-        #hcc-zones-wrap .z-left { flex: 1 1 auto; min-width: 0; }
+        /* title/meta: leave room for pill + action stack */
+        #hcc-zones-wrap .zone-title,
+        #hcc-zones-wrap .zone-meta,
+        #hcc-zones-wrap .z-insights { max-width: calc(100% - 110px); }
+
+        /* controls: two-column — thermostat grid (left, centered) + dropdown rail (right) */
+        #hcc-zones-wrap .controls {
+          display: flex; gap: 16px; align-items: flex-start;
+          margin-top: 10px;
+        }
+        #hcc-zones-wrap .z-left { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; }
         #hcc-zones-wrap .z-side {
-          flex: 0 0 auto;
-          display: flex; gap: 12px; align-items: flex-start;
+          flex: 0 0 148px;
+          display: flex; flex-direction: column; gap: 4px; align-items: stretch;
         }
         #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 4px; }
         .z-lbl {
           font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
           color: var(--secondary-text-color, #999); margin-top: 8px;
         }
-
-
-        /* edit/delete stack pinned under the mode pill */
-        .z-actions {
-          position: absolute; top: 42px; right: 12px;
-          display: flex; flex-direction: column; gap: 4px;
-        }
-        #hcc-zones-wrap .z-actions button {
-          padding: 3px 10px; font-size: .78rem;
-          white-space: nowrap; background: var(--secondary-background-color,#16181c);
-        }
-        #hcc-zones-wrap .card.zone {
-          padding-right: 122px;   /* pill + action stack */
-        }
-        #hcc-zones-wrap .z-temp-grid { margin-inline: auto; }
-        #hcc-zones-wrap .z-left { display: flex; justify-content: center; }
-
-
-        /* true card-centering for the thermostat cluster; dropdown rail right */
-        #hcc-zones-wrap .controls { display: block; }
-        #hcc-zones-wrap .z-left { display: block; }
         #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
-        #hcc-zones-wrap .z-side {
-          position: absolute;
-          top: 42px; right: 12px; width: 148px;
-          display: flex; flex-direction: column; gap: 4px; align-items: stretch;
-        }
-        #hcc-zones-wrap .zone-title,
-        #hcc-zones-wrap .zone-meta,
-        #hcc-zones-wrap .z-insights { padding-right: 214px; }
+
+        /* mobile: stack dropdown rail below thermostat */
         @media (max-width: 720px) {
-          #hcc-zones-wrap .z-side {
-            position: static; width: auto; margin-top: 8px;
-            flex-direction: row; flex-wrap: wrap; align-items: center;
-          }
+          #hcc-zones-wrap .controls { flex-direction: column; align-items: stretch; }
+          #hcc-zones-wrap .z-side { flex: none; width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
           #hcc-zones-wrap .z-side .z-lbl { margin-top: 0; }
           #hcc-zones-wrap .zone-title,
           #hcc-zones-wrap .zone-meta,
-          #hcc-zones-wrap .z-insights { padding-right: 0; }
+          #hcc-zones-wrap .z-insights { max-width: 100%; }
         }
 
         /* thermostat-style 2-row button cluster */
