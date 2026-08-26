@@ -672,10 +672,11 @@ class HomeClimatePanel extends HTMLElement {
         }
         .z-temp-grid {
           display: grid;
-          grid-template-columns: auto minmax(86px, 1fr) auto;
+          grid-template-columns: repeat(3, 1fr);
           gap: 6px;
           align-items: stretch;
         }
+        #hcc-zones-wrap .z-temp-grid button { width: 100%; padding: 8px 4px; }
         .z-temp-grid .z-bigtemp {
           grid-column: 2; grid-row: 1 / 3;
           width: 100%; min-width: 86px;
@@ -1451,10 +1452,10 @@ class HomeClimatePanel extends HTMLElement {
 
                 <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
-                  title="Edit this room's settings">✎</button>
+                  title="Edit this room's settings">Edit</button>
                 <button type="button" class="ghost" data-zone-action="remove"
                   data-zone-name="${this._esc(z.name || "")}"
-                  title="Remove this room">🗑</button>
+                  title="Remove this room">Delete</button>
               </div>` : `
               <div class="z-left">
               <div class="z-temp-grid">
@@ -1471,10 +1472,10 @@ class HomeClimatePanel extends HTMLElement {
               <div class="z-side">
                 <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
-                  title="Edit this room's settings">✎</button>
+                  title="Edit this room's settings">Edit</button>
                 <button type="button" class="ghost" data-zone-action="remove"
                   data-zone-name="${this._esc(z.name || "")}"
-                  title="Remove this room">🗑</button>
+                  title="Remove this room">Delete</button>
                 <span class="z-lbl">Mode</span>
                 <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
                   <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
