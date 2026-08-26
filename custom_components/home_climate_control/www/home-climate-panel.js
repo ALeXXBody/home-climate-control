@@ -623,6 +623,13 @@ class HomeClimatePanel extends HTMLElement {
         /* Rooms tab — compact cards */
 
 
+
+        #hcc-zones-wrap .card.zone {
+          padding-top: 12px;
+          padding-right: 96px;   /* reserve space for the mode pill */
+          min-height: 104px;
+        }
+
         /* mode pill — passive indicator, top-right */
         #hcc-zones-wrap .card.zone { position: relative; }
         .mode-pill {
@@ -1461,13 +1468,6 @@ class HomeClimatePanel extends HTMLElement {
                     )
                     .join("")}
                 </select>
-                <button type="button" class="ghost" data-zone-action="edit"
-                  data-zone-name="${this._esc(z.name || "")}"
-                  title="Edit this room's settings">✎</button>
-                <button type="button" class="ghost" data-zone-action="remove"
-                  data-zone-name="${this._esc(z.name || "")}"
-                  title="Remove this room">🗑</button>
-              </div>
                 <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Edit this room's settings">✎</button>
