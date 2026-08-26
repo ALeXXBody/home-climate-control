@@ -627,8 +627,7 @@ class HomeClimatePanel extends HTMLElement {
         #hcc-zones-wrap .card.zone {
           display: block;
           position: relative;
-          padding-top: 12px;
-          min-height: 104px;
+          padding-top: 6px;
         }
 
         /* mode pill — passive indicator, top-right */
@@ -646,14 +645,14 @@ class HomeClimatePanel extends HTMLElement {
         /* controls: thermostat grid (left) + dropdown+actions (right) */
         #hcc-zones-wrap .controls {
           display: flex; gap: 16px; align-items: flex-start;
-          margin-top: 10px;
+          margin-top: 6px;
         }
         #hcc-zones-wrap .z-left { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; }
         #hcc-zones-wrap .z-side {
           flex: 0 0 264px;
           display: flex; flex-direction: column; gap: 4px; align-items: stretch;
         }
-        #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 8px; }
+        #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 6px; }
         #hcc-zones-wrap .z-ddrow {
           display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px;
           align-items: end;
@@ -667,7 +666,7 @@ class HomeClimatePanel extends HTMLElement {
         }
         .z-lbl {
           font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
-          color: var(--secondary-text-color, #999); margin-top: 8px;
+          color: var(--secondary-text-color, #999); margin-top: 3px;
         }
         #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
           #hcc-zones-wrap .z-insights { max-width: 100%; }
@@ -688,17 +687,17 @@ class HomeClimatePanel extends HTMLElement {
         .z-temp-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 6px;
+          gap: 4px;
           align-items: stretch;
         }
-        #hcc-zones-wrap .z-temp-grid button { width: 100%; padding: 8px 4px; }
+        #hcc-zones-wrap .z-temp-grid button { width: 100%; padding: 4px; }
         .z-temp-grid .z-bigtemp {
           grid-column: 2; grid-row: 1 / 3;
           width: 100%; min-width: 86px;
-          font-size: 1.35rem; font-weight: 600;
-          text-align: center; padding: 4px 6px;
+          font-size: 1.2rem; font-weight: 600;
+          text-align: center; padding: 2px 6px;
         }
-        .z-temp-grid .z-tg { padding: 8px 14px; }
+        .z-temp-grid .z-tg { padding: 4px 14px; }
         .z-row2 {
           display: flex; gap: 6px; align-items: center;
           margin-top: 8px; flex-wrap: wrap;
@@ -716,7 +715,7 @@ class HomeClimatePanel extends HTMLElement {
         #hcc-zones-wrap .controls button,
         #hcc-zones-wrap .temp-row button { padding: 4px 10px; }
         #hcc-zones-wrap .controls select { padding: 4px 8px; }
-        .z-insights { margin-top: 4px; font-size: .78rem; color: var(--secondary-text-color,#aaa); }
+        .z-insights { margin-top: 2px; font-size: .78rem; color: var(--secondary-text-color,#aaa); }
         .z-insights summary {
           cursor: pointer; opacity: .7; user-select: none;
           list-style: none;
