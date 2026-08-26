@@ -658,13 +658,12 @@ class HomeClimatePanel extends HTMLElement {
           display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px;
           align-items: end;
         }
-        #hcc-zones-wrap .z-ddrow select,
         #hcc-zones-wrap .z-ddrow button {
-          padding: 3px 10px; font-size: .78rem;
+          padding: 3px 10px; font-size: .78rem; min-height: 24px;
           white-space: nowrap; background: var(--secondary-background-color,#16181c);
-          min-height: 24px; min-width: 80px;
-          border: 1px solid var(--divider-color,#333); border-radius: 8px;
-          color: var(--primary-text-color,#eee);
+        }
+        #hcc-zones-wrap .z-ddrow select {
+          min-height: 24px;
         }
         .z-lbl {
           font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
