@@ -32,8 +32,9 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_KEY = "home_climate_control_setbacks"
 STORAGE_VERSION = 1
 
+from .preheat import RECOVERY_TARGET_H, setback_depth_c
+
 SETBACK_PRESETS = ("away", "eco")
-RECOVERY_TARGET_H = 1.0     # rooms must be back within ~1 h of leaving setback
 RECOVERY_WATCH_S = 2 * 3600 # give up measuring after 2 h of recovery
 MIN_CYCLES = 3              # completed cycles before offsets are trusted
 LEARNED_MIN_C = -5.0        # deepest allowed learned offset
@@ -210,8 +211,26 @@ class SetbackLearner:
         self._persist()
         _LOGGER.info("Injected calibration rate %.2f °C/h into '%s'", rate, zone)
 
-    def offset_for(self, zone: str, fallback: float) -> float:
-        """Learned setback offset for a room, or the fixed fallback."""
+    def warm_rate_for(self, zone: str) -> float | None:
+        """Measured recovery speed °C/h, or None until first real sample."""
+        st = self.rooms.get(zone)
+        if st is None or st.warm_ema is None:
+            return None
+        return float(st.warm_ema)
+
+    def offset_for(
+        self,
+        zone: str,
+        fallback: float,
+        *,
+        dead_time_s: float | None = None,
+    ) -> float:
+        """Learned setback offset for a room, or the fixed fallback.
+
+        Depth is sized so recovery_of(depth) + dead_time fits inside
+        RECOVERY_TARGET_H — slow transport lag means a shallower night
+        setback, not a cold room that cannot catch up in time.
+        """
         if not self.enabled:
             return fallback
         st = self.rooms.get(zone)
@@ -221,7 +240,7 @@ class SetbackLearner:
             or st.warm_ema is None
         ):
             return fallback
-        depth = st.warm_ema * RECOVERY_TARGET_H
+        depth = setback_depth_c(st.warm_ema, dead_time_s)
         return max(LEARNED_MIN_C, min(LEARNED_MAX_C, -depth))
 
     def as_dict(self) -> dict[str, Any]:

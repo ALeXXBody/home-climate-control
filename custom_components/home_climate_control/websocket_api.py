@@ -140,6 +140,20 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                     "effective_setpoint": getattr(
                         zone, "effective_setpoint", lambda: None
                     )(),
+                    "preheat": bool(getattr(zone, "_preheat_active", False)),
+                    "lead_time_s": (
+                        getattr(zone, "lead_time_s", lambda **k: None)(
+                            to_comfort=getattr(zone, "preset_mode", "none")
+                            in ("away", "eco")
+                        )
+                        if hasattr(zone, "lead_time_s")
+                        else None
+                    ),
+                    "dead_time_s": (
+                        getattr(zone, "_dead_time_s", lambda: None)()
+                        if hasattr(zone, "_dead_time_s")
+                        else None
+                    ),
                     "state": state.state if state else None,
                 }
             )

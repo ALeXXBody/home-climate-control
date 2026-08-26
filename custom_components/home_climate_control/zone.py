@@ -110,6 +110,10 @@ class ZoneClimateEntity(ClimateEntity):
         )
         self._window_open: bool = False
         self._temp_from_trv: bool = False
+        # Reactive optimal-start: True while catch-up heat is running during
+        # an away/eco setback so the room is warm when the recovery window
+        # would otherwise already be blown.
+        self._preheat_active: bool = False
 
         curve_coeff = coordinator.curve_coeff
         self.pid = PID(
@@ -155,6 +159,10 @@ class ZoneClimateEntity(ClimateEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        lead = self.lead_time_s(
+            to_comfort=self._preset in ("away", "eco")
+        )
+        dead = self._dead_time_s()
         return {
             "demand_level": round(self._demand, 3),
             "pid_flow_contribution": round(self._pid_output, 2),
@@ -174,6 +182,10 @@ class ZoneClimateEntity(ClimateEntity):
                 else ("trv" if self._trv_entity else "none")
             ),
             "effective_setpoint": self.effective_setpoint(),
+            "preheat": bool(self._preheat_active),
+            "dead_time_s": round(dead, 0) if dead is not None else None,
+            "lead_time_s": round(lead, 0) if lead is not None else None,
+            "warm_rate_cph": self._warm_rate_cph(),
         }
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -217,12 +229,97 @@ class ZoneClimateEntity(ClimateEntity):
     def window_sensor_entities(self) -> list[str]:
         return list(self._window_sensors)
 
+    def _zone_name(self) -> str:
+        return (
+            getattr(self, "_attr_name", None)
+            or getattr(self, "name", None)
+            or "Room"
+        )
+
+    def _dead_time_s(self) -> float | None:
+        estimator = getattr(self.coordinator, "deadtime", None)
+        if estimator is None:
+            return None
+        return estimator.seconds_for(self._zone_name())
+
+    def _warm_rate_cph(self) -> float | None:
+        learner = getattr(self.coordinator, "setbacks", None)
+        if learner is None:
+            return None
+        return learner.warm_rate_for(self._zone_name())
+
+    def comfort_setpoint(self) -> float:
+        """User target without setback offset (what we must hit after away/eco)."""
+        return self._target_temp
+
+    def lead_time_s(self, *, to_comfort: bool = False) -> float | None:
+        """Estimated seconds of CH needed to close the current deficit.
+
+        to_comfort=True measures against the bare target (ignores setback
+        offset) — used by optimal-start while still on away/eco.
+        """
+        from .preheat import lead_seconds
+
+        if self._current_temp is None:
+            return None
+        target = self.comfort_setpoint() if to_comfort else self.effective_setpoint()
+        deficit = target - self._current_temp
+        if deficit <= 0:
+            return 0.0
+        return lead_seconds(
+            dead_s=self._dead_time_s(),
+            warm_cph=self._warm_rate_cph(),
+            deficit_c=deficit,
+        )
+
     def effective_setpoint(self) -> float:
         offset = PRESET_OFFSETS.get(self._preset, 0.0)
         learner = getattr(self.coordinator, "setbacks", None)
         if learner is not None and self._preset in ("away", "eco"):
-            offset = learner.offset_for(self.name, fallback=offset)
+            offset = learner.offset_for(
+                self._zone_name(),
+                fallback=offset,
+                dead_time_s=self._dead_time_s(),
+            )
+        # Optimal-start catch-up: while pre-heating out of a setback, drive
+        # the room toward the comfort target (not the lowered night SP).
+        if self._preheat_active and self._preset in ("away", "eco"):
+            return self.comfort_setpoint()
         return self._target_temp + offset
+
+    def _update_preheat(self) -> None:
+        """Arm/disarm reactive pre-heat from dead-time + warm-rate model."""
+        from .preheat import should_preheat
+
+        if (
+            self._hvac_mode != HVACMode.HEAT
+            or self._window_open
+            or self.heater_control == "manual"
+            or self._preset not in ("away", "eco")
+            or self._current_temp is None
+        ):
+            if self._preheat_active:
+                self._preheat_active = False
+            return
+        deficit = self.comfort_setpoint() - self._current_temp
+        want = should_preheat(
+            in_setback=True,
+            comfort_deficit_c=deficit,
+            dead_s=self._dead_time_s(),
+            warm_cph=self._warm_rate_cph(),
+            already_preheating=self._preheat_active,
+        )
+        if want != self._preheat_active:
+            self._preheat_active = want
+            if want:
+                _LOGGER.info(
+                    "%s: pre-heat on (deficit %.1f °C, lead ~%.0f min)",
+                    self._attr_name,
+                    deficit,
+                    (self.lead_time_s(to_comfort=True) or 0.0) / 60.0,
+                )
+            else:
+                _LOGGER.info("%s: pre-heat off", self._attr_name)
 
     def wants_heat(self) -> bool:
         if self._hvac_mode != HVACMode.HEAT or self._window_open:
@@ -230,6 +327,7 @@ class ZoneClimateEntity(ClimateEntity):
         # Manual rooms never drive boiler demand — HCC observes only.
         if self.heater_control == "manual":
             return False
+        self._update_preheat()
         # Prefer measured room error; fall back to TRV reporting heating.
         if self._current_temp is not None:
             return (self.effective_setpoint() - self._current_temp) > 0.1
@@ -276,7 +374,15 @@ class ZoneClimateEntity(ClimateEntity):
             import time as _t
 
             try:
-                learner.observe(self.name, _t.time(), temperature, self._preset)
+                # Freeze cool-down learning while optimal-start is actively
+                # heating — rising temps must not look like a slower cool.
+                learner.observe(
+                    self._zone_name(),
+                    _t.time(),
+                    temperature,
+                    self._preset,
+                    heating_allowed=not self._preheat_active,
+                )
             except Exception:  # noqa: BLE001
                 pass
         # Bootstrap calibration: feed the active session, finish it when the
@@ -290,7 +396,7 @@ class ZoneClimateEntity(ClimateEntity):
             import time as _t
 
             try:
-                result = calibrator.observe(self.name, _t.time(), temperature)
+                result = calibrator.observe(self._zone_name(), _t.time(), temperature)
             except Exception:  # noqa: BLE001
                 result = None
             if result is not None and self.hass is not None:
@@ -308,7 +414,7 @@ class ZoneClimateEntity(ClimateEntity):
             import time as _t
 
             try:
-                estimator.observe(self.name, _t.time(), temperature)
+                estimator.observe(self._zone_name(), _t.time(), temperature)
             except Exception:  # noqa: BLE001
                 pass
         # Insulation score: samples inside genuine cool-down stretches
@@ -332,7 +438,7 @@ class ZoneClimateEntity(ClimateEntity):
                     _t.time(),
                     temperature,
                     outdoor,
-                    cooling=learner.in_cooling(self.name),
+                    cooling=learner.in_cooling(self._zone_name()),
                 )
             except Exception:  # noqa: BLE001
                 pass

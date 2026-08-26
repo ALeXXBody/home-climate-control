@@ -434,6 +434,16 @@ class CentralController:
                     zr["cool_rate"] = st.cool_ema
             if self.deadtime is not None:
                 zr["dead_time_s"] = self.deadtime.seconds_for(zr["name"])
+            lead = getattr(z, "lead_time_s", None)
+            if callable(lead):
+                try:
+                    ls = lead(to_comfort=zr.get("preset") in ("away", "eco"))
+                except Exception:  # noqa: BLE001
+                    ls = None
+                if ls is not None:
+                    zr["lead_time_s"] = round(ls, 0)
+            if getattr(z, "_preheat_active", False):
+                zr["preheat"] = True
             if self.insulation is not None:
                 sc = self.insulation.score_for(zr["name"])
                 if sc is not None:

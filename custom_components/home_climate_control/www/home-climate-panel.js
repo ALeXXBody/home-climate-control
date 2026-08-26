@@ -1494,6 +1494,7 @@ class HomeClimatePanel extends HTMLElement {
                   ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
                   ${!manual ? ` · demand ${Math.round((z.demand_level || 0) * 100)}%` : ""}
                   ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
+                  ${!manual && z.preheat ? ' · <span class="badge heat" title="Optimal-start catch-up using dead-time + warm rate">pre-heat</span>' : ""}
                   ${z.window_open ? ' · <span class="badge heat">🪟 open</span>' : ""}
                   ${!manual && health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
                   ${!manual && calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
@@ -1503,6 +1504,7 @@ class HomeClimatePanel extends HTMLElement {
                   <div class="zone-meta">
                     ${!manual && rate ? `warms ${rate} °C/h · ` : ""}
                     ${!manual && dt != null ? `responds ~${dt} min · ` : ""}
+                    ${!manual && z.lead_time_s != null && z.lead_time_s > 0 ? `lead ~${Math.round(z.lead_time_s / 60)} min · ` : ""}
                     ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}
                     temp source: ${z.temp_sensor || (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
                     ${!manual && z.trv ? `TRV: ${this._esc(z.trv)}<br>` : ""}
