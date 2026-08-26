@@ -626,8 +626,15 @@ class HomeClimatePanel extends HTMLElement {
 
         #hcc-zones-wrap .card.zone {
           padding-top: 12px;
-          padding-right: 96px;   /* reserve space for the mode pill */
+          padding-right: 178px;   /* reserve space for both pills */
           min-height: 104px;
+        }
+        .card-pills {
+          position: absolute; top: 10px; right: 12px;
+          display: flex; gap: 6px; align-items: center;
+        }
+        .mode-pill.floor {
+          color: var(--secondary-text-color, #bbb);
         }
 
         /* mode pill — passive indicator, top-right */
@@ -1403,7 +1410,10 @@ class HomeClimatePanel extends HTMLElement {
     const calHere = cal.active && cal.zone === z.name;
     return `
           <div class="card zone" style="position:relative">
-            <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
+            <div class="card-pills">
+              <span class="mode-pill floor" title="Floor">${HomeClimatePanel.FLOOR_LABEL(Number.isFinite(z.floor) ? z.floor : 0)}</span>
+              <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
+            </div>
             <div>
               <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
               <div class="zone-meta">
@@ -1433,15 +1443,7 @@ class HomeClimatePanel extends HTMLElement {
             <div class="controls">
               ${manual ? `
               <div class="temp-row">
-                <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
-                  title="Which floor is this room on?">
-                  ${[0, 1, 2, 3]
-                    .map(
-                      (f) =>
-                        `<option value="${f}" ${(Number.isFinite(z.floor) ? z.floor : 0) === f ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`
-                    )
-                    .join("")}
-                </select>
+
                 <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Edit this room's settings">✎</button>
@@ -1460,15 +1462,6 @@ class HomeClimatePanel extends HTMLElement {
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
               </div>
               <div class="z-row2">
-                <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
-                  title="Which floor is this room on?">
-                  ${[0, 1, 2, 3]
-                    .map(
-                      (f) =>
-                        `<option value="${f}" ${(Number.isFinite(z.floor) ? z.floor : 0) === f ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`
-                    )
-                    .join("")}
-                </select>
                 <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Edit this room's settings">✎</button>
