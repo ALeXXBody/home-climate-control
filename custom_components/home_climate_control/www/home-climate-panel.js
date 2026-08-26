@@ -643,20 +643,21 @@ class HomeClimatePanel extends HTMLElement {
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
-        /* edit/delete — pinned under pill, top-right */
-        .z-actions {
+        /* top-right control cluster: dropdowns (left col) + edit/delete (right col) */
+        .z-ctrl-wrap {
           position: absolute; top: 42px; right: 12px;
-          display: flex; flex-direction: column; gap: 4px; z-index: 2;
+          display: grid; grid-template-columns: auto auto; gap: 6px 10px;
+          z-index: 2;
+        }
+        #hcc-zones-wrap .z-actions {
+          display: flex; flex-direction: column; gap: 4px; align-self: start;
         }
         #hcc-zones-wrap .z-actions button {
           padding: 3px 10px; font-size: .78rem;
           white-space: nowrap; background: var(--secondary-background-color,#16181c);
         }
-
-        /* mode/profile dropdowns — stacked to the left of edit/delete */
         #hcc-zones-wrap .z-side {
-          position: absolute; top: 42px; right: 78px; width: 148px;
-          display: flex; flex-direction: column; gap: 4px; z-index: 2;
+          display: flex; flex-direction: column; gap: 4px; align-items: stretch;
         }
         #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 4px; }
         .z-lbl {
@@ -664,16 +665,22 @@ class HomeClimatePanel extends HTMLElement {
           color: var(--secondary-text-color, #999); margin-top: 8px;
         }
 
-        /* title/meta: leave room for pill + dropdowns + actions */
+        /* title/meta: leave room for pill + control cluster */
         #hcc-zones-wrap .zone-title,
         #hcc-zones-wrap .zone-meta,
-        #hcc-zones-wrap .z-insights { max-width: calc(100% - 310px); }
+        #hcc-zones-wrap .z-insights { max-width: calc(100% - 280px); }
 
         /* controls: just the thermostat grid, centered */
-        #hcc-zones-wrap .controls {
-          margin-top: 10px;
-        }
+        #hcc-zones-wrap .controls { margin-top: 10px; }
         #hcc-zones-wrap .z-left { display: flex; justify-content: center; }
+        #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
+
+        @media (max-width: 720px) {
+          #hcc-zones-wrap .z-ctrl-wrap { position: static; width: 100%; }
+          #hcc-zones-wrap .zone-title,
+          #hcc-zones-wrap .zone-meta,
+          #hcc-zones-wrap .z-insights { max-width: 100%; }
+        }
 
         /* thermostat-style 2-row button cluster */
         #hcc-zones-wrap .temp-input,
@@ -1437,33 +1444,35 @@ class HomeClimatePanel extends HTMLElement {
     return `
           <div class="card zone" style="position:relative">
             <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
-            ${manual ? "" : `
-            <div class="z-side">
-              <div class="z-ddcol">
-                <span class="z-lbl">Mode</span>
-                <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
-                  <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
-                  <option value="off" ${String(z.hvac_mode) === "off" ? "selected" : ""}>Off</option>
-                </select>
-                <span class="z-lbl" style="margin-top:10px">Profile</span>
-                <select data-zone-preset data-entity="${this._esc(z.entity_id || "")}">
-                  ${["none", "away", "eco", "comfort", "boost"]
-                    .map(
-                      (p) =>
-                        `<option value="${p}" ${z.preset_mode === p ? "selected" : ""}>${p}</option>`
-                    )
-                    .join("")}
-                </select>
+            <div class="z-ctrl-wrap" style="${manual ? "grid-template-columns: auto" : ""}">
+              ${manual ? "" : `
+              <div class="z-side">
+                <div class="z-ddcol">
+                  <span class="z-lbl">Mode</span>
+                  <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
+                    <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
+                    <option value="off" ${String(z.hvac_mode) === "off" ? "selected" : ""}>Off</option>
+                  </select>
+                  <span class="z-lbl" style="margin-top:10px">Profile</span>
+                  <select data-zone-preset data-entity="${this._esc(z.entity_id || "")}">
+                    ${["none", "away", "eco", "comfort", "boost"]
+                      .map(
+                        (p) =>
+                          `<option value="${p}" ${z.preset_mode === p ? "selected" : ""}>${p}</option>`
+                      )
+                      .join("")}
+                  </select>
+                </div>
               </div>
-            </div>
-            `}
-            <div class="z-actions">
-              <button type="button" class="ghost" data-zone-action="edit"
-                data-zone-name="${this._esc(z.name || "")}"
-                title="Edit this room's settings">Edit</button>
-              <button type="button" class="ghost" data-zone-action="remove"
-                data-zone-name="${this._esc(z.name || "")}"
-                title="Remove this room">Delete</button>
+              `}
+              <div class="z-actions">
+                <button type="button" class="ghost" data-zone-action="edit"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Edit this room's settings">Edit</button>
+                <button type="button" class="ghost" data-zone-action="remove"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Remove this room">Delete</button>
+              </div>
             </div>
             <div>
               <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
