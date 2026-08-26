@@ -1344,7 +1344,7 @@ class HomeClimatePanel extends HTMLElement {
     if (fs && !["OFF", "connected"].includes(fs))
       alerts.push(`🚨 Failsafe ${this._esc(fs)}`);
     if (sys?.update_info?.available)
-      alerts.push(`⬆ HCC update available`);
+      alerts.push(`⬆ Board firmware update available`);
     if (!alerts.length) return "";
     return `<div class="card wide" style="border-color:#a33;margin-bottom:12px;padding:10px 14px">
       ${alerts.map((a) => `<div class="sub" style="margin:2px 0">${a}</div>`).join("")}
