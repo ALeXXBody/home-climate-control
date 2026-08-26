@@ -67,6 +67,7 @@ class CentralController:
         self.insulation = None
         self.datalogger = None
         self.schedule = None
+        self.occupancy = None
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
@@ -100,6 +101,13 @@ class CentralController:
                 self.schedule.async_start()
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("schedule start failed", exc_info=True)
+        if self.occupancy is not None:
+            try:
+                self.occupancy.bind_zones(self.zones)
+                self.occupancy.set_schedule(self.schedule)
+                self.occupancy.async_start()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("occupancy start failed", exc_info=True)
         self._unsub_loop = async_track_time_interval(
             self.hass, self._async_control_tick, timedelta(seconds=CONTROL_LOOP_SECONDS)
         )
@@ -113,6 +121,11 @@ class CentralController:
         if self.schedule is not None:
             try:
                 self.schedule.async_stop()
+            except Exception:  # noqa: BLE001
+                pass
+        if self.occupancy is not None:
+            try:
+                self.occupancy.async_stop()
             except Exception:  # noqa: BLE001
                 pass
         if self._ch_on:
@@ -338,14 +351,21 @@ class CentralController:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("gas feed failed", exc_info=True)
 
-        # Schedule → preset (state listener does the heavy lifting; tick is
-        # a safety net if the entity changed while we were offline).
+        # Schedule / occupancy → preset (listeners do the heavy lifting;
+        # tick is a safety net if entities changed while we were offline).
         if self.schedule is not None:
             try:
                 self.schedule.bind_zones(self.zones)
                 self.schedule.apply(force=False)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("schedule tick failed", exc_info=True)
+        if self.occupancy is not None:
+            try:
+                self.occupancy.bind_zones(self.zones)
+                self.occupancy.set_schedule(self.schedule)
+                self.occupancy.apply(force=False)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("occupancy tick failed", exc_info=True)
         outdoor = self.outdoor_temp()
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
         raw_demand = sum(z.demand_level() for z in demanding) if demanding else 0.0
@@ -616,6 +636,8 @@ class CentralController:
         data["outdoor_sensor"] = self.outdoor_sensor
         if self.schedule is not None:
             data["schedule"] = self.schedule.as_dict()
+        if self.occupancy is not None:
+            data["occupancy"] = self.occupancy.as_dict()
         data["condense"] = condense_snapshot(
             return_c=getattr(self.backend, "return_temp", None),
             pull_c=self._condense_pull_c,

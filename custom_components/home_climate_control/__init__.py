@@ -11,10 +11,15 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_OCCUPANCY_AWAY_PRESET,
+    CONF_OCCUPANCY_ENABLED,
+    CONF_OCCUPANCY_HOME_PRESET,
+    CONF_OCCUPANCY_TRACKERS,
     CONF_SCHEDULE_ENTITY,
     CONF_SCHEDULE_OFF_PRESET,
     CONF_SCHEDULE_ON_PRESET,
     CONF_ZONES,
+    PRESET_AWAY,
     PRESET_COMFORT,
     PRESET_ECO,
     DEFAULT_BOILER_MIN_MODULATION,
@@ -133,12 +138,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         on_preset=opts.get(CONF_SCHEDULE_ON_PRESET, PRESET_COMFORT),
         off_preset=opts.get(CONF_SCHEDULE_OFF_PRESET, PRESET_ECO),
     )
+    from .occupancy import OccupancyFollower
+
+    trackers = opts.get(CONF_OCCUPANCY_TRACKERS) or entry.data.get(
+        CONF_OCCUPANCY_TRACKERS
+    ) or []
+    if isinstance(trackers, str):
+        trackers = [trackers]
+    occupancy = OccupancyFollower(
+        hass,
+        entity_ids=list(trackers),
+        away_preset=opts.get(CONF_OCCUPANCY_AWAY_PRESET, PRESET_AWAY),
+        home_preset=opts.get(CONF_OCCUPANCY_HOME_PRESET, PRESET_COMFORT),
+        enabled=bool(opts.get(CONF_OCCUPANCY_ENABLED, False)),
+        schedule=schedule,
+    )
     controller.setbacks = setbacks
     controller.deadtime = deadtime
     controller.insulation = insulation
     controller.datalogger = datalogger
     controller.gas = gas
     controller.schedule = schedule
+    controller.occupancy = occupancy
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),

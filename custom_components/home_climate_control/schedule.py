@@ -149,9 +149,14 @@ class ScheduleFollower:
             if getattr(z, "heater_control", "smart") == "manual":
                 continue
             # Sticky user override until the schedule entity changes.
+            # Occupancy owns the room while everyone is away — don't fight it.
+            src = getattr(z, "_preset_source", "schedule")
+            if not schedule_changed and src == "user":
+                continue
             if (
                 not schedule_changed
-                and getattr(z, "_preset_source", "schedule") == "user"
+                and src == "occupancy"
+                and getattr(z, "_preset", None) in ("away",)
             ):
                 continue
             setter = getattr(z, "apply_schedule_preset", None)

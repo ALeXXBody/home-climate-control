@@ -91,6 +91,10 @@ CONF_OUTDOOR_SENSOR = "outdoor_sensor"
 CONF_SCHEDULE_ENTITY = "schedule_entity"
 CONF_SCHEDULE_ON_PRESET = "schedule_on_preset"
 CONF_SCHEDULE_OFF_PRESET = "schedule_off_preset"
+CONF_OCCUPANCY_ENABLED = "occupancy_enabled"
+CONF_OCCUPANCY_TRACKERS = "occupancy_trackers"
+CONF_OCCUPANCY_AWAY_PRESET = "occupancy_away_preset"
+CONF_OCCUPANCY_HOME_PRESET = "occupancy_home_preset"
 
 # Rooms (stored under options key "zones" for backward compatibility).
 # A room is: one TRV climate + optional external temperature sensor.

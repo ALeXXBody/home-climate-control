@@ -18,9 +18,14 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_OCCUPANCY_AWAY_PRESET,
+    CONF_OCCUPANCY_ENABLED,
+    CONF_OCCUPANCY_HOME_PRESET,
+    CONF_OCCUPANCY_TRACKERS,
     CONF_SCHEDULE_ENTITY,
     CONF_SCHEDULE_OFF_PRESET,
     CONF_SCHEDULE_ON_PRESET,
+    PRESET_AWAY,
     PRESET_COMFORT,
     PRESET_ECO,
     ZONE_PRESETS,
@@ -401,6 +406,35 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     description="schedule_off_preset",
                 ): vol.In(ZONE_PRESETS),
                 vol.Required(
+                    CONF_OCCUPANCY_ENABLED,
+                    default=opts.get(CONF_OCCUPANCY_ENABLED, False),
+                    description="occupancy_enabled",
+                ): bool,
+                vol.Optional(
+                    CONF_OCCUPANCY_TRACKERS,
+                    description="occupancy_trackers",
+                    **(
+                        {"default": opts[CONF_OCCUPANCY_TRACKERS]}
+                        if opts.get(CONF_OCCUPANCY_TRACKERS)
+                        else {}
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["device_tracker", "person", "binary_sensor"],
+                        multiple=True,
+                    )
+                ),
+                vol.Required(
+                    CONF_OCCUPANCY_AWAY_PRESET,
+                    default=opts.get(CONF_OCCUPANCY_AWAY_PRESET, PRESET_AWAY),
+                    description="occupancy_away_preset",
+                ): vol.In(ZONE_PRESETS),
+                vol.Required(
+                    CONF_OCCUPANCY_HOME_PRESET,
+                    default=opts.get(CONF_OCCUPANCY_HOME_PRESET, PRESET_COMFORT),
+                    description="occupancy_home_preset",
+                ): vol.In(ZONE_PRESETS),
+                vol.Required(
                     CONF_GAS_POWER_KW,
                     default=opts.get(CONF_GAS_POWER_KW, 24.0),
                     description="rated_heat_input_kw",
@@ -442,7 +476,11 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
             else:
                 options = {**self.config_entry.options, **user_input}
                 # Clearing the entity picker omits the key — drop stale value.
-                for key in (CONF_OUTDOOR_SENSOR, CONF_SCHEDULE_ENTITY):
+                for key in (
+                    CONF_OUTDOOR_SENSOR,
+                    CONF_SCHEDULE_ENTITY,
+                    CONF_OCCUPANCY_TRACKERS,
+                ):
                     if key not in user_input or not user_input.get(key):
                         options.pop(key, None)
                 return self.async_create_entry(title="", data=options)

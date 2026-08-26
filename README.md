@@ -5,13 +5,16 @@ Home Assistant custom component for multi-zone heating control that minimises ga
 **Software** (this repo) · companion **hardware/firmware**:  
 [home-climate-system](https://github.com/ALeXXBody/home-climate-system)
 
+**Docs wiki:** [Home · Install · Options · Tiers · FAQ](docs/wiki/Home.md)  
+*(Same pages live under `docs/wiki/`. To mirror on GitHub Wiki: repo → Wiki → create Home, paste from `docs/wiki/`.)*
+
 **Goal:** respect room and TRV heat requests while minimising gas use via OpenTherm
 weather compensation, learned behaviour, and the lowest workable flow temperature.
 
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.4.4 |
+| **Current version** | v1.4.5 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -19,201 +22,132 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 
 | Name | What it is |
 |---|---|
-| **Home Climate Control** | This software — HA custom integration + sidebar app |
-| **Home Climate System** | Hardware + ESP32/ESP8266 boiler-gateway firmware (separate repo) |
+| **Home Climate Control (HCC)** | This software — HA custom integration + sidebar app |
+| **Home Climate System (HCS)** | Hardware + ESP boiler-gateway firmware ([separate repo](https://github.com/ALeXXBody/home-climate-system)) |
 
 ## Features
 
 ### Control core
 
-- **Weather-compensated heating curve** — flow setpoint tracks outdoor temperature;
-  lowest workable curve wins
-- **PID flow boost** with anti-windup when rooms lag behind schedule
-- **Auto-tuning heating curve** — learns the comfort-driven coefficient from real
-  recovery behaviour instead of manual trial-and-error
-- **Smart setbacks** — night/Away setbacks learn *per room* how fast it recovers,
-  so pre-heat lead time is calculated, not guessed
-- **Dead-time learning** — measures each room's delay between the boiler
-  firing and the room starting to respond; the foundation for accurate
-  pre-heat scheduling
-- **Radiator health flags** — rooms that demand heat at full flow for a long
-  time without getting warm get a visible warning (undersized radiator,
-  air/sludge, stuck TRV) in the panel
-- **Insulation score** — learns each room's weather-normalized heat-loss
-  factor from real cool-downs and labels it (excellent/good/fair/poor),
-  so envelope problems are visible at a glance
-- **Training-data logger** — records one telemetry row per minute (temps,
-  setpoints, demand, boiler state, learned coefficients) to
-  `<config>/home_climate_training/data-YYYY-MM.jsonl`; lives outside the
-  integration folder, so history survives every app update
-- **Bootstrap calibration** — one click per room measures its warm-up speed
-  (°C/h) on demand and feeds the setback learner, so learned behaviour works
-  from day one instead of after weeks of history
-- **CycleGuard** — adaptive burner rest window + minimum-on floor; protects the
-  boiler from short-cycling at low load
-- **Slope-based open-window detection** — rooms without contact sensors get
-  automatic heat pause when temperature falls abnormally fast (window/door
-  open), resuming once the reading stabilises; hard-capped so it can never
-  freeze a room
+- **Weather-compensated heating curve** — flow tracks outdoor temp; lowest workable curve wins
+- **Outdoor source priority** — boiler outdoor (fresh) → optional HA sensor/weather fallback → stale boiler
+- **PID flow boost** with anti-windup when rooms lag
+- **Auto-tuning heating curve** — learns coefficient from real comfort error
+- **Smart setbacks** — night/away depth learned **per room** from recovery speed
+- **Dead-time learning + optimal-start** — `lead = dead_time + deficit/warm_rate`; reactive pre-heat on away/eco when catch-up would miss the window
+- **Low-load duty cycling** — when demand &lt; boiler min modulation, PWM CH with long on/off slices (configurable)
+- **CycleGuard** — adaptive burner rest + minimum-on floor
+- **Condensing pull-down** — shaves flow when OpenTherm return is above ~54 °C (comfort first)
+- **Load-aware health flags** — “struggling” patience scales with outdoor load (fewer cold-day false alarms)
+- **Slope open-window detection** — pause heat on abnormal cool-down without contact sensors
+- **Bootstrap calibration** — one click measures °C/h warm-up and seeds the setback learner
+- **Insulation score** — weather-normalized heat-loss label per room
+- **Training-data logger** — minute JSONL under `<config>/home_climate_training/` (survives updates)
+
+### Schedules & occupancy (optional — Settings)
+
+- **HA schedule → presets** — `schedule.*` ON/OFF (or `input_select`/`sensor`) drives room presets; manual override sticky until next window
+- **Phone occupancy** — opt-in: `device_tracker` / `person` / presence sensors; all away → away preset; anyone home → home preset or live schedule
 
 ### Metering & diagnostics
 
-- **Estimated gas accounting** from boiler telemetry (modulation × time) — no gas
-  meter required
-- **Boiler auto-detection** — reads the OpenTherm MemberID and identifies make/model
-- **Custom 1-Wire probes** — auto-detected DS18B20 sensors exposed as selectable
-  HA entities with user-defined roles
+- **Estimated gas** — modulation × time, or **flow/return ΔT** when mod is missing (`P_max × ΔT/20K / η`)
+- Boiler MemberID make/model detection
+- Custom 1-Wire probes with roles
 
 ### Boards & OTA
 
-- **Board tab** — live two-way replica of the ESP Control page inside the sidebar app
-  (CH/DHW toggles, DHW setpoint, flow setpoint, max-modulation slider)
-- **Two-way settings sync** with boards running firmware v1.2.0+
-- **Firmware tab** — dynamic catalog tracking GitHub releases; sha256-verified
-  self-refreshing LAN mirror; OTA progress bar, failure notifications and
-  post-reboot success detection
+- Board tab — live replica of the ESP Control page
+- Two-way settings sync (firmware v1.2+)
+- Firmware tab — GitHub catalog, LAN mirror, OTA progress + post-reboot success
 
-### Zones — a model of your house
+### Zones — house model
 
-- Rooms carry a **floor** (0 = ground, 1, 2, …) and a **heater-control type**:
-  - ⚡ **Smart TRV** — an addressable valve HCC commands directly
-  - ✋ **Manual radiator** — hand-turned valve; HCC observes temperature only
-- Zones tab groups room cards under floor headers; floor and control type are
-  editable per card without re-running setup
-- Zone climate entities with presets, heat/off
-- **Add rooms from the panel** — name, floor, heater-control type, TRV and
-  sensor entities picked inline (with autocompletion); no config-flow trip
-- **Rename & remove rooms from the panel** — ✎ renames (learned history
-  carries over), 🗑 removes the card; changes apply live via options reload
-- Window/door sensor pause
-- TRV demand respect — zones only call for heat when their TRVs actually ask
+- **Floor** + **heater control**: ⚡ smart TRV · ✋ manual (observe only)
+- Floor-grouped room cards; edit/add/remove from the panel
+- Window sensors; multi-window OR; TRV demand respect
 
 ## Requirements
 
-- Home Assistant 2024.1 or newer
+- Home Assistant 2024.1+
 - [HACS](https://hacs.xyz/) (recommended)
-- MQTT integration configured in Home Assistant
-- A **Home Climate System** board (DIYLess OpenTherm shield + ESP8266/ESP32,
-  see the [home-climate-system](https://github.com/ALeXXBody/home-climate-system) repo)
-- Boiler outdoor temperature sensor (weather compensation)
+- MQTT in Home Assistant
+- A **Home Climate System** board ([repo](https://github.com/ALeXXBody/home-climate-system))
+- Outdoor temp (boiler sensor and/or HA fallback)
 
-## Install via HACS (custom repository)
+## Install via HACS
 
-### 1. Add the repository in HACS
+1. HACS → ⋮ → **Custom repositories** →  
+   `https://github.com/ALeXXBody/home-climate-control` · Category **Integration**
+2. Download **Home Climate Control** → restart HA
+3. **Settings → Devices & services → + Add integration** → Home Climate Control  
+   - HCS: MQTT prefix + node id, flow limits, curve  
+   - Or **Demo mode** (no hardware)
 
-1. Open **HACS** in Home Assistant.
-2. Open the three-dot menu (⋮) in the top right → **Custom repositories**.
-3. Fill in:
-   - **Repository:** `https://github.com/ALeXXBody/home-climate-control`
-   - **Category:** `Integration`
-4. Click **Add**.
+### Options (after install)
 
-### 2. Download the integration
+**Configure** the integration to set:
 
-1. In HACS go to **Integrations**.
-2. Search for **Home Climate Control**.
-3. Open it → **Download** → confirm.
-4. When prompted, **restart Home Assistant**.
-
-### 3. Add the integration
-
-1. Go to **Settings → Devices & services**.
-2. Click **+ Add integration**.
-3. Search for **Home Climate Control**.
-4. Complete the setup wizard:
-   1. **Boiler connection**
-      - MQTT topic prefix (default `hcs`)
-      - Board node id
-      - Min / max flow temperature
-      - Heating curve coefficient
-   2. **Zones** (at least one)
-      - Zone name
-      - Room temperature sensor
-      - Optional window/door sensors
-      - Optional TRV climate entities
-
-Outdoor temperature is read from the boiler's outdoor sensor as reported by
-the HCS board.
-
-## Manual install (without HACS)
-
-1. Clone or download this repository.
-2. Copy the folder  
-   `custom_components/home_climate_control`  
-   into your Home Assistant config directory, so you have:  
-   `config/custom_components/home_climate_control/`
-3. Restart Home Assistant.
-4. Continue from **Add the integration** above  
-   (**Settings → Devices & services → + Add integration**).
+| Option | Default |
+|---|---|
+| Outdoor temperature fallback | — |
+| Boiler min modulation % | 20 |
+| Low-load duty cycling | on |
+| Heating schedule entity | — |
+| Schedule on/off presets | comfort / eco |
+| **Occupancy auto-setback** | **off** |
+| Presence trackers | — |
+| Occupancy away/home presets | away / comfort |
+| Gas nameplate kW, calibration, price | … |
 
 ## Update
 
-**HACS:** HACS → Integrations → Home Climate Control → **Redownload** (or update when offered) → restart HA.
-
-**Manual:** replace `custom_components/home_climate_control` with the new files → restart HA.
+HACS → Home Climate Control → update → restart HA → hard-refresh the sidebar panel (Ctrl+Shift+R).
 
 ## Sidebar app
 
-After the integration is set up, a **Home Climate** item appears in the Home Assistant
-sidebar (icon: thermometer home). Full-screen UI:
-
 | Tab | Content |
 |---|---|
-| Overview | Boiler / outdoor / flow / demand + zone summary |
-| Zones | Set temperature, heat/off, presets |
-| Board | Live control of a connected HCS board (replica of its web UI) |
-| Firmware | Catalog, mirror status, flash boards over-the-air with progress |
-| Settings | Curve / flow limits, boiler info, board settings |
+| Home | Outdoor / flow / demand / gas |
+| Rooms | Thermostat cards, insights (lead, dead-time, pre-heat) |
+| Devices | Board control + firmware OTA |
+| Diagnostics | Curve, duty cycle, schedule, occupancy, setbacks, gas ΔT |
 
-The header shows a live **boiler link pill** (green *Boiler connected* /
-red *Boiler disconnected* / amber with the board's diagnostic text) and the
-footer shows the running integration version.
+## Efficiency roadmap (tiers)
 
-## Demo mode (no hardware)
+| Tier | Status (v1.4.5) |
+|---|---|
+| **0** room temp + boiler | Calibration, dead-time + pre-heat, duty cycle, CycleGuard, open-window, health, gas est. |
+| **0b** + outdoor | Curve, outdoor fallback, load-aware health, condensing pull-down |
+| **1** internet/API | Schedule → presets |
+| **2** phones / contacts | Occupancy (optional), window contacts |
+| **3–4** extra sensors / OT depth | CO₂ volume, lux, true radiator watts, balancing — later |
 
-When adding the integration, choose **Demo mode**. That creates:
+## Status
 
-- Simulated outdoor temperature, boiler flame / modulation / flow / return
-- Two zones: **Living Room** and **Bedroom** (room temps evolve over time)
-- No MQTT or real sensors required
+- Backends: demo · native HCS MQTT  
+- Tests: `pytest` in repo (278+ at 1.4.5)  
+- Companion firmware: [HCS v1.4.0](https://github.com/ALeXXBody/home-climate-system/releases/tag/v1.4.0)
 
-Then open the **Home Climate** sidebar, set zones to **Heat**, and watch demand
-and flow setpoint change. Perfect for testing the UI before hardware work.
-
-## Status (v1.3.0)
-
-- Backends: demo simulator · native HCS board (MQTT)
-- Control: heating curve + auto-tune · PID flow boost · smart setbacks · CycleGuard ·
-  per-room bootstrap calibration · house model (floors + heater-control types)
-- Metering: estimated gas accounting · boiler MemberID detection · 1-Wire probe entities
-- Boards: live Board tab · two-way settings sync · OTA with progress/success detection
-
-Planned next: floor plan view.
-
-## Run tests (local venv)
+## Run tests
 
 ```bash
 cd /path/to/home-climate-control
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest -v
+pytest -q
 ```
 
 ## Docs
 
-- [Research (third-party thermostats + licenses)](docs/research.md)
-- [Architecture](docs/architecture.md)
-- Hardware/firmware: [home-climate-system](https://github.com/ALeXXBody/home-climate-system)
+- **[Docs wiki](docs/wiki/Home.md)** — [Install](docs/wiki/Install.md) · [Options](docs/wiki/Options-and-settings.md) · [Tiers](docs/wiki/Efficiency-tiers.md) · [FAQ](docs/wiki/FAQ.md)  
+- [Architecture](docs/architecture.md) · [Research](docs/research.md) · [Audit 1.4.0](docs/AUDIT-1.4.0.md)  
+- Firmware: [home-climate-system](https://github.com/ALeXXBody/home-climate-system) · [HCS docs wiki](https://github.com/ALeXXBody/home-climate-system/blob/main/docs/wiki/Home.md)
 
 ## Support
 
-If this project helps you, you can support development here:
-
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/alexxbody)
-
-https://buymeacoffee.com/alexxbody
 
 ## License
 
-MIT (see [`LICENSE`](LICENSE)).
+MIT — see [`LICENSE`](LICENSE).
