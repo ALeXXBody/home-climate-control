@@ -1,33 +1,94 @@
 # Options & settings
 
-**Settings → Devices & services → Home Climate Control → Configure**
+Open integration **Configure** from **Settings → Devices & services → Home Climate Control → Configure**.
 
-| Option | Default | Notes |
+## Core control
+
+| Option | Default | Description |
 |---|---|---|
-| Min / max flow °C | 25 / 75 | Boiler clamp |
-| Curve coefficient | 1.2 | Auto-tune can adjust |
-| Auto-tune curve | on | |
-| Learn smart setbacks | on | |
-| Outdoor temperature fallback | — | `sensor.*` or `weather.*` if boiler outdoor missing/stale (>30 min) |
-| Boiler min modulation % | 20 | Below this → duty cycle |
-| Low-load duty cycling | on | Long on/off PWM |
-| Heating schedule entity | — | `schedule.*`, `input_select`, `sensor` |
-| Schedule on / off presets | comfort / eco | For `schedule.*` windows |
-| **Occupancy auto-setback** | **off** | Enable after picking trackers |
-| Presence entities | — | `device_tracker.*`, `person.*`, presence `binary_sensor` |
-| Occupancy away / home presets | away / comfort | Home prefers live schedule if configured |
-| Gas nameplate kW, min kW, nomod factor, calibration, price | … | Metering |
+| Min flow temperature | 25 °C | Lowest allowed flow setpoint (boiler clamp) |
+| Max flow temperature | 75 °C | Highest allowed flow setpoint (boiler clamp) |
+| Heating curve coefficient | 1.2 | Slope of outdoor→flow mapping; auto-tune adjusts over time |
+| Auto-tune curve | on | Learns optimal coefficient from real comfort error |
+| Learn smart setbacks | on | Learns night/away depth per room from recovery speed |
 
-## Occupancy behaviour (optional — off by default)
+## Outdoor temperature
 
-1. Turn **Occupancy auto-setback** **on** in integration **Configure**  
-2. Select one or more phone/person trackers  
-3. **All away** → away preset on every smart room  
-4. **Anyone home** → home preset, or the **schedule** preset if a schedule is set  
-5. Manual preset on a room stays sticky until occupancy or schedule changes  
-6. Diagnostics tab shows last presence → preset when enabled  
+| Option | Default | Description |
+|---|---|---|
+| Outdoor temperature fallback | — | `sensor.*` or `weather.*` entity; used when boiler outdoor is missing or stale (>30 min) |
 
-## Schedule behaviour
+**Priority chain:** boiler outdoor (fresh, <30 min) → HA fallback sensor → stale boiler → none.
 
-- `schedule.*`: entity **on** → on-preset; **off** → off-preset  
-- Other entities: state should be a preset name (`eco`, `away`, `comfort`, …) or alias (`home`, `night`, …)  
+When outdoor temp is unavailable, the heating curve can't calculate a target — the system falls back to the last known flow setpoint or manual control.
+
+## Low-load duty cycling
+
+| Option | Default | Description |
+|---|---|---|
+| Boiler min modulation % | 20 | Below this, the boiler can't modulate lower — duty cycle activates |
+| Low-load duty cycling | on | PWMs CH on/off when demand is below boiler minimum |
+
+**How it works:** When heat demand exists but is below the boiler's minimum modulation, the system alternates between longer ON and OFF periods instead of running the boiler at its minimum the whole time. This saves gas by avoiding the inefficiency of very low modulation.
+
+The cycle period adapts to outdoor load — colder days = shorter cycles (more responsive), mild days = longer cycles (more efficient).
+
+## HA schedule → presets
+
+| Option | Default | Description |
+|---|---|---|
+| Heating schedule entity | — | `schedule.*`, `input_select.*`, or `sensor.*` entity |
+| Schedule on preset | comfort | Preset applied when schedule window is ON |
+| Schedule off preset | eco | Preset applied when schedule window is OFF |
+
+See [Schedule → presets](Schedule.md) for full details.
+
+## Phone occupancy (optional — off by default)
+
+| Option | Default | Description |
+|---|---|---|
+| Occupancy auto-setback | **off** | Master switch — must be on for any presence logic |
+| Presence entities | — | `device_tracker.*`, `person.*`, or presence `binary_sensor.*` |
+| Occupancy away preset | away | Preset applied to all smart rooms when everyone is away |
+| Occupancy home preset | comfort | Preset applied when anyone is home (schedule takes priority if set) |
+
+See [Occupancy](Occupancy.md) for full details.
+
+## Gas metering
+
+| Option | Default | Description |
+|---|---|---|
+| Gas nameplate input kW | 0 | Your boiler's rated heat input (not output) — needed for ΔT estimate |
+| Gas min input kW | 0 | Minimum modulation in kW — improves low-load estimate accuracy |
+| Gas nomod factor | 0.7 | Fallback modulation multiplier when OT reports 0% but flame is on |
+| Gas calibration | 1.0 | Multiplier applied to all estimates (calibrate against your meter) |
+| Gas price | 0 | Price per unit (for cost display) |
+| Gas meter name | — | Custom entity name |
+
+**Estimation modes:**
+- **Modulation** — default when OT modulation is available; `mod% × nameplate × factor`
+- **ΔT estimate** — used when mod% is 0 but flame is on; `P_max × ΔT/20K / η`
+- **Hydronic kW** — `flow × (flow - return) × k`; accurate with good return sensor
+
+See [Gas metering](Gas-metering.md) for full details.
+
+## What "smart" means for each feature
+
+### Smart setbacks
+Once the system has enough data (several heating cycles), it learns:
+- How fast each room recovers from night/away setback (warm rate)
+- How much setback the room can handle while still recovering in time
+- Deeper setbacks for well-insulated rooms, shallower for poorly insulated ones
+
+### Optimal start (dead-time)
+The system tracks:
+- **Dead time** — minutes between enabling heat and the room temperature starting to rise
+- **Warm rate** — °C per hour once the room is actively warming
+- These combine: `lead = dead_time + deficit/warm_rate + margin`
+- Pre-heat starts exactly when needed — not earlier (wasting gas), not later (cold rooms)
+
+### Auto-tune
+The heating curve coefficient is adjusted based on whether rooms are actually reaching their targets:
+- Rooms consistently too warm → coefficient decreases (lower flow)
+- Rooms consistently too cold → coefficient increases (higher flow)
+- Learning is slow and conservative to avoid oscillation

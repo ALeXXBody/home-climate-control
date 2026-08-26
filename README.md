@@ -140,7 +140,7 @@ pytest -q
 
 ## Docs
 
-- **[Docs wiki](docs/wiki/Home.md)** — [Install](docs/wiki/Install.md) · [Options](docs/wiki/Options-and-settings.md) · [Tiers](docs/wiki/Efficiency-tiers.md) · [FAQ](docs/wiki/FAQ.md)  
+- **[Docs wiki](docs/wiki/Home.md)** — [Install](docs/wiki/Install.md) · [Quick start](docs/wiki/Quick-start.md) · [Options](docs/wiki/Options-and-settings.md) · [Sidebar](docs/wiki/Sidebar-app.md) · [Occupancy](docs/wiki/Occupancy.md) · [Schedule](docs/wiki/Schedule.md) · [Tiers](docs/wiki/Efficiency-tiers.md) · [Calibration](docs/wiki/Calibrate-and-setbacks.md) · [Gas](docs/wiki/Gas-metering.md) · [Failsafe](docs/wiki/Failsafe-and-CycleGuard.md) · [FAQ](docs/wiki/FAQ.md) · [Troubleshooting](docs/wiki/Troubleshooting.md)  
 - [Architecture](docs/architecture.md) · [Research](docs/research.md) · [Audit 1.4.0](docs/AUDIT-1.4.0.md)  
 - Firmware: [home-climate-system](https://github.com/ALeXXBody/home-climate-system) · [HCS docs wiki](https://github.com/ALeXXBody/home-climate-system/blob/main/docs/wiki/Home.md)
 
