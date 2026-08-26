@@ -652,11 +652,6 @@ class HomeClimatePanel extends HTMLElement {
           display: flex; gap: 12px; align-items: flex-start;
         }
         #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 4px; }
-        #hcc-zones-wrap .z-btns {
-          display: flex; flex-direction: column; gap: 4px;
-          margin-top: 20px;
-        }
-        #hcc-zones-wrap .z-btns button { padding: 4px 10px; white-space: nowrap; }
         .z-lbl {
           font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
           color: var(--secondary-text-color, #999); margin-top: 8px;
@@ -1513,14 +1508,6 @@ class HomeClimatePanel extends HTMLElement {
                       )
                       .join("")}
                   </select>
-                </div>
-                <div class="z-btns">
-                  <button type="button" class="ghost" data-zone-action="edit"
-                    data-zone-name="${this._esc(z.name || "")}"
-                    title="Edit this room's settings">Edit</button>
-                  <button type="button" class="ghost" data-zone-action="remove"
-                    data-zone-name="${this._esc(z.name || "")}"
-                    title="Remove this room">Delete</button>
                 </div>
               </div>
               `}
