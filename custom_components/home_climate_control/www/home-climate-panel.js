@@ -643,6 +643,21 @@ class HomeClimatePanel extends HTMLElement {
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
+
+        /* smart card columns: left = thermostat cluster, right = actions */
+        #hcc-zones-wrap .controls { gap: 16px; align-items: stretch; }
+        #hcc-zones-wrap .z-left { flex: 1 1 auto; min-width: 0; }
+        #hcc-zones-wrap .z-side {
+          flex: 0 0 96px;
+          display: flex; flex-direction: column; gap: 4px;
+          align-items: stretch;
+        }
+        #hcc-zones-wrap .z-side button { padding: 3px 0; width: 100%; }
+        .z-lbl {
+          font-size: .62rem; letter-spacing: .07em; text-transform: uppercase;
+          color: var(--secondary-text-color, #999); margin-top: 8px;
+        }
+
         /* thermostat-style 2-row button cluster */
         #hcc-zones-wrap .temp-input,
         #hcc-zones-wrap input[type="number"].z-bigtemp {
@@ -1441,6 +1456,7 @@ class HomeClimatePanel extends HTMLElement {
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Remove this room">🗑</button>
               </div>` : `
+              <div class="z-left">
               <div class="z-temp-grid">
                 <button type="button" class="z-tg" data-zone-action="dec" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">−</button>
                 <input type="number" step="0.5" min="5" max="30" value="${z.target_temperature ?? 20}"
@@ -1451,26 +1467,29 @@ class HomeClimatePanel extends HTMLElement {
                   data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
               </div>
-              <div class="z-row2">
+              </div>
+              <div class="z-side">
                 <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Edit this room's settings">✎</button>
                 <button type="button" class="ghost" data-zone-action="remove"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Remove this room">🗑</button>
+                <span class="z-lbl">Mode</span>
+                <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
+                  <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
+                  <option value="off" ${String(z.hvac_mode) === "off" ? "selected" : ""}>Off</option>
+                </select>
+                <span class="z-lbl">Profile</span>
+                <select data-zone-preset data-entity="${this._esc(z.entity_id || "")}">
+                  ${["none", "away", "eco", "comfort", "boost"]
+                    .map(
+                      (p) =>
+                        `<option value="${p}" ${z.preset_mode === p ? "selected" : ""}>${p}</option>`
+                    )
+                    .join("")}
+                </select>
               </div>
-              <select data-zone-mode data-entity="${this._esc(z.entity_id || "")}">
-                <option value="heat" ${String(z.hvac_mode) === "heat" ? "selected" : ""}>Heat</option>
-                <option value="off" ${String(z.hvac_mode) === "off" ? "selected" : ""}>Off</option>
-              </select>
-              <select data-zone-preset data-entity="${this._esc(z.entity_id || "")}">
-                ${["none", "away", "eco", "comfort", "boost"]
-                  .map(
-                    (p) =>
-                      `<option value="${p}" ${z.preset_mode === p ? "selected" : ""}>${p}</option>`
-                  )
-                  .join("")}
-              </select>
               `}
             </div>`
             }
