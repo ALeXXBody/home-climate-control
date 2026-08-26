@@ -680,12 +680,21 @@ class HomeClimatePanel extends HTMLElement {
         #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
         #hcc-zones-wrap .z-side {
           position: absolute;
-          top: 108px; right: 12px; width: 140px;
-          flex-direction: column; gap: 4px; align-items: stretch;
+          top: 42px; right: 12px; width: 148px;
+          display: flex; flex-direction: column; gap: 4px; align-items: stretch;
         }
-        #hcc-zones-wrap .card.zone {
-          padding-right: 164px;   /* right rail: mode/profile */
-          min-height: 240px;
+        #hcc-zones-wrap .zone-title,
+        #hcc-zones-wrap .zone-meta,
+        #hcc-zones-wrap .z-insights { padding-right: 214px; }
+        @media (max-width: 720px) {
+          #hcc-zones-wrap .z-side {
+            position: static; width: auto; margin-top: 8px;
+            flex-direction: row; flex-wrap: wrap; align-items: center;
+          }
+          #hcc-zones-wrap .z-side .z-lbl { margin-top: 0; }
+          #hcc-zones-wrap .zone-title,
+          #hcc-zones-wrap .zone-meta,
+          #hcc-zones-wrap .z-insights { padding-right: 0; }
         }
 
         /* thermostat-style 2-row button cluster */
