@@ -692,7 +692,14 @@ class FirmwareManager:
             _LOGGER.debug("OTA failure notification failed", exc_info=True)
 
     def _ota_resolve_reboot(self, node: str) -> None:
-        """Board came back online after an update attempt: judge outcome."""
+        """Board came back online after an update attempt: judge outcome.
+
+        LWT ``online`` often arrives *before* the post-reboot discovery
+        JSON that carries the new ``version``. Comparing the stale cached
+        version here used to false-fail successful flashes. When the MQTT
+        version already matches the target we mark done immediately;
+        otherwise defer to an HTTP probe (with retries) instead of failing.
+        """
         dev = self.devices.get(node)
         rt = self._ota_rt.get(node)
         if dev is None or rt is None:
@@ -704,19 +711,28 @@ class FirmwareManager:
         target = (dev.ota_target_version or "").lstrip("vV")
         current = (dev.version or "").lstrip("vV")
 
-        if not target or not current:
-            dev.ota_state = "done"
-            dev.ota_progress = 100
-            return
-        if vt(current) >= vt(target):
+        if not target:
+            # No expected version (custom URL) — reboot alone is success.
             dev.ota_state = "done"
             dev.ota_progress = 100
             self._ota_rt.pop(node, None)
-        else:
-            self._ota_fail(
-                node,
-                f"board rebooted but still runs v{current} "
-                f"(expected v{target}) — the image may not have been written",
+            return
+        if current and vt(current) >= vt(target):
+            dev.ota_state = "done"
+            dev.ota_progress = 100
+            self._ota_rt.pop(node, None)
+            return
+        # Stale or missing MQTT version: confirm over HTTP before failing.
+        if not rt.get("verify_scheduled"):
+            rt["verify_scheduled"] = True
+            reason = (
+                f"board rebooted but still reports v{current or '?'} "
+                f"(expected v{target}) — the image may not have been written"
+                if current
+                else f"board rebooted; confirming v{target} over HTTP"
+            )
+            self.hass.async_create_task(
+                self._async_verify_before_fail(node, reason)
             )
 
     async def _ota_watchdog(self) -> None:
@@ -782,15 +798,46 @@ class FirmwareManager:
         topic — they go silent across the reboot and re-announce via
         discovery. Before declaring a stall/ack failure, ask the board over
         HTTP which version it actually runs.
+
+        Retries briefly: right after reboot the HTTP stack is often still
+        down while MQTT LWT already says online (false-fail race).
         """
+        import asyncio
+
         rt = self._ota_rt.get(node)
         dev = self.devices.get(node)
         if rt is None or dev is None:
             return
         if dev.ota_state not in {"starting", "downloading", "rebooting"}:
             return  # already resolved while we were checking
-        http_version = await self._async_http_version(dev)
+
         target = (dev.ota_target_version or "").lstrip("vV")
+        http_version: str | None = None
+        # Up to ~25s of probes while the board finishes boot / HTTP.
+        for attempt in range(5):
+            if dev.ota_state not in {"starting", "downloading", "rebooting"}:
+                return
+            # Fresh MQTT version may have landed while we waited.
+            from .update_checker import version_tuple as vt
+
+            current = (dev.version or "").lstrip("vV")
+            if target and current and vt(current) >= vt(target):
+                dev.ota_state = "done"
+                dev.ota_progress = 100
+                self._ota_rt.pop(node, None)
+                _LOGGER.info(
+                    "OTA to %s verified via MQTT version: running v%s",
+                    node,
+                    current,
+                )
+                return
+            http_version = await self._async_http_version(dev)
+            if http_version:
+                break
+            await asyncio.sleep(5)
+
+        if dev.ota_state not in {"starting", "downloading", "rebooting"}:
+            return
         if not http_version or not target:
             self._ota_fail(node, reason)
             return
@@ -810,6 +857,30 @@ class FirmwareManager:
         self._ota_rt.pop(node, None)
         _LOGGER.info(
             "OTA to %s verified over HTTP: running v%s", node, http_version
+        )
+
+    def _ota_maybe_recover_false_fail(self, node: str) -> None:
+        """If we false-failed on a stale version, promote to done when fixed."""
+        dev = self.devices.get(node)
+        if dev is None or dev.ota_state != "failed":
+            return
+        target = (dev.ota_target_version or "").lstrip("vV")
+        current = (dev.version or "").lstrip("vV")
+        if not target or not current:
+            return
+        from .update_checker import version_tuple as vt
+
+        if vt(current) < vt(target):
+            return
+        dev.ota_state = "done"
+        dev.ota_progress = 100
+        dev.ota_error = ""
+        self._ota_rt.pop(node, None)
+        _LOGGER.info(
+            "OTA to %s recovered: board now reports v%s (target v%s)",
+            node,
+            current,
+            target,
         )
 
     DEVICE_TTL = 600  # seconds; boards announce every ~30 s when online
@@ -887,17 +958,34 @@ class FirmwareManager:
         # Boards that publish no recognizable ota-state transitions stay in
         # "starting" forever, so also treat "run active + ota topic silent
         # for 75+ s + attempt older than 60 s" as a reboot signature.
+        # Prefer resolving on rebooting / post-offline / long silence — not
+        # on every discovery while still downloading (same-version reflash
+        # would otherwise flip to done mid-pull).
         if node in self._ota_rt:
             rt = self._ota_rt[node]
             silent_for = (
                 time.monotonic() - rt["msg_at"] if rt.get("msg_at") else None
             )
-            if dev.ota_state == "rebooting" or (
-                silent_for is not None
-                and silent_for > 75
-                and time.monotonic() - rt["started_at"] > 60
+            post_reboot = (
+                dev.ota_state == "rebooting"
+                or rt.get("went_offline")
+                or (
+                    silent_for is not None
+                    and silent_for > 75
+                    and time.monotonic() - rt["started_at"] > 60
+                )
+            )
+            if (
+                dev.ota_state in {"starting", "downloading", "rebooting"}
+                and post_reboot
             ):
+                # Fresh discovery version → allow another HTTP verify pass.
+                if data.get("version"):
+                    rt.pop("verify_scheduled", None)
                 self._ota_resolve_reboot(node)
+        # Recover false-fails when discovery finally reports the new version.
+        if dev.ota_state == "failed" and data.get("version"):
+            self._ota_maybe_recover_false_fail(node)
 
         # Re-check (debounced) when a device announces a version — but skip
         # during post-install cooldown so reboot churn does not thrash HA.

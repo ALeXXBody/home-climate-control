@@ -118,7 +118,8 @@ def test_reboot_resolution_success_and_stale_version(mgr):
     m._ota_resolve_reboot("hcs-a")
     assert dev.ota_state == "done"
 
-    # came back still old -> failed with version in the reason
+    # Stale MQTT version must NOT false-fail immediately — schedule HTTP verify.
+    # (LWT online often arrives before discovery carries the new version.)
     dev2 = HcsDevice(node_id="hcs-b", name="Old", board="d1_mini", version="1.0.2")
     m.devices["hcs-b"] = dev2
     dev2.ota_state = "rebooting"
@@ -131,9 +132,68 @@ def test_reboot_resolution_success_and_stale_version(mgr):
         "notified": False,
     }
     m._ota_resolve_reboot("hcs-b")
-    assert dev2.ota_state == "failed"
-    assert "still runs v1.0.2" in dev2.ota_error
-    assert len(tasks) == 1
+    assert dev2.ota_state == "rebooting"  # still pending HTTP confirm
+    assert m._ota_rt["hcs-b"].get("verify_scheduled") is True
+    assert len(tasks) == 1  # _async_verify_before_fail scheduled
+
+
+def test_discovery_recovers_false_fail(mgr):
+    """Discovery with the new version must un-fail a premature fail."""
+    m, _ = mgr
+    dev = m.devices["hcs-a"]
+    dev.ota_state = "failed"
+    dev.ota_error = "board rebooted but still runs v1.0.2"
+    dev.ota_target_version = "1.1.1"
+    dev.version = "1.0.2"
+    m._ota_rt["hcs-a"] = {
+        "started_at": 0.0,
+        "msg_at": 5.0,
+        "went_offline": True,
+        "notified": True,
+    }
+    msg = MagicMock()
+    msg.topic = "hcs/discovery/hcs-a"
+    msg.payload = json.dumps(
+        {
+            "node_id": "hcs-a",
+            "name": "Boiler GW",
+            "board": "lolin_c3_mini",
+            "version": "1.1.1",
+            "ip": "192.168.50.195",
+        }
+    )
+    m._on_discovery(msg)
+    assert dev.version == "1.1.1"
+    assert dev.ota_state == "done"
+    assert dev.ota_error == ""
+    assert "hcs-a" not in m._ota_rt
+
+
+@pytest.mark.asyncio
+async def test_verify_before_fail_accepts_mqtt_version_mid_retry(mgr):
+    """While HTTP is down, a late MQTT version bump must still mark done."""
+    m, _ = mgr
+    dev = m.devices["hcs-a"]
+    dev.ota_state = "rebooting"
+    dev.ota_target_version = "1.1.1"
+    dev.version = "1.0.2"  # stale at start of verify
+    m._ota_rt["hcs-a"] = {
+        "started_at": 0.0,
+        "msg_at": 5.0,
+        "went_offline": True,
+        "notified": False,
+        "verify_scheduled": True,
+    }
+
+    async def _no_http(_dev):
+        # First probe empty; discovery would have updated version by then.
+        dev.version = "1.1.1"
+        return None
+
+    m._async_http_version = _no_http  # type: ignore[method-assign]
+    await m._async_verify_before_fail("hcs-a", "stale version")
+    assert dev.ota_state == "done"
+    assert "hcs-a" not in m._ota_rt
 
 
 def test_lwt_offline_marks_rebooting(mgr):
