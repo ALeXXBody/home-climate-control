@@ -1411,8 +1411,8 @@ class HomeClimatePanel extends HTMLElement {
     return `
           <div class="card zone" style="position:relative">
             <div class="card-pills">
-              <span class="mode-pill floor" title="Floor">${HomeClimatePanel.FLOOR_LABEL(Number.isFinite(z.floor) ? z.floor : 0)}</span>
               <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
+              <span class="mode-pill floor" title="Floor">${HomeClimatePanel.FLOOR_LABEL(Number.isFinite(z.floor) ? z.floor : 0)}</span>
             </div>
             <div>
               <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
