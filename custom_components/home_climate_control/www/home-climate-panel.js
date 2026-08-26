@@ -621,6 +621,39 @@ class HomeClimatePanel extends HTMLElement {
         .ota-done { color: #a5d6a7; font-size: 13px; margin-top: 8px; }
         .zones { display: flex; flex-direction: column; gap: 12px; }
         /* Rooms tab — compact cards */
+
+        /* thermostat-style 2-row button cluster */
+        #hcc-zones-wrap .temp-input,
+        #hcc-zones-wrap input[type="number"].z-bigtemp {
+          -moz-appearance: textfield;
+          appearance: textfield;
+        }
+        #hcc-zones-wrap .temp-input::-webkit-outer-spin-button,
+        #hcc-zones-wrap .temp-input::-webkit-inner-spin-button,
+        #hcc-zones-wrap input[type="number"]::-webkit-outer-spin-button,
+        #hcc-zones-wrap input[type="number"]::-webkit-inner-spin-button {
+          -webkit-appearance: none; margin: 0;
+        }
+        .z-temp-grid {
+          display: grid;
+          grid-template-columns: auto minmax(86px, 1fr) auto;
+          gap: 6px;
+          align-items: stretch;
+        }
+        .z-temp-grid .z-bigtemp {
+          grid-column: 2; grid-row: 1 / 3;
+          width: 100%; min-width: 86px;
+          font-size: 1.35rem; font-weight: 600;
+          text-align: center; padding: 4px 6px;
+        }
+        .z-temp-grid .z-tg { padding: 8px 14px; }
+        .z-row2 {
+          display: flex; gap: 6px; align-items: center;
+          margin-top: 8px; flex-wrap: wrap;
+        }
+        .z-row2 select { padding: 4px 8px; }
+
+
         #hcc-zones-wrap .zones { gap: 8px; }
         #hcc-zones-wrap .card {
           padding: 10px 14px;
@@ -1398,18 +1431,20 @@ class HomeClimatePanel extends HTMLElement {
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Remove this room">🗑</button>
               </div>` : `
-              <div class="temp-row">
-                <button type="button" data-zone-action="dec" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">−</button>
+              <div class="z-temp-grid">
+                <button type="button" class="z-tg" data-zone-action="dec" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">−</button>
                 <input type="number" step="0.5" min="5" max="30" value="${z.target_temperature ?? 20}"
-                  data-entity="${this._esc(z.entity_id || "")}" class="temp-input" />
-                <button type="button" data-zone-action="inc" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">+</button>
-                <button type="button" data-zone-action="apply" data-entity="${this._esc(z.entity_id || "")}">Set</button>
+                  data-entity="${this._esc(z.entity_id || "")}" class="temp-input z-bigtemp" />
+                <button type="button" class="z-tg" data-zone-action="inc" data-entity="${this._esc(z.entity_id || "")}" data-temp="${z.target_temperature ?? 20}">+</button>
+                <button type="button" class="z-tg" data-zone-action="apply" data-entity="${this._esc(z.entity_id || "")}">Set</button>
                 <button type="button" ${cal.active ? "disabled" : ""} data-zone-action="calibrate"
                   data-entity="${this._esc(z.entity_id || "")}" data-zone-name="${this._esc(z.name || "")}"
                   title="Measure how fast this room heats up (~15–60 min)">Calibrate</button>
                 <button type="button" class="ghost" data-zone-action="control"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Click if this radiator's valve is turned by hand (HCC will observe only)">✋ Manual</button>
+              </div>
+              <div class="z-row2">
                 <select data-zone-floor data-zone-name="${this._esc(z.name || "")}"
                   title="Which floor is this room on?">
                   ${[0, 1, 2, 3]
@@ -1419,6 +1454,13 @@ class HomeClimatePanel extends HTMLElement {
                     )
                     .join("")}
                 </select>
+                <button type="button" class="ghost" data-zone-action="edit"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Edit this room's settings">✎</button>
+                <button type="button" class="ghost" data-zone-action="remove"
+                  data-zone-name="${this._esc(z.name || "")}"
+                  title="Remove this room">🗑</button>
+              </div>
                 <button type="button" class="ghost" data-zone-action="edit"
                   data-zone-name="${this._esc(z.name || "")}"
                   title="Edit this room's settings">✎</button>
