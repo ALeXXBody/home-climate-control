@@ -18,7 +18,15 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from .boiler.base import BoilerBackend
 from .calibrate import RoomCalibrator
-from .const import CONTROL_LOOP_SECONDS, DEFAULT_MAX_FLOW_TEMP
+from .const import (
+    CONTROL_LOOP_SECONDS,
+    DEFAULT_BOILER_MIN_MODULATION,
+    DEFAULT_MAX_FLOW_TEMP,
+    DUTY_CYCLE_MIN_OFF_SECONDS,
+    DUTY_CYCLE_MIN_ON_SECONDS,
+    OUTDOOR_STALE_AFTER_SECONDS,
+)
+from .dutycycle import DutyCycler
 from .health import FLOW_NEAR_MAX_K, RoomHealthMonitor
 from .heating_curve import clamp, flow_for_outdoor
 
@@ -38,6 +46,10 @@ class CentralController:
         min_flow: float,
         max_flow: float,
         autotune=None,
+        outdoor_sensor: str | None = None,
+        outdoor_stale_s: float = OUTDOOR_STALE_AFTER_SECONDS,
+        min_modulation_pct: float = DEFAULT_BOILER_MIN_MODULATION,
+        duty_cycle_enabled: bool = True,
     ) -> None:
         self.hass = hass
         self.backend = backend
@@ -46,6 +58,8 @@ class CentralController:
         self.min_flow = min_flow
         self.max_flow = max_flow
         self.autotune = autotune
+        self.outdoor_sensor = (outdoor_sensor or "").strip() or None
+        self.outdoor_stale_s = float(outdoor_stale_s)
         self.setbacks = None
         self.gas = None
         self.deadtime = None
@@ -54,6 +68,12 @@ class CentralController:
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
+        self.dutycycle = DutyCycler(
+            min_mod_pct=min_modulation_pct,
+            min_on_s=DUTY_CYCLE_MIN_ON_SECONDS,
+            min_off_s=DUTY_CYCLE_MIN_OFF_SECONDS,
+            enabled=duty_cycle_enabled,
+        )
         self.calibration = RoomCalibrator()
         self.health = RoomHealthMonitor()
 
@@ -63,6 +83,7 @@ class CentralController:
         self.total_demand: float = 0.0
         self.active_zone_names: list[str] = []
         self.estimated_gas_percent: float | None = None
+        self.outdoor_source: str | None = None  # boiler | ha | design
 
         self._unsub_loop = None
         self._ch_on: bool = False
@@ -92,8 +113,47 @@ class CentralController:
                 name = getattr(zone, "name", None) or "Zone"
                 ensure(name, getattr(zone, "current_temperature", None) or 18.0)
 
+    def _ha_outdoor(self) -> float | None:
+        """Read optional HA outdoor sensor entity (sensor.* or weather.*)."""
+        if not self.outdoor_sensor or self.hass is None:
+            return None
+        st = self.hass.states.get(self.outdoor_sensor)
+        if st is None or st.state in ("unknown", "unavailable", "none", ""):
+            return None
+        # weather.* exposes temperature as an attribute
+        raw = st.state
+        if self.outdoor_sensor.startswith("weather."):
+            raw = st.attributes.get("temperature", raw)
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
     def outdoor_temp(self) -> float | None:
-        return self.backend.outdoor_temp
+        """Boiler outdoor first; HA sensor when missing/stale; else None.
+
+        Sets ``outdoor_source`` to ``boiler`` / ``ha`` / ``None`` for diagnostics.
+        """
+        be = self.backend.outdoor_temp
+        age_raw = getattr(self.backend, "outdoor_age_s", None)
+        try:
+            age = float(age_raw) if age_raw is not None else None
+        except (TypeError, ValueError):
+            age = None  # MagicMock / non-numeric backends → treat as unknown
+
+        if be is not None and (age is None or age <= self.outdoor_stale_s):
+            self.outdoor_source = "boiler"
+            return be
+        ha = self._ha_outdoor()
+        if ha is not None:
+            self.outdoor_source = "ha"
+            return ha
+        if be is not None:
+            # Stale boiler value still better than nothing for the curve.
+            self.outdoor_source = "boiler_stale"
+            return be
+        self.outdoor_source = None
+        return None
 
     # ------------------------------------------------------------ calibration
     def _find_zone(self, zone_name: str):
@@ -261,18 +321,28 @@ class CentralController:
                 _LOGGER.debug("gas feed failed", exc_info=True)
         outdoor = self.outdoor_temp()
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
+        raw_demand = sum(z.demand_level() for z in demanding) if demanding else 0.0
 
-        # CycleGuard owns the actual CH on/off decision: it enforces a
-        # minimum burn length and an adaptive rest window so a flickering
-        # thermostat signal cannot turn the boiler into a stop-start mess.
-        desired_ch = bool(demanding)
+        # Low-load duty cycle: when aggregate demand would need less than the
+        # boiler's min modulation, PWM CH with long on/off slices instead of
+        # letting the boiler short-cycle or overshoot at its floor.
+        duty_want, duty_reason = self.dutycycle.apply(
+            want_heat=bool(demanding),
+            total_demand=raw_demand,
+            now=now,
+        )
+
+        # CycleGuard owns the final CH on/off decision: min burn length +
+        # adaptive rest window on top of duty-cycle / thermostat demand.
+        desired_ch = duty_want
         ch_state, _reason = self.cycleguard.decide(desired_ch, self._ch_on, now)
         if ch_state != self._ch_on:
             await self.backend.async_set_ch_enabled(ch_state)
             self.cycleguard.record(ch_state, now)
             self._ch_on = ch_state
             if ch_state:
-                _LOGGER.info("CH on (%s)", _reason)
+                why = _reason if _reason != "start" else duty_reason
+                _LOGGER.info("CH on (%s)", why)
                 # Dead-time stopwatches: rooms demanding at this instant are
                 # timed until their temperature starts to move.
                 if self.deadtime is not None:
@@ -292,18 +362,20 @@ class CentralController:
                         temps=temps,
                     )
             else:
-                _LOGGER.info("CH off (%s)", _reason)
+                why = _reason if _reason != "stop" else duty_reason
+                _LOGGER.info("CH off (%s)", why)
                 if self.deadtime is not None:
                     self.deadtime.disarm_all()
 
+        self.total_demand = raw_demand
+        self.estimated_gas_percent = min(100.0, raw_demand * 100.0)
+
         if not ch_state and not self._ch_on:
             # Fully at rest: no demand honoured this tick.
-            if not demanding:
+            if not demanding or not duty_want:
                 self.flow_setpoint = None
-                self.total_demand = 0.0
                 self.active_zone_names = []
-                self.estimated_gas_percent = 0.0
-        elif demanding:
+        elif demanding and (ch_state or self._ch_on):
             # Burner allowed to fire and zones want heat: compute the flow
             # target. (If demand vanished mid-min-on-floor we deliberately
             # keep the previous setpoint: the burner finishes its short
@@ -324,8 +396,6 @@ class CentralController:
 
             self.flow_setpoint = target_flow
             self.active_zone_names = [z.name for z in demanding]
-            self.total_demand = sum(z.demand_level() for z in demanding)
-            self.estimated_gas_percent = min(100.0, self.total_demand * 100.0)
 
             # Auto-tune: feed aggregate comfort error, maybe learn a better
             # curve coefficient (gas mission: no chronic cold, no overshoot).
@@ -491,6 +561,9 @@ class CentralController:
         if self.gas is not None:
             data["gas"] = self.gas.as_dict()
         data["cycle_guard"] = self.cycleguard.as_dict()
+        data["duty_cycle"] = self.dutycycle.as_dict()
+        data["outdoor_source"] = self.outdoor_source
+        data["outdoor_sensor"] = self.outdoor_sensor
         data.update(self.backend.diagnostics())
         data["boiler_connected"] = getattr(self.backend, "connected", True)
         return data

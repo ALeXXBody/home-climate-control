@@ -17,6 +17,7 @@ from .const import (
     BACKEND_HCS,
     CONF_BACKEND,
     CONF_NODE_ID,
+    CONF_OUTDOOR_SENSOR,
     CONF_ZONE_NAME,
     CONF_ZONE_TEMP_SENSOR,
     CONF_ZONE_TRV_CLIMATES,
@@ -28,6 +29,7 @@ from .const import (
     CONF_ZONES,
     CURVE_COEFF_MAX,
     CURVE_COEFF_MIN,
+    DEFAULT_BOILER_MIN_MODULATION,
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
@@ -50,6 +52,8 @@ CONF_GAS_MIN_KW = "min_heat_input_kw"
 CONF_GAS_NOMOD = "nomod_duty_factor"
 CONF_GAS_CALIB = "gas_calibration"
 CONF_GAS_PRICE = "gas_price_per_kwh"
+CONF_MIN_MOD = "boiler_min_modulation"
+CONF_DUTY_EN = "duty_cycle_enabled"
 
 
 class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -342,6 +346,30 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     default=opts.get(CONF_LEARN_SETBACKS, True),
                     description="learn_setbacks",
                 ): bool,
+                vol.Optional(
+                    CONF_OUTDOOR_SENSOR,
+                    description="outdoor_sensor",
+                    **(
+                        {"default": opts[CONF_OUTDOOR_SENSOR]}
+                        if opts.get(CONF_OUTDOOR_SENSOR)
+                        else {}
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["sensor", "weather"],
+                        multiple=False,
+                    )
+                ),
+                vol.Required(
+                    CONF_MIN_MOD,
+                    default=opts.get(CONF_MIN_MOD, DEFAULT_BOILER_MIN_MODULATION),
+                    description="boiler_min_modulation",
+                ): vol.All(vol.Coerce(float), vol.Range(min=5, max=80)),
+                vol.Required(
+                    CONF_DUTY_EN,
+                    default=opts.get(CONF_DUTY_EN, True),
+                    description="duty_cycle_enabled",
+                ): bool,
                 vol.Required(
                     CONF_GAS_POWER_KW,
                     default=opts.get(CONF_GAS_POWER_KW, 24.0),
@@ -383,6 +411,11 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "min_flow_above_max"
             else:
                 options = {**self.config_entry.options, **user_input}
+                # Clearing the entity picker omits the key — drop stale value.
+                if CONF_OUTDOOR_SENSOR not in user_input:
+                    options.pop(CONF_OUTDOOR_SENSOR, None)
+                elif not user_input.get(CONF_OUTDOOR_SENSOR):
+                    options.pop(CONF_OUTDOOR_SENSOR, None)
                 return self.async_create_entry(title="", data=options)
         return self.async_show_form(
             step_id="init",

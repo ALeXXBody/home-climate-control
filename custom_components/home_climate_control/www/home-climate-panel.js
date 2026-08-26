@@ -1075,7 +1075,7 @@ class HomeClimatePanel extends HTMLElement {
     return `
       <div class="grid">
         <div class="card"><h3>Outdoor</h3><div class="metric">${outdoor}<span class="unit">°C</span></div>
-          <div class="sub">${sys.demo ? "Simulated outdoor (demo)" : "Boiler outdoor sensor"}</div></div>
+          <div class="sub">${sys.demo ? "Simulated outdoor (demo)" : (sys.boiler?.outdoor_source === "ha" ? "HA fallback sensor" : sys.boiler?.outdoor_source === "boiler_stale" ? "Boiler outdoor (stale)" : "Boiler outdoor sensor")}${sys.boiler?.duty_cycle?.active ? " · duty-cycle" : ""}</div></div>
         <div class="card"><h3>Flow setpoint</h3><div class="metric">${flow}<span class="unit">°C</span></div>
           <div class="sub">Weather-compensated target</div></div>
         <div class="card"><h3>Total demand</h3><div class="metric">${demand}<span class="unit">%</span></div>

@@ -67,6 +67,16 @@ class BoilerBackend(ABC):
         considered connected."""
         return True
 
+    @property
+    def outdoor_age_s(self) -> float | None:
+        """Seconds since outdoor_temp was last updated, or None if unknown.
+
+        Controllers use this to fall back to a HA sensor when the boiler
+        outdoor reading goes stale. Backends that always have a fresh value
+        (demo) return 0.0.
+        """
+        return None
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "outdoor_temp": self.outdoor_temp,

@@ -52,6 +52,7 @@ class HcsMqttBackend(BoilerBackend):
         self._max_flow = max_flow
 
         self._outdoor_temp: float | None = None
+        self._outdoor_mono: float | None = None  # monotonic when outdoor last set
         self._flow_temp: float | None = None
         self._return_temp: float | None = None
         self._modulation: float | None = None
@@ -159,7 +160,11 @@ class HcsMqttBackend(BoilerBackend):
             return  # set-topics & LWT noise
         text = (payload or "").strip()
         if key == "outdoor_temp":
+            import time as _t
+
             self._outdoor_temp = _f(text)
+            if self._outdoor_temp is not None:
+                self._outdoor_mono = _t.monotonic()
         elif key == "flow_temp":
             self._flow_temp = _f(text)
         elif key == "return_temp":
@@ -210,6 +215,14 @@ class HcsMqttBackend(BoilerBackend):
     # --- telemetry properties -------------------------------------------------
     @property
     def outdoor_temp(self): return self._outdoor_temp
+
+    @property
+    def outdoor_age_s(self) -> float | None:
+        if self._outdoor_mono is None or self._outdoor_temp is None:
+            return None
+        import time as _t
+
+        return max(0.0, _t.monotonic() - self._outdoor_mono)
     @property
     def flow_temp(self): return self._flow_temp
     @property

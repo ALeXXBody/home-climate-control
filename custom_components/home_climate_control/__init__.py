@@ -10,7 +10,9 @@ from .const import (
     BACKEND_HCS,
     CONF_BACKEND,
     CONF_NODE_ID,
+    CONF_OUTDOOR_SENSOR,
     CONF_ZONES,
+    DEFAULT_BOILER_MIN_MODULATION,
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
@@ -110,6 +112,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         min_flow=opts.get("min_flow_temp", DEFAULT_MIN_FLOW_TEMP),
         max_flow=opts.get("max_flow_temp", DEFAULT_MAX_FLOW_TEMP),
         autotune=tuner,
+        outdoor_sensor=opts.get(CONF_OUTDOOR_SENSOR)
+        or entry.data.get(CONF_OUTDOOR_SENSOR),
+        min_modulation_pct=opts.get(
+            "boiler_min_modulation", DEFAULT_BOILER_MIN_MODULATION
+        ),
+        duty_cycle_enabled=opts.get("duty_cycle_enabled", True),
     )
     controller.setbacks = setbacks
     controller.deadtime = deadtime

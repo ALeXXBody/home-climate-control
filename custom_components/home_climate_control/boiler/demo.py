@@ -151,6 +151,10 @@ class DemoBoilerBackend(BoilerBackend):
         return round(self._outdoor, 1)
 
     @property
+    def outdoor_age_s(self) -> float | None:
+        return 0.0  # always fresh (simulated)
+
+    @property
     def flow_temp(self) -> float | None:
         return round(self._flow_temp, 1)
 
