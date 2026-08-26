@@ -18,6 +18,12 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_SCHEDULE_ENTITY,
+    CONF_SCHEDULE_OFF_PRESET,
+    CONF_SCHEDULE_ON_PRESET,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    ZONE_PRESETS,
     CONF_ZONE_NAME,
     CONF_ZONE_TEMP_SENSOR,
     CONF_ZONE_TRV_CLIMATES,
@@ -370,6 +376,30 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     default=opts.get(CONF_DUTY_EN, True),
                     description="duty_cycle_enabled",
                 ): bool,
+                vol.Optional(
+                    CONF_SCHEDULE_ENTITY,
+                    description="schedule_entity",
+                    **(
+                        {"default": opts[CONF_SCHEDULE_ENTITY]}
+                        if opts.get(CONF_SCHEDULE_ENTITY)
+                        else {}
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["schedule", "input_select", "sensor", "input_text"],
+                        multiple=False,
+                    )
+                ),
+                vol.Required(
+                    CONF_SCHEDULE_ON_PRESET,
+                    default=opts.get(CONF_SCHEDULE_ON_PRESET, PRESET_COMFORT),
+                    description="schedule_on_preset",
+                ): vol.In(ZONE_PRESETS),
+                vol.Required(
+                    CONF_SCHEDULE_OFF_PRESET,
+                    default=opts.get(CONF_SCHEDULE_OFF_PRESET, PRESET_ECO),
+                    description="schedule_off_preset",
+                ): vol.In(ZONE_PRESETS),
                 vol.Required(
                     CONF_GAS_POWER_KW,
                     default=opts.get(CONF_GAS_POWER_KW, 24.0),
@@ -412,10 +442,9 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
             else:
                 options = {**self.config_entry.options, **user_input}
                 # Clearing the entity picker omits the key — drop stale value.
-                if CONF_OUTDOOR_SENSOR not in user_input:
-                    options.pop(CONF_OUTDOOR_SENSOR, None)
-                elif not user_input.get(CONF_OUTDOOR_SENSOR):
-                    options.pop(CONF_OUTDOOR_SENSOR, None)
+                for key in (CONF_OUTDOOR_SENSOR, CONF_SCHEDULE_ENTITY):
+                    if key not in user_input or not user_input.get(key):
+                        options.pop(key, None)
                 return self.async_create_entry(title="", data=options)
         return self.async_show_form(
             step_id="init",

@@ -30,6 +30,38 @@ def test_onoff_boiler_uses_duty_factor():
     assert mode == "on/off estimate"
 
 
+def test_dt_estimate_when_no_modulation():
+    """flow 60 / return 40 → ΔT 20 K → full nameplate delivered → gas = P/η."""
+    g = meter(rated_power_kw=24.0)
+    rate, mode = g.current_rate_kw(
+        flame_on=True, modulation=None, flow_temp=60.0, return_temp=40.0
+    )
+    assert mode == "ΔT estimate"
+    # delivered = 24 * 20/20 = 24 kW; gas = 24 / 0.90
+    assert rate == pytest.approx(24.0 / 0.90, rel=1e-6)
+    assert g.last_dt_k == pytest.approx(20.0)
+    assert g.last_hydronic_kw == pytest.approx(24.0)
+
+
+def test_modulation_preferred_over_dt():
+    g = meter(rated_power_kw=24.0, min_power_kw=4.0)
+    rate, mode = g.current_rate_kw(
+        flame_on=True, modulation=50.0, flow_temp=55.0, return_temp=45.0
+    )
+    assert "modulating" in mode
+    assert rate == pytest.approx(4 + 20 * 0.5)
+    assert g.last_hydronic_kw == pytest.approx(24.0 * 10 / 20)
+
+
+def test_tiny_dt_ignored():
+    g = meter(rated_power_kw=24.0)
+    rate, mode = g.current_rate_kw(
+        flame_on=True, modulation=None, flow_temp=50.0, return_temp=49.5
+    )
+    # ΔT < 1 K → fall through to on/off estimate
+    assert mode == "on/off estimate"
+
+
 def test_constant_full_scale_reports_as_estimate():
     """Some on/off boards report a stuck 100% — still the estimate path."""
     g = meter(rated_power_kw=20.0, nomod_factor=0.6)

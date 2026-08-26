@@ -105,6 +105,9 @@ class ZoneClimateEntity(ClimateEntity):
         self._current_temp: float | None = float(start) if start is not None else None
         self._target_temp: float = float(zone_cfg.get("setpoint", DEFAULT_ZONE_SETPOINT))
         self._preset: str = "none"
+        # "schedule" = last change came from timetable; "user" = sticky
+        # until the schedule entity itself advances to a new window.
+        self._preset_source: str = "schedule"
         self._hvac_mode: HVACMode = (
             HVACMode.HEAT if zone_cfg.get("demo_start_temp") is not None else HVACMode.OFF
         )
@@ -183,6 +186,7 @@ class ZoneClimateEntity(ClimateEntity):
             ),
             "effective_setpoint": self.effective_setpoint(),
             "preheat": bool(self._preheat_active),
+            "preset_source": self._preset_source,
             "dead_time_s": round(dead, 0) if dead is not None else None,
             "lead_time_s": round(lead, 0) if lead is not None else None,
             "warm_rate_cph": self._warm_rate_cph(),
@@ -210,8 +214,34 @@ class ZoneClimateEntity(ClimateEntity):
         if preset_mode not in ZONE_PRESETS:
             return
         self._preset = preset_mode
+        self._preset_source = "user"  # sticky until schedule window changes
+        self._preheat_active = False
         await self._push_setpoint_to_trv()
         self.async_write_ha_state()
+
+    def apply_schedule_preset(self, preset_mode: str) -> bool:
+        """Apply a timetable preset (sync). Returns True if the room changed."""
+        if preset_mode not in ZONE_PRESETS:
+            return False
+        if self.heater_control == "manual":
+            return False
+        if self._preset == preset_mode and self._preset_source == "schedule":
+            return False
+        self._preset = preset_mode
+        self._preset_source = "schedule"
+        if preset_mode not in ("away", "eco"):
+            self._preheat_active = False
+        # Best-effort TRV push without awaiting (called from state listener).
+        if self.hass is not None:
+            try:
+                self.hass.async_create_task(self._push_setpoint_to_trv())
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self.async_write_ha_state()
+            except Exception:  # noqa: BLE001
+                pass
+        return True
 
     @property
     def temp_sensor_entity(self) -> str | None:

@@ -11,7 +11,12 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_SCHEDULE_ENTITY,
+    CONF_SCHEDULE_OFF_PRESET,
+    CONF_SCHEDULE_ON_PRESET,
     CONF_ZONES,
+    PRESET_COMFORT,
+    PRESET_ECO,
     DEFAULT_BOILER_MIN_MODULATION,
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
@@ -119,11 +124,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
         duty_cycle_enabled=opts.get("duty_cycle_enabled", True),
     )
+    from .schedule import ScheduleFollower
+
+    schedule = ScheduleFollower(
+        hass,
+        entity_id=opts.get(CONF_SCHEDULE_ENTITY)
+        or entry.data.get(CONF_SCHEDULE_ENTITY),
+        on_preset=opts.get(CONF_SCHEDULE_ON_PRESET, PRESET_COMFORT),
+        off_preset=opts.get(CONF_SCHEDULE_OFF_PRESET, PRESET_ECO),
+    )
     controller.setbacks = setbacks
     controller.deadtime = deadtime
     controller.insulation = insulation
     controller.datalogger = datalogger
     controller.gas = gas
+    controller.schedule = schedule
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
         "zones_cfg": opts.get(CONF_ZONES, []),

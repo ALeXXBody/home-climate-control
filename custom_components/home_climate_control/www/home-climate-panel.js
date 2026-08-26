@@ -1734,7 +1734,12 @@ class HomeClimatePanel extends HTMLElement {
         ${sys.gas ? `<div class="card"><h3>Gas (est.)</h3>
           <div class="metric">${this._esc(sys.gas.today_kwh)}<span class="unit">kWh today</span></div>
           <p class="sub">${this._esc(sys.gas.mode)} · ${this._esc(sys.gas.rated_power_kw)} kW${sys.gas.min_power_kw ? `–${this._esc(sys.gas.min_power_kw)} kW` : ""} nameplate</p>
-          <p class="sub">${sys.gas.last_rate_kw != null ? `now: ${this._esc(sys.gas.last_rate_kw)} kW · ` : ""}${sys.gas.total_kwh != null ? `total: ${this._esc(sys.gas.total_kwh)} kWh` : ""}${sys.gas.today_cost != null ? ` · ~${this._esc(sys.gas.today_cost)} today` : ""}</p>
+          <p class="sub">${sys.gas.last_rate_kw != null ? `now: ${this._esc(sys.gas.last_rate_kw)} kW` : ""}${sys.gas.last_dt_k != null ? ` · ΔT ${this._esc(sys.gas.last_dt_k)} K` : ""}${sys.gas.last_hydronic_kw != null ? ` · hydronic ${this._esc(sys.gas.last_hydronic_kw)} kW` : ""}${sys.gas.total_kwh != null ? ` · total ${this._esc(sys.gas.total_kwh)} kWh` : ""}${sys.gas.today_cost != null ? ` · ~${this._esc(sys.gas.today_cost)} today` : ""}</p>
+        </div>` : ""}
+        ${sys.schedule?.enabled ? `<div class="card"><h3>Schedule</h3>
+          <div class="metric" style="font-size:1.2rem">${this._esc(sys.schedule.last_preset || "—")}</div>
+          <p class="sub">${this._esc(sys.schedule.entity_id || "")}${sys.schedule.last_state != null ? ` · state ${this._esc(sys.schedule.last_state)}` : ""}</p>
+          <p class="sub">on→${this._esc(sys.schedule.on_preset)} · off→${this._esc(sys.schedule.off_preset)}</p>
         </div>` : ""}
         ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
           ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}

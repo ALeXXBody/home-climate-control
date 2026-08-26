@@ -4,13 +4,16 @@ OpenTherm has no standard gas-consumption ID, but every boiler that
 reports burner state gives us enough to integrate burn over time:
 
   Modulating boilers   rate_kW = P_min + (P_max - P_min) x mod%/100
+  ΔT hydronic          rate_kW = P_max × (Tflow−Tret) / ΔT_design / η
   On/off boilers       rate_kW = P_max x nomod_factor   (while flame on)
 
-where P_max / P_min are the boiler's NAMEPLATE heat-INPUT range in kW
-(what the data plate calls "central heating input", not output). The
-linear interpolation between min and max firing is a good model for
-condensing boilers across all brands; the optional calibration factor
-lets anyone match their actual gas meter exactly after a day or two.
+Priority while flame is ON:
+  1. modulation % (nameplate input — best for gas burned)
+  2. flow/return ΔT (physical heat-to-water, inverted through η)
+  3. nameplate × nomod_factor (last resort)
+
+P_max / P_min are the boiler's NAMEPLATE heat-INPUT range in kW.
+The optional calibration factor matches a real gas meter after a day or two.
 
 Hot-water (DHW) burns count too — it is house gas either way.
 Accumulation only runs while the flame is reported ON, so pump-only
@@ -34,6 +37,15 @@ STORAGE_VERSION = 1
 KEEP_DAYS = 14          # per-day buckets retained for panel/history
 MAX_DT_S = 300.0        # ignore integration gaps longer than this
 PERSIST_EVERY_S = 300   # throttle Store writes
+
+# Radiator systems are typically designed for ~20 K flow−return at full load.
+# Q_delivered ≈ P_max × ΔT / DESIGN_DT  (heat to water, kW)
+DESIGN_DT_K = 20.0
+MIN_DT_K = 1.0          # below this, treat as no useful heat transfer
+MAX_DT_K = 40.0         # sanity clamp (sensor glitch / DHW spike)
+# Average seasonal efficiency when inverting delivered → gas input.
+# Condensing boilers ~0.90–0.97; 0.90 keeps the gas estimate slightly high.
+DEFAULT_EFFICIENCY = 0.90
 
 
 class GasMeter:
@@ -64,7 +76,9 @@ class GasMeter:
         self._last_persist = 0.0
         self._saw_modulation = False
         self.last_rate_kw: float | None = None
-        self.mode: str = "waiting"   # waiting | modulating | on/off estimate
+        self.last_hydronic_kw: float | None = None
+        self.last_dt_k: float | None = None
+        self.mode: str = "waiting"   # waiting | modulating | ΔT estimate | on/off
 
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY) if hass else None
 
@@ -121,26 +135,76 @@ class GasMeter:
                 asyncio.run(_save())
 
     # -------------------------------------------------------------- physics
-    def current_rate_kw(self, *, flame_on: bool, modulation: float | None) -> tuple[float, str]:
+    def hydronic_kw(
+        self,
+        flow_temp: float | None,
+        return_temp: float | None,
+        *,
+        efficiency: float = DEFAULT_EFFICIENCY,
+    ) -> tuple[float | None, float | None]:
+        """Heat-to-water kW and ΔT from flow/return, or (None, None).
+
+        Uses design mass-flow implied by nameplate at DESIGN_DT_K:
+            Q_del = P_max × ΔT / DESIGN_DT
+        Returns (delivered_kw, delta_t_k). Gas-input equivalent is
+        delivered / efficiency (caller decides).
+        """
+        if flow_temp is None or return_temp is None:
+            return None, None
+        try:
+            dtk = float(flow_temp) - float(return_temp)
+        except (TypeError, ValueError):
+            return None, None
+        if dtk < MIN_DT_K:
+            return 0.0, dtk
+        dtk_c = min(MAX_DT_K, dtk)
+        delivered = self.p_max_kw * (dtk_c / DESIGN_DT_K)
+        return max(0.0, delivered), dtk
+
+    def current_rate_kw(
+        self,
+        *,
+        flame_on: bool,
+        modulation: float | None,
+        flow_temp: float | None = None,
+        return_temp: float | None = None,
+    ) -> tuple[float, str]:
         """Burner heat-input rate right now (kW) and the mode label."""
+        hyd, dtk = self.hydronic_kw(flow_temp, return_temp)
+        self.last_hydronic_kw = None if hyd is None else round(hyd, 3)
+        self.last_dt_k = None if dtk is None else round(dtk, 2)
+
         if not flame_on:
             return 0.0, self.mode if self.mode != "waiting" else "off"
-        usable_mod = modulation if (modulation is not None and 0 < modulation <= 100) else None
+
+        usable_mod = (
+            modulation if (modulation is not None and 0 < modulation <= 100) else None
+        )
         if usable_mod is not None:
             self._saw_modulation = True
             span = self.p_max_kw - self.p_min_kw
-            return self.p_min_kw + span * usable_mod / 100.0, "modulating"
-        # No trustworthy modulation signal: nameplate duty estimate.
+            gas = self.p_min_kw + span * usable_mod / 100.0
+            if hyd is not None and hyd > 0:
+                return gas, "modulating+ΔT"
+            return gas, "modulating"
+
+        # No modulation: prefer physical ΔT over crude on/off duty.
+        if hyd is not None and hyd > 0:
+            eta = max(0.5, min(1.0, DEFAULT_EFFICIENCY))
+            return hyd / eta, "ΔT estimate"
+
         return self.p_max_kw * self.nomod_factor, "on/off estimate"
 
-    def feed(self, *, now: float | None = None,
-             flame_on: bool | None = None,
-             modulation: float | None = None) -> float:
-        """Integrate since the previous call; returns this step's kWh.
-
-        flame_on/modulation default to reading self.backend if attached;
-        tests pass them explicitly with an injected clock.
-        """
+    def feed(
+        self,
+        *,
+        now: float | None = None,
+        flame_on: bool | None = None,
+        modulation: float | None = None,
+        flow_temp: float | None = None,
+        return_temp: float | None = None,
+    ) -> float:
+        """Integrate since the previous call; returns this step's kWh."""
         t = time.time() if now is None else float(now)
         dt = 0.0
         if self._last_t is not None:
@@ -151,7 +215,10 @@ class GasMeter:
             return 0.0
 
         rate, mode = self.current_rate_kw(
-            flame_on=bool(flame_on), modulation=modulation
+            flame_on=bool(flame_on),
+            modulation=modulation,
+            flow_temp=flow_temp,
+            return_temp=return_temp,
         )
         self.mode = mode
         self.last_rate_kw = round(rate, 3)
@@ -185,6 +252,8 @@ class GasMeter:
             "total_kwh": round(self.total_kwh, 2),
             "week": week,
             "last_rate_kw": self.last_rate_kw,
+            "last_hydronic_kw": self.last_hydronic_kw,
+            "last_dt_k": self.last_dt_k,
         }
         if price:
             out["today_cost"] = round(today * price, 2)

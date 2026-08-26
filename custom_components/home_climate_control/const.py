@@ -88,6 +88,9 @@ DEMO_DEFAULT_ROOMS = (
     ("Bedroom", 17.0, 19.0),
 )
 CONF_OUTDOOR_SENSOR = "outdoor_sensor"
+CONF_SCHEDULE_ENTITY = "schedule_entity"
+CONF_SCHEDULE_ON_PRESET = "schedule_on_preset"
+CONF_SCHEDULE_OFF_PRESET = "schedule_off_preset"
 
 # Rooms (stored under options key "zones" for backward compatibility).
 # A room is: one TRV climate + optional external temperature sensor.

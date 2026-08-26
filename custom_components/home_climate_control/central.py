@@ -66,6 +66,7 @@ class CentralController:
         self.deadtime = None
         self.insulation = None
         self.datalogger = None
+        self.schedule = None
         from .cycleguard import CycleGuard
 
         self.cycleguard = CycleGuard()
@@ -93,6 +94,12 @@ class CentralController:
 
     async def async_start(self) -> None:
         await self.backend.async_start()
+        if self.schedule is not None:
+            try:
+                self.schedule.bind_zones(self.zones)
+                self.schedule.async_start()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("schedule start failed", exc_info=True)
         self._unsub_loop = async_track_time_interval(
             self.hass, self._async_control_tick, timedelta(seconds=CONTROL_LOOP_SECONDS)
         )
@@ -103,6 +110,11 @@ class CentralController:
         if self._unsub_loop:
             self._unsub_loop()
             self._unsub_loop = None
+        if self.schedule is not None:
+            try:
+                self.schedule.async_stop()
+            except Exception:  # noqa: BLE001
+                pass
         if self._ch_on:
             await self.backend.async_set_ch_enabled(False)
             self._ch_on = False
@@ -313,15 +325,27 @@ class CentralController:
         self._calibration_tick(now)
 
         # Gas accounting: integrate burner kW x dt from live telemetry.
+        # Prefers modulation; falls back to flow/return ΔT when available.
         if self.gas is not None:
             try:
                 self.gas.feed(
                     now=_time.time(),
                     flame_on=bool(getattr(self.backend, "flame_on", False) or False),
                     modulation=getattr(self.backend, "modulation_level", None),
+                    flow_temp=getattr(self.backend, "flow_temp", None),
+                    return_temp=getattr(self.backend, "return_temp", None),
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("gas feed failed", exc_info=True)
+
+        # Schedule → preset (state listener does the heavy lifting; tick is
+        # a safety net if the entity changed while we were offline).
+        if self.schedule is not None:
+            try:
+                self.schedule.bind_zones(self.zones)
+                self.schedule.apply(force=False)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("schedule tick failed", exc_info=True)
         outdoor = self.outdoor_temp()
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
         raw_demand = sum(z.demand_level() for z in demanding) if demanding else 0.0
@@ -590,6 +614,8 @@ class CentralController:
         data["duty_cycle"] = self.dutycycle.as_dict()
         data["outdoor_source"] = self.outdoor_source
         data["outdoor_sensor"] = self.outdoor_sensor
+        if self.schedule is not None:
+            data["schedule"] = self.schedule.as_dict()
         data["condense"] = condense_snapshot(
             return_c=getattr(self.backend, "return_temp", None),
             pull_c=self._condense_pull_c,
