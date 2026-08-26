@@ -643,8 +643,8 @@ class HomeClimatePanel extends HTMLElement {
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
-        /* top-right control cluster: dropdowns (left col) + edit/delete (right col) */
-        .z-ctrl-wrap {
+        /* edit/delete + dropdowns — pinned under pill, top-right */
+        .z-actions-wrap {
           position: absolute; top: 42px; right: 12px;
           display: grid; grid-template-columns: auto auto; gap: 6px 10px;
           z-index: 2;
@@ -657,7 +657,7 @@ class HomeClimatePanel extends HTMLElement {
           white-space: nowrap; background: var(--secondary-background-color,#16181c);
         }
         #hcc-zones-wrap .z-side {
-          display: flex; flex-direction: column; gap: 4px; align-items: stretch;
+          display: flex; flex-direction: column; gap: 4px; align-self: start;
         }
         #hcc-zones-wrap .z-ddcol { display: flex; flex-direction: column; gap: 4px; }
         .z-lbl {
@@ -665,22 +665,15 @@ class HomeClimatePanel extends HTMLElement {
           color: var(--secondary-text-color, #999); margin-top: 8px;
         }
 
-        /* title/meta: leave room for pill + control cluster */
+        /* title/meta: leave room for pill + action cluster */
         #hcc-zones-wrap .zone-title,
         #hcc-zones-wrap .zone-meta,
         #hcc-zones-wrap .z-insights { max-width: calc(100% - 280px); }
 
-        /* controls: just the thermostat grid, centered */
+        /* controls: just the thermostat grid */
         #hcc-zones-wrap .controls { margin-top: 10px; }
         #hcc-zones-wrap .z-left { display: flex; justify-content: center; }
         #hcc-zones-wrap .z-temp-grid { margin-inline: auto; width: fit-content; }
-
-        @media (max-width: 720px) {
-          #hcc-zones-wrap .z-ctrl-wrap { position: static; width: 100%; }
-          #hcc-zones-wrap .zone-title,
-          #hcc-zones-wrap .zone-meta,
-          #hcc-zones-wrap .z-insights { max-width: 100%; }
-        }
 
         /* thermostat-style 2-row button cluster */
         #hcc-zones-wrap .temp-input,
@@ -1444,7 +1437,7 @@ class HomeClimatePanel extends HTMLElement {
     return `
           <div class="card zone" style="position:relative">
             <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
-            <div class="z-ctrl-wrap" style="${manual ? "grid-template-columns: auto" : ""}">
+            <div class="z-actions-wrap"${manual ? ' style="grid-template-columns:auto"' : ""}>
               ${manual ? "" : `
               <div class="z-side">
                 <div class="z-ddcol">
