@@ -8,7 +8,12 @@
 4. Check `manifest.json` exists and has valid JSON
 5. Make sure HA version is 2024.1+
 
-## Board not connecting (red "Boiler disconnected")
+## Board not connecting (red "Board offline")
+
+> Since HCC 1.5.0 the pill distinguishes **Board offline** (no MQTT telemetry
+> from any HCS board — red) from **OT not linked** (board reachable, but the
+> OpenTherm bus is down — amber). HCC also follows **any live board**
+> automatically; the node id in config is only a preference.
 
 ### Check MQTT
 1. Install an MQTT explorer (e.g. [MQTT Explorer](http://mqtt-explorer.com/))

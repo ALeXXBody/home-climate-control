@@ -23,7 +23,7 @@
         "description": "{hint}",
         "data": {
           "name": "Name",
-          "node_id": "Gateway node id (e.g. hcs-aabbccddeeff)",
+          "node_id": "Preferred gateway node id (any live board is followed automatically)",
           "min_flow_temp": "Minimum flow temperature (\u00b0C)",
           "max_flow_temp": "Maximum flow temperature (\u00b0C)",
           "curve_coeff": "Heating curve coefficient"

@@ -18,11 +18,9 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.4.5 |
+| **Current version** | v1.5.0 |
 | **Domain** | `home_climate_control` |
-| **License** | MIT |
-
-## Naming
+| **License** | MIT |## Naming
 
 | Name | What it is |
 |---|---|
@@ -61,9 +59,11 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 
 ### Boards & OTA
 
+- **Node-agnostic backend** — HCC follows whichever HCS board is alive (configured node preferred; swapped/re-flashed boards work without reconfiguring)
 - Board tab — live replica of the ESP Control page
 - Two-way settings sync (firmware v1.2+)
 - Firmware tab — GitHub catalog, LAN mirror, OTA progress + post-reboot success
+- Status pill separates **Board offline** (MQTT) from **OT not linked** (bus)
 
 ### Zones — house model
 

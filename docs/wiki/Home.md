@@ -5,7 +5,7 @@ Home Climate Control (HCC) is a Home Assistant custom integration for **multi-zo
 | | |
 |---|---|
 | **Repo** | [github.com/ALeXXBody/home-climate-control](https://github.com/ALeXXBody/home-climate-control) |
-| **Current version** | v1.4.5 |
+| **Current version** | v1.5.0 |
 | **Companion firmware** | [Home Climate System (HCS)](https://github.com/ALeXXBody/home-climate-system) — [HCS Wiki](https://github.com/ALeXXBody/home-climate-system/blob/main/docs/wiki/Home.md) |
 | **License** | MIT |
 
