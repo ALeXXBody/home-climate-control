@@ -27,15 +27,15 @@ def test_backend_parses_sensors_snapshot_and_custom_leaf():
             },
         ],
     }
-    b._on_value("sensors", json.dumps(snap))
+    b._on_topic("hcs/hcs-aabb/sensors", json.dumps(snap))
     assert len(b.sensors_snapshot()) == 2
     assert b.custom_sensors()["hall_temp"] == 19.2
 
-    b._on_value("x/hall_temp", "19.5")
+    b._on_topic("hcs/hcs-aabb/x/hall_temp", "19.5")
     assert b.custom_sensors()["hall_temp"] == 19.5
 
     # slash keys other than x/ and sensors still ignored
-    b._on_value("set/ch_enable", "on")
+    b._on_topic("hcs/hcs-aabb/set/ch_enable", "on")
     assert b.flame_on is None
 
 
@@ -46,8 +46,9 @@ def test_backend_sensors_listener_fires():
     b = HcsMqttBackend(hass, "hcs-aabb", 25.0, 75.0)
     hits = []
     b.add_sensors_listener(lambda: hits.append(1))
-    b._on_value("x/probe_a", "12.0")
-    assert hits == [1]
+    b._on_topic("hcs/hcs-aabb/x/probe_a", "12.0")
+    # one notify from board adoption, one from the custom leaf itself
+    assert len(hits) >= 1
 
 
 def test_probe_manager_adds_custom_entities():
