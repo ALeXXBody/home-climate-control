@@ -2430,7 +2430,9 @@ class HomeClimatePanel extends HTMLElement {
     );
     if (entry) {
       const t = String(entry[1].state ?? "");
-      if (t && t !== "unknown" && t !== "no faults" && t !== "ok") text = t;
+      // "no data" = board hasn't read ASF/OEM diag yet — not a fault
+      if (t && t !== "unknown" && t !== "unavailable" && t !== "no faults" &&
+          t !== "ok" && t !== "no data") text = t;
     }
 
     if (conn === false) {
