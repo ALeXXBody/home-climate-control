@@ -645,4 +645,6 @@ class CentralController:
         )
         data.update(self.backend.diagnostics())
         data["boiler_connected"] = getattr(self.backend, "connected", True)
+        # OT bus link is separate from MQTT board reachability.
+        data["ot_valid"] = getattr(self.backend, "ot_valid", None)
         return data
