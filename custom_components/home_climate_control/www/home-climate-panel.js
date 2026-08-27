@@ -2414,28 +2414,35 @@ class HomeClimatePanel extends HTMLElement {
   }
 
   _boilerPillHtml(sys) {
-    /* Header pill, always visible once the backend reports a link state:
-       red   = boiler disconnected (no telemetry for 5 min)
-       amber = connected but diagnostic text reports something
-       green = connected, no faults
-       (hidden only before any state is known at all) */
+    /* Header pill:
+       red   = board MQTT offline / no telemetry (5 min)
+       amber = board up but OT bus down, or boiler diagnostic text
+       green = board MQTT up (OT optional)
+       (hidden only before any state is known) */
     if (!this._hass?.states) return "";
-    const conn = this._status?.systems?.[0]?.boiler?.boiler_connected;
+    const b = this._status?.systems?.[0]?.boiler || {};
+    const conn = b.boiler_connected;
+    const ot = b.ot_valid;
 
-    // Diagnostic text from the board's boiler_diag sensor, if any.
     let text = "";
     const entry = Object.entries(this._hass.states).find(([id]) =>
       id.endsWith("_boiler_diagnostic")
     );
     if (entry) {
       const t = String(entry[1].state ?? "");
-      if (t && t !== "unknown" && t !== "no faults") text = t;
+      if (t && t !== "unknown" && t !== "no faults" && t !== "ok") text = t;
     }
 
     if (conn === false) {
-      return `<span class="hdr-alert" title="No boiler telemetry received recently — check the board and the OpenTherm wiring">
+      return `<span class="hdr-alert" title="No MQTT telemetry from the HCS board recently — check power, Wi‑Fi, MQTT broker, and node id">
+        <ha-icon icon="mdi:lan-disconnect" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
+        <span class="hdr-alert-txt">Board offline</span>
+      </span>`;
+    }
+    if (conn === true && ot === false) {
+      return `<span class="hdr-alert" title="Board is online over MQTT, but OpenTherm Status is not answering — check OT wiring / boiler power">
         <ha-icon icon="mdi:fire-off" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
-        <span class="hdr-alert-txt">Boiler disconnected</span>
+        <span class="hdr-alert-txt">OT not linked</span>
       </span>`;
     }
     if (text) {
@@ -2445,7 +2452,10 @@ class HomeClimatePanel extends HTMLElement {
       </span>`;
     }
     if (conn === true) {
-      return `<span class="hdr-ok" title="Boiler is responding on the bus">
+      const tip = ot === true
+        ? "Board MQTT up · OpenTherm linked"
+        : "Board MQTT up (OT status unknown — flash firmware ≥1.4.5 for ot_valid)";
+      return `<span class="hdr-ok" title="${this._esc(tip)}">
         <ha-icon icon="mdi:fire" style="--mdc-icon-size:16px;vertical-align:-3px"></ha-icon>
         <span class="hdr-ok-txt">Boiler connected</span>
       </span>`;

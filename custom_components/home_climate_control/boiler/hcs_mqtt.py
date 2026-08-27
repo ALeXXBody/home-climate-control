@@ -61,6 +61,8 @@ class HcsMqttBackend(BoilerBackend):
         self._ch_active: bool | None = None
         self._fault_text: str | None = None
         self._last_rx_mono: float | None = None
+        self._board_online: bool | None = None  # LWT online/offline
+        self._ot_valid: bool | None = None  # board OT link (optional topic)
         self._commanded_setpoint: float | None = None
         # custom 1-Wire probes (role=custom): name -> celsius
         self._custom: dict[str, float] = {}
@@ -112,14 +114,34 @@ class HcsMqttBackend(BoilerBackend):
         # echoes and discovery pings do not count.
         import time as _t
 
-        if not key.startswith("set/") and key != "ping_discovery":
+        text = (payload if isinstance(payload, str) else
+                (payload.decode("utf-8", "replace") if isinstance(payload, (bytes, bytearray))
+                 else str(payload or ""))).strip()
+
+        if key == "online":
+            # LWT: offline → disconnected immediately; online → heartbeat.
+            low = text.lower()
+            if low in ("offline", "0", "false"):
+                self._board_online = False
+            elif low in ("online", "1", "true", "on"):
+                self._board_online = True
+                self._last_rx_mono = _t.monotonic()
+            return
+        if key == "ping_discovery" or key.startswith("set/"):
+            return
+        if "/" in key and not key.startswith("x/"):
+            return  # nested cmd echoes etc.
+
+        if key != "ping_discovery" and not key.startswith("set/"):
             self._last_rx_mono = _t.monotonic()
+            # Any live leaf implies the board is reachable.
+            self._board_online = True
 
         # custom leaves: x/<name>
         if key.startswith("x/"):
             name = key[2:].strip()
             if name:
-                v = _f(payload)
+                v = _f(text)
                 if v is not None:
                     self._custom[name] = v
                     for cb in list(self._sensors_listeners):
@@ -130,9 +152,7 @@ class HcsMqttBackend(BoilerBackend):
             return
         if key == "sensors":
             # retained JSON snapshot from the board
-            text = (payload or "").strip()
             try:
-                import json
                 data = json.loads(text) if text else {}
                 devices = data.get("devices") if isinstance(data, dict) else data
                 if isinstance(devices, list):
@@ -156,12 +176,10 @@ class HcsMqttBackend(BoilerBackend):
             except Exception:  # noqa: BLE001
                 pass
             return
-        if "/" in key or key in ("online", "ping_discovery"):
-            return  # set-topics & LWT noise
-        text = (payload or "").strip()
+        if key == "ot_valid":
+            self._ot_valid = _onoff(text)
+            return
         if key == "outdoor_temp":
-            import time as _t
-
             self._outdoor_temp = _f(text)
             if self._outdoor_temp is not None:
                 self._outdoor_mono = _t.monotonic()
@@ -242,13 +260,24 @@ class HcsMqttBackend(BoilerBackend):
 
     @property
     def connected(self):
-        """True while board telemetry is fresh, False once stale,
-        None before the very first message arrives."""
+        """Board MQTT link (not OpenTherm bus).
+
+        - False: LWT offline, or no telemetry for CONNECTED_STALE_S
+        - True: recent telemetry (or explicit online)
+        - None: nothing received yet
+        """
+        if self._board_online is False:
+            return False
         if self._last_rx_mono is None:
             return None
         import time as _t
 
         return (_t.monotonic() - self._last_rx_mono) <= self.CONNECTED_STALE_S
+
+    @property
+    def ot_valid(self) -> bool | None:
+        """OpenTherm bus link as reported by the board (optional)."""
+        return self._ot_valid
 
     def custom_sensors(self) -> dict:
         return dict(self._custom)

@@ -384,6 +384,25 @@ async def test_hcs_backend_connected_tracks_freshness():
     assert be.connected is True
     be._last_rx_mono = _t.monotonic() - 601    # silent for 10 min
     assert be.connected is False
+    # LWT offline forces disconnected even with a recent timestamp
+    be._last_rx_mono = _t.monotonic()
+    be._board_online = False
+    assert be.connected is False
+    be._on_value("online", "online")
+    assert be.connected is True
+    be._on_value("online", "offline")
+    assert be.connected is False
+    # ot_valid is independent of MQTT connected
+    be._on_value("online", "online")
+    be._on_value("ot_valid", "OFF")
+    assert be.connected is True
+    assert be.ot_valid is False
+    be._on_value("ot_valid", "ON")
+    assert be.ot_valid is True
+    # telemetry while OT down still counts as board online
+    be._on_value("outdoor_temp", "12.5")
+    assert be.connected is True
+    assert be.outdoor_temp == 12.5
 
 
 @pytest.mark.asyncio
