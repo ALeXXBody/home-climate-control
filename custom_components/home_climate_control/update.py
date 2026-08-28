@@ -60,10 +60,12 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         (IP vs .local, reverse proxy, remote UI). The version query busts
         image caches across releases.
 
-        Note: on HA 2025.10+ UpdateEntity.entity_picture is overridden to
-        always return /api/brands/integration/<domain>/icon.png, ignoring
-        this attribute; there the icon comes from the home-assistant/brands
-        repo instead. This still helps older HA installs.
+        On HA 2025.10+ UpdateEntity.entity_picture is overridden to
+        /api/brands/integration/<domain>/icon.png. Since HA 2026.3 that
+        brands proxy resolves the integration's own brand/ folder first,
+        so our inline icon.png wins — no brands-repo submission needed
+        (the home-assistant/brands repo auto-closes custom-integration
+        PRs). This fallback still helps pre-2025.10 installs.
         """
         from pathlib import Path
 
