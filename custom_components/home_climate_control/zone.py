@@ -23,6 +23,7 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_HALVES, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     DEFAULT_MAX_ROOM_TEMP,
@@ -48,7 +49,7 @@ def _as_list(value) -> list[str]:
     return list(value)
 
 
-class ZoneClimateEntity(ClimateEntity):
+class ZoneClimateEntity(ClimateEntity, RestoreEntity):
     """One heated room. Reports demand to the CentralController."""
 
     _attr_should_poll = False
@@ -135,6 +136,31 @@ class ZoneClimateEntity(ClimateEntity):
         # Seed temperature from TRV when no external sensor is configured.
         if not self._temp_sensor:
             self._refresh_temp_from_trv()
+        # Restore the user's last target across entry reloads. Zone cfgs only
+        # carry the creation-time setpoint, so without this ANY options
+        # update / reload silently reset rooms to DEFAULT_ZONE_SETPOINT.
+        try:
+            last = await self.async_get_last_state()
+        except Exception:  # noqa: BLE001 - never block setup on restore
+            last = None
+        if last is not None:
+            prev = last.attributes.get(ATTR_TEMPERATURE)
+            if prev is not None:
+                try:
+                    restored = float(prev)
+                except (TypeError, ValueError):
+                    restored = None
+                if restored is not None and DEFAULT_MIN_ROOM_TEMP <= restored <= DEFAULT_MAX_ROOM_TEMP:
+                    self._target_temp = restored
+            # hvac mode survives reloads too
+            mode = last.state
+            if mode == "off":
+                self._hvac_mode = HVACMode.OFF
+            elif mode == "heat":
+                self._hvac_mode = HVACMode.HEAT
+            preset = last.attributes.get("preset_mode")
+            if preset in ZONE_PRESETS:
+                self._preset = preset
 
     @property
     def current_temperature(self) -> float | None:

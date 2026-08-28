@@ -102,6 +102,12 @@ def install_ha_stubs() -> None:
     ce.FlowResult = dict
     ce.SOURCE_USER = "user"
     ha.config_entries = ce
+    restore = _mod("homeassistant.helpers.restore_state")
+    class _RestoreEntity:
+        async def async_get_last_state(self):
+            return None
+    restore.RestoreEntity = _RestoreEntity
+    helpers.restore_state = restore
     entity_platform = _mod("homeassistant.helpers.entity_platform")
     entity_platform.AddEntitiesCallback = object
     aiohttp_client = _mod("homeassistant.helpers.aiohttp_client")

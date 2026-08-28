@@ -91,11 +91,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Ensure the config entry has a stable unique_id so MQTT rediscovery of
     # the same (or any) HCS board is treated as already configured.
+    # Guarded: never fight over a unique_id another entry already owns —
+    # async_update_entry fires the update listener (reload), and a refused
+    # duplicate would loop setup/reload forever.
     node = (entry.data.get(CONF_NODE_ID) or "").strip()
     backend_type = entry.data.get(CONF_BACKEND, BACKEND_HCS)
     if backend_type == BACKEND_HCS and node:
         want_uid = f"hcs_{node}"
-        if entry.unique_id != want_uid:
+        if entry.unique_id != want_uid and not any(
+            other.entry_id != entry.entry_id and other.unique_id == want_uid
+            for other in hass.config_entries.async_entries(DOMAIN)
+        ):
             hass.config_entries.async_update_entry(entry, unique_id=want_uid)
 
     opts = entry.options
