@@ -89,6 +89,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
 
+    # Ensure the config entry has a stable unique_id so MQTT rediscovery of
+    # the same (or any) HCS board is treated as already configured.
+    node = (entry.data.get(CONF_NODE_ID) or "").strip()
+    backend_type = entry.data.get(CONF_BACKEND, BACKEND_HCS)
+    if backend_type == BACKEND_HCS and node:
+        want_uid = f"hcs_{node}"
+        if entry.unique_id != want_uid:
+            hass.config_entries.async_update_entry(entry, unique_id=want_uid)
+
     opts = entry.options
     backend = _build_backend(hass, entry, opts)
     tuner = CurveAutoTuner(

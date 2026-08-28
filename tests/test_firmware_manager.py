@@ -115,7 +115,8 @@ def test_discovery_flow_skips_already_claimed_node():
 
     hass = MagicMock()
     claimed = MagicMock()
-    claimed.data = {"node_id": "hcs-claimed"}
+    # Any HCS backend entry owns all boards (node-agnostic).
+    claimed.data = {"backend": "hcs", "node_id": "hcs-claimed"}
     hass.config_entries.async_entries.return_value = [claimed]
     tasks = []
     hass.async_create_task = lambda coro: (tasks.append(coro), coro.close())[1]
@@ -129,3 +130,13 @@ def test_discovery_flow_skips_already_claimed_node():
     mgr._on_discovery(msg)
     assert hass.config_entries.flow.async_init.call_count == 0
     assert "hcs-claimed" not in mgr._flowed_nodes
+
+    # Same physical board rediscovered under a different stored node_id still
+    # must not spawn a second integration once any HCS entry exists.
+    msg2 = MagicMock()
+    msg2.topic = "hcs/discovery/hcs-other"
+    msg2.payload = json.dumps(
+        {"node_id": "hcs-other", "board": "lolin_c3_mini", "version": "1.5.0"}
+    )
+    mgr._on_discovery(msg2)
+    assert hass.config_entries.flow.async_init.call_count == 0

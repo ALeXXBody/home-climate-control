@@ -337,10 +337,35 @@ def test_config_flow_discovery_prefills_node():
 
     flow = HomeClimateControlConfigFlow()
     flow.context = {}
+    flow.hass = None  # no entries → offer setup
+    # _async_current_entries needs a real hass; stub to empty
+    flow._async_current_entries = lambda: []  # type: ignore[method-assign]
     res = asyncio.run(flow.async_step_discovery({"node_id": "hcs-new"}))
     assert flow._data[CONF_NODE_ID] == "hcs-new"
     assert res["type"] == "form"
     assert res["step_id"] == "hcs"
+
+
+def test_config_flow_discovery_aborts_when_hcs_already_configured():
+    """Second board must not spawn another integration — backend is shared."""
+    import asyncio
+    from types import SimpleNamespace
+    from custom_components.home_climate_control.config_flow import (
+        HomeClimateControlConfigFlow,
+    )
+    from custom_components.home_climate_control.const import (
+        BACKEND_HCS,
+        CONF_BACKEND,
+    )
+
+    flow = HomeClimateControlConfigFlow()
+    flow.context = {}
+    flow._async_current_entries = lambda: [  # type: ignore[method-assign]
+        SimpleNamespace(data={CONF_BACKEND: BACKEND_HCS, "node_id": "hcs-old"})
+    ]
+    res = asyncio.run(flow.async_step_discovery({"node_id": "hcs-new"}))
+    assert res["type"] == "abort"
+    assert res["reason"] == "already_configured"
 
 
 def test_ws_failsafe_finds_backend_object():

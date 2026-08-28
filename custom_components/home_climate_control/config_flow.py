@@ -155,14 +155,39 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="demo", data_schema=schema)
 
     async def async_step_discovery(self, discovery_info):
-        """A new HCS board announced itself on MQTT — offer setup."""
+        """A new HCS board announced itself on MQTT — offer setup.
+
+        One HCS integration already follows every live board (node-agnostic
+        backend). Only prompt when no HCS entry exists yet.
+
+        Also abort when this exact node is already stored on an entry
+        (node_id / unique_id), so a re-announce never looks like a second board.
+        """
         info = discovery_info or {}
-        node = info.get("node_id") or self.context.get("node_id") or ""
+        node = (info.get("node_id") or self.context.get("node_id") or "").strip()
+        uid = f"hcs_{node}" if node else ""
+
+        for entry in self._async_current_entries():
+            data = getattr(entry, "data", None) or {}
+            # Any existing HCS backend already owns all boards.
+            if data.get(CONF_BACKEND, BACKEND_HCS) == BACKEND_HCS:
+                if uid:
+                    await self.async_set_unique_id(uid)
+                return self.async_abort(reason="already_configured")
+            # Same physical board already configured (even on older entries).
+            if node and (
+                data.get(CONF_NODE_ID) == node
+                or getattr(entry, "unique_id", None) in (node, uid)
+            ):
+                if uid:
+                    await self.async_set_unique_id(uid)
+                return self.async_abort(reason="already_configured")
+
         self._data[CONF_NODE_ID] = node
         self._data[CONF_BACKEND] = BACKEND_HCS
         self.context["title_placeholders"] = {"node": node}
         if node:
-            await self.async_set_unique_id(f"hcs_{node}")
+            await self.async_set_unique_id(uid)
             self._abort_if_unique_id_configured()
         return await self.async_step_hcs()
 

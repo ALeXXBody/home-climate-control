@@ -15,7 +15,7 @@ from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_NODE_ID, DOMAIN
+from .const import BACKEND_HCS, CONF_BACKEND, CONF_NODE_ID, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1001,14 +1001,30 @@ class FirmwareManager:
             except Exception:  # noqa: BLE001
                 self._hass.async_create_task(self._trigger_update_check())
 
-        # HA discovery: surface a setup card for boards that are not yet
-        # claimed by any config entry (once per node).
+        # HA discovery: only offer a setup card when NO HCS integration
+        # exists yet. One HCS entry already follows every live board — a
+        # rediscovery of the same (or any) board must not look like a new one.
         try:
-            claimed = {
-                e.data.get(CONF_NODE_ID)
+            entries = [
+                e
                 for e in self._hass.config_entries.async_entries(DOMAIN)
                 if getattr(e, "data", None)
-            }
+            ]
+            has_hcs = any(
+                e.data.get(CONF_BACKEND, BACKEND_HCS) == BACKEND_HCS for e in entries
+            )
+            if has_hcs:
+                return
+            claimed = set()
+            for e in entries:
+                nid = e.data.get(CONF_NODE_ID)
+                if nid:
+                    claimed.add(nid)
+                uid = getattr(e, "unique_id", None) or ""
+                if uid.startswith("hcs_"):
+                    claimed.add(uid[4:])
+                elif uid:
+                    claimed.add(uid)
             if node not in claimed and node not in self._flowed_nodes:
                 self._flowed_nodes.add(node)
                 self._hass.async_create_task(
