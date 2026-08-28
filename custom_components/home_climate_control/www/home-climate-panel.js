@@ -95,8 +95,25 @@ class HomeClimatePanel extends HTMLElement {
       this._onBoardClick(ev); // board/WC controls (no-op when unmatched)
     });
 
+    root.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      const t = ev.target;
+      if (t.classList && t.classList.contains("temp-input")) {
+        ev.preventDefault();
+        const id = t.getAttribute("data-entity");
+        const v = parseFloat(t.value);
+        if (id && Number.isFinite(v)) this._setZone(id, { temperature: v });
+      }
+    });
     root.addEventListener("change", (ev) => {
       const t = ev.target;
+      if (t.classList && t.classList.contains("temp-input")) {
+        // Typed + committed (blur/Enter) — send like the Set button.
+        const id = t.getAttribute("data-entity");
+        const v = parseFloat(t.value);
+        if (id && Number.isFinite(v)) this._setZone(id, { temperature: v });
+        return;
+      }
       if (t.dataset && t.dataset.rangeLive != null) {
         this._sendCtl(t.dataset.ctlNode, t.dataset.ctlKey, Number(t.value));
         return;
@@ -2329,11 +2346,13 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "dec") {
       t = Math.max(5, t - 0.5);
       if (input) input.value = t;
+      this._setZone(id, { temperature: t });
       return;
     }
     if (action === "inc") {
       t = Math.min(30, t + 0.5);
       if (input) input.value = t;
+      this._setZone(id, { temperature: t });
       return;
     }
     if (action === "apply") {
