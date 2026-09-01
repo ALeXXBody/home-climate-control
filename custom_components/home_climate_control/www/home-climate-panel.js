@@ -46,6 +46,13 @@ class HomeClimatePanel extends HTMLElement {
 
     root.addEventListener("click", (ev) => {
       const t = ev.target;
+      // Settings switches are controls, never navigation. Stop the click at
+      // the panel root so HA or another delegated handler cannot interpret it
+      // as a dashboard navigation gesture.
+      if (t.closest && t.closest(".hcc-switch")) {
+        ev.stopPropagation();
+        return;
+      }
       const fp = t.closest("[data-fp-zone]");
       if (fp) {
         this._fpFlashName = fp.getAttribute("data-fp-zone");
@@ -678,10 +685,11 @@ class HomeClimatePanel extends HTMLElement {
           transition: transform .18s ease;
         }
         .hcc-switch input:checked + .hcc-switch-track {
-          background: var(--primary-color, #03a9f4);
+          background: #2e7d32;
         }
         .hcc-switch input:checked + .hcc-switch-track::after {
           transform: translateX(18px);
+          background: #b9f6ca;
         }
         .hcc-switch input:focus-visible + .hcc-switch-track {
           outline: 2px solid var(--primary-color, #03a9f4);
@@ -1818,11 +1826,11 @@ class HomeClimatePanel extends HTMLElement {
     const numCls = selCls;
     const ck = (key, label, checked) => `
       <label class="hcc-switch">
-        <span>${label}</span>
         <span>
           <input type="checkbox" class="sopt-live" data-sopt="${key}" ${checked ? "checked" : ""}>
           <span class="hcc-switch-track" aria-hidden="true"></span>
         </span>
+        <span>${label}</span>
       </label>`;
     const saveBtn = (group) => `
       <button class="ghost" type="button" data-sopt-save="${group}"
@@ -1874,7 +1882,7 @@ class HomeClimatePanel extends HTMLElement {
         <h3>Occupancy (phones)</h3>
         ${ck("occupancy_enabled", "Occupancy auto-setback", o.occupancy_enabled)}
         <label>Presence entities</label>
-        <select id="so-occ-trackers" multiple size="5" ${selCls}>${(this._hass?.states ? Object.keys(this._hass.states) : [])
+        <select id="so-occ-trackers" multiple size="1" ${selCls}>${(this._hass?.states ? Object.keys(this._hass.states) : [])
           .filter((id) => /^(device_tracker|person|binary_sensor)\./.test(id))
           .sort()
           .map((id) => `<option value="${this._esc(id)}" ${(o.occupancy_trackers || []).includes(id) ? "selected" : ""}>${this._esc(this._hass.states[id]?.attributes?.friendly_name || id)}</option>`).join("")}</select>
