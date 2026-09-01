@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -52,24 +51,12 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_VERSION_CACHE: str | None = None
+INTEGRATION_VERSION = "1.6.0"
 
 
 def _integration_version() -> str:
-    """Integration version from manifest.json ('' when unreadable)."""
-    global _VERSION_CACHE
-    if _VERSION_CACHE is None:
-        try:
-            manifest = Path(__file__).parent / "manifest.json"
-            _VERSION_CACHE = str(
-                json.loads(manifest.read_bytes().decode("utf-8")).get("version", "")
-            )
-        except (OSError, ValueError):
-            _VERSION_CACHE = ""
-    return _VERSION_CACHE
-
-
-_version_preloaded = _integration_version()  # noqa: S604 — preload at import
+    """Return the integration version without blocking filesystem I/O."""
+    return INTEGRATION_VERSION
 
 
 @callback
@@ -484,16 +471,28 @@ def _primary_entry(hass: HomeAssistant):
     return None
 
 
-@websocket_api.require_admin
-@websocket_api.websocket_command(
-    # The handler performs the detailed per-key whitelist/type/range checks.
-    # Allow the option fields through HA's envelope validator first; the old
-    # type-only schema rejected every real settings payload as "extra keys".
-    vol.Schema(
-        {vol.Required("type"): f"{DOMAIN}/set_options"},
-        extra=vol.ALLOW_EXTRA,
-    )
+_SET_OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_options",
+        vol.Optional("id"): int,
+        **{
+            vol.Optional(key): vol.Any(
+                str, float, int, bool, list, dict, type(None)
+            )
+            for key in (
+                set(_OPTION_RANGES)
+                | set(_OPTION_BOOLS)
+                | set(_OPTION_ENTITY_SINGLE)
+                | set(_OPTION_ENTITY_MULTI)
+                | set(_OPTION_PRESETS)
+            )
+        },
+    }
 )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(_SET_OPTIONS_SCHEMA)
 @websocket_api.async_response
 async def ws_set_options(
     hass: HomeAssistant,

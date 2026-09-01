@@ -94,3 +94,17 @@ def test_options_view_in_status():
     assert view["wind_compensation"] is True  # derived: entity picked, flag absent
     assert view["duty_cycle_enabled"] is True  # default
     assert view["rated_heat_input_kw"] == 24.0  # default
+
+
+def test_settings_payload_passes_websocket_envelope_schema():
+    """The real panel payload must pass HA's envelope validation."""
+    payload = {
+        "type": f"{DOMAIN}/set_options",
+        "outdoor_sensor": "",
+        "wind_entity": "",
+        "wind_max_delta": 3,
+        "id": 58,
+    }
+    validated = websocket_api._SET_OPTIONS_SCHEMA(payload)
+    assert validated["wind_max_delta"] == 3
+    assert validated["outdoor_sensor"] == ""
