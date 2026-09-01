@@ -486,7 +486,13 @@ def _primary_entry(hass: HomeAssistant):
 
 @websocket_api.require_admin
 @websocket_api.websocket_command(
-    {vol.Required("type"): f"{DOMAIN}/set_options"}
+    # The handler performs the detailed per-key whitelist/type/range checks.
+    # Allow the option fields through HA's envelope validator first; the old
+    # type-only schema rejected every real settings payload as "extra keys".
+    vol.Schema(
+        {vol.Required("type"): f"{DOMAIN}/set_options"},
+        extra=vol.ALLOW_EXTRA,
+    )
 )
 @websocket_api.async_response
 async def ws_set_options(
