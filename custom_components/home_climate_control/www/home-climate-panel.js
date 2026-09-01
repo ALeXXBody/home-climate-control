@@ -56,6 +56,7 @@ class HomeClimatePanel extends HTMLElement {
       const tab = t.closest("[data-tab]");
       if (tab) {
         this._tab = tab.getAttribute("data-tab");
+        if (this._tab !== "settings") this._soptMsg = null;
         this._render();
         return;
       }
@@ -92,6 +93,11 @@ class HomeClimatePanel extends HTMLElement {
         this._onSaveBoilerInfo();
         return;
       }
+      const sopt = t.closest("[data-sopt-save]");
+      if (sopt) {
+        this._onSoptSave(sopt.getAttribute("data-sopt-save"));
+        return;
+      }
       this._onBoardClick(ev); // board/WC controls (no-op when unmatched)
     });
 
@@ -107,6 +113,10 @@ class HomeClimatePanel extends HTMLElement {
     });
     root.addEventListener("change", (ev) => {
       const t = ev.target;
+      if (t.classList && t.classList.contains("sopt-live")) {
+        this._setOptions({ [t.dataset.sopt]: t.checked });
+        return;
+      }
       if (t.classList && t.classList.contains("temp-input")) {
         // Typed + committed (blur/Enter) — send like the Set button.
         const id = t.getAttribute("data-entity");
@@ -1065,7 +1075,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._otConsoleHtml()}
           <div id="hcc-fw-wrap">${this._fwCardHtml()}</div>`;
       case "settings":
-        return this._settingsHtml(sys);
+        return `${this._soptMsg ? `<div class="card" style="border-color:#3a7">${this._esc(this._soptMsg)}</div>` : ""}${this._settingsHtml(sys)}`;
       case "diagnostics":
         return `<div id="hcc-diag-wrap">
           <p class="sub" style="margin-top:0">Engineering telemetry — safe to ignore, fun to watch.</p>
@@ -1370,6 +1380,8 @@ class HomeClimatePanel extends HTMLElement {
 
   static FLOOR_LABEL = (f) =>
     f === 0 ? "Ground floor" : `${f}${f === 1 ? "st" : f === 2 ? "nd" : f === 3 ? "rd" : "th"} floor`;
+
+  static ZONE_PRESET_OPTS = ["comfort", "eco", "away", "night", "none"];
 
   _zonesHtml(sys, compact = false) {
     const zones = sys.zones || [];
@@ -1698,19 +1710,109 @@ class HomeClimatePanel extends HTMLElement {
 
   _settingsHtml(sys) {
     const bi = sys?.boiler_info || {};
+    const o = sys?.options || {};
     const detected = bi.detected_make
       ? `<p class="sub">Detected from boiler MemberID ${bi.member_id ?? "?"}: <strong>${this._esc(bi.detected_make)}</strong></p>`
       : `<p class="sub">No MemberID received yet — select manually.</p>`;
+    const num = (v) => (v == null ? "" : this._esc(v));
+    const optList = (domains, selected, placeholder) => {
+      const hass = this._hass?.states || {};
+      const opts = Object.keys(hass)
+        .filter((id) => domains.some((d) => id.startsWith(d + ".")))
+        .sort()
+        .map((id) =>
+          `<option value="${this._esc(id)}" ${id === selected ? "selected" : ""}>${this._esc(hass[id]?.attributes?.friendly_name || id)}</option>`
+        ).join("");
+      return `<option value="" ${!selected ? "selected" : ""}>${placeholder}</option>${opts}`;
+    };
+    const selCls = 'style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px"';
+    const numCls = selCls;
+    const ck = (key, label, checked) => `
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0">
+        <input type="checkbox" class="sopt-live" data-sopt="${key}" ${checked ? "checked" : ""}> ${label}
+      </label>`;
+    const saveBtn = (group) => `
+      <button class="ghost" type="button" data-sopt-save="${group}"
+        style="margin-top:8px;padding:6px 14px">Save</button>
+      <span class="sopt-msg" data-sopt-msg="${group}" style="margin-left:8px;font-size:.85rem"></span>`;
     return `
+      <div class="card">
+        <h3>Curve &amp; flow limits</h3>
+        <label>Heating curve coefficient</label>
+        <input type="number" id="so-curve" step="0.1" min="0.2" max="3" value="${num(o.curve_coeff)}" ${numCls}>
+        <label style="margin-top:6px">Min flow °C</label>
+        <input type="number" id="so-minflow" step="1" min="10" max="90" value="${num(o.min_flow_temp)}" ${numCls}>
+        <label style="margin-top:6px">Max flow °C</label>
+        <input type="number" id="so-maxflow" step="1" min="20" max="95" value="${num(o.max_flow_temp)}" ${numCls}>
+        ${ck("autotune_curve", "Auto-tune curve", o.autotune_curve)}
+        ${ck("learn_setbacks", "Learn smart setbacks", o.learn_setbacks)}
+        ${saveBtn("curve")}
+      </div>
+      <div class="card">
+        <h3>Outdoor &amp; wind</h3>
+        <label>Outdoor temperature fallback</label>
+        <select id="so-outdoor" ${selCls}>${optList(["sensor", "weather"], o.outdoor_sensor, "— none (boiler only) —")}</select>
+        ${ck("wind_compensation", "Wind compensation", o.wind_compensation)}
+        <label>Weather entity (wind)</label>
+        <select id="so-wind-entity" ${selCls}>${optList(["weather"], o.wind_entity, "— none —")}</select>
+        <label style="margin-top:6px">Wind trim cap (°C)</label>
+        <input type="number" id="so-wind-cap" step="0.5" min="1" max="6" value="${num(o.wind_max_delta)}" ${numCls}>
+        ${saveBtn("outdoor")}
+      </div>
+      <div class="card">
+        <h3>Low-load behaviour</h3>
+        <label>Boiler minimum modulation (%)</label>
+        <input type="number" id="so-minmod" step="1" min="5" max="80" value="${num(o.boiler_min_modulation)}" ${numCls}>
+        ${ck("duty_cycle_enabled", "Low-load duty cycling", o.duty_cycle_enabled)}
+        ${saveBtn("load")}
+      </div>
+      <div class="card">
+        <h3>Schedule</h3>
+        <label>Schedule entity</label>
+        <select id="so-sched" ${selCls}>${optList(["schedule", "input_select", "sensor", "input_text"], o.schedule_entity, "— none —")}</select>
+        <label style="margin-top:6px">Preset when ON</label>
+        <select id="so-sched-on" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_on_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        <label style="margin-top:6px">Preset when OFF</label>
+        <select id="so-sched-off" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_off_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        ${saveBtn("schedule")}
+      </div>
+      <div class="card">
+        <h3>Occupancy (phones)</h3>
+        ${ck("occupancy_enabled", "Occupancy auto-setback", o.occupancy_enabled)}
+        <label>Presence entities</label>
+        <select id="so-occ-trackers" multiple size="5" ${selCls}>${(this._hass?.states ? Object.keys(this._hass.states) : [])
+          .filter((id) => /^(device_tracker|person|binary_sensor)\./.test(id))
+          .sort()
+          .map((id) => `<option value="${this._esc(id)}" ${(o.occupancy_trackers || []).includes(id) ? "selected" : ""}>${this._esc(this._hass.states[id]?.attributes?.friendly_name || id)}</option>`).join("")}</select>
+        <label style="margin-top:6px">Away preset</label>
+        <select id="so-occ-away" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_away_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        <label style="margin-top:6px">Home preset</label>
+        <select id="so-occ-home" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_home_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        ${saveBtn("occupancy")}
+      </div>
+      <div class="card">
+        <h3>Gas metering</h3>
+        <label>Nameplate heat input (kW)</label>
+        <input type="number" id="so-gas-rated" step="0.1" min="0" max="200" value="${num(o.rated_heat_input_kw)}" ${numCls}>
+        <label style="margin-top:6px">Minimum heat input (kW)</label>
+        <input type="number" id="so-gas-min" step="0.1" min="0" max="200" value="${num(o.min_heat_input_kw)}" ${numCls}>
+        <label style="margin-top:6px">No-modulation duty factor</label>
+        <input type="number" id="so-gas-nomod" step="0.05" min="0.1" max="1" value="${num(o.nomod_duty_factor)}" ${numCls}>
+        <label style="margin-top:6px">Calibration factor</label>
+        <input type="number" id="so-gas-calib" step="0.05" min="0.2" max="5" value="${num(o.gas_calibration)}" ${numCls}>
+        <label style="margin-top:6px">Price per kWh</label>
+        <input type="number" id="so-gas-price" step="0.01" min="0" max="100" value="${num(o.gas_price_per_kwh)}" ${numCls}>
+        ${saveBtn("gas")}
+      </div>
       <div class="card">
         <h3>Your boiler</h3>
         ${detected}
         <label>Manufacturer</label>
-        <select id="hcc-bi-make" data-role="bi-make" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+        <select id="hcc-bi-make" data-role="bi-make" ${selCls}>
           <option value="">— auto-detected —</option>
         </select>
         <label style="margin-top:8px">Model</label>
-        <select id="hcc-bi-model" style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px">
+        <select id="hcc-bi-model" ${selCls}>
           <option value="">—</option>
         </select>
         <button class="ghost" type="button" data-action="save-boiler-info"
@@ -1732,9 +1834,6 @@ class HomeClimatePanel extends HTMLElement {
         <button class="ghost" type="button" data-action="save-failsafe"
           style="margin-top:8px;padding:6px 14px">Save to device</button>
         <span id="hcc-fs-msg" style="margin-left:8px;font-size:.85rem"></span>
-      </div>
-      <div class="card placeholder">
-        <p>Tune curve and flow limits via <strong>Settings → Devices &amp; services → Home Climate Control → Configure</strong>.</p>
       </div>`;
   }
 
@@ -2384,6 +2483,106 @@ class HomeClimatePanel extends HTMLElement {
       this._error = err?.message || String(err);
     }
     this._render();
+  }
+
+  async _setOptions(patch) {
+    if (!this._hass || !patch || !Object.keys(patch).length) return;
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/set_options",
+        ...patch,
+      });
+      this._status = res.status || this._status;
+      this._error = null;
+      this._soptMsg = "Saved ✓";
+    } catch (err) {
+      this._error = err?.message || String(err);
+      this._soptMsg = null;
+    }
+    this._render();
+  }
+
+  _soptNum(id) {
+    const el = this.shadowRoot.getElementById(id);
+    if (!el || el.value === "") return null;
+    const v = parseFloat(el.value);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  _soptSel(id, allowEmpty) {
+    const el = this.shadowRoot.getElementById(id);
+    if (!el) return undefined;
+    const v = (el.value || "").trim();
+    if (!v) return allowEmpty ? "" : undefined;
+    return v;
+  }
+
+  _onSoptSave(group) {
+    const r = this.shadowRoot;
+    let patch = {};
+    switch (group) {
+      case "curve": {
+        const curve = this._soptNum("so-curve");
+        const mn = this._soptNum("so-minflow");
+        const mx = this._soptNum("so-maxflow");
+        if (curve != null) patch.curve_coeff = curve;
+        if (mn != null) patch.min_flow_temp = mn;
+        if (mx != null) patch.max_flow_temp = mx;
+        break;
+      }
+      case "outdoor": {
+        const outdoor = this._soptSel("so-outdoor", true);
+        if (outdoor !== undefined) patch.outdoor_sensor = outdoor;
+        const wind = this._soptSel("so-wind-entity", true);
+        if (wind !== undefined) patch.wind_entity = wind;
+        const cap = this._soptNum("so-wind-cap");
+        if (cap != null) patch.wind_max_delta = cap;
+        break;
+      }
+      case "load": {
+        const mm = this._soptNum("so-minmod");
+        if (mm != null) patch.boiler_min_modulation = mm;
+        break;
+      }
+      case "schedule": {
+        const sched = this._soptSel("so-sched", true);
+        if (sched !== undefined) patch.schedule_entity = sched;
+        const on = this._soptSel("so-sched-on", false);
+        if (on !== undefined) patch.schedule_on_preset = on;
+        const off = this._soptSel("so-sched-off", false);
+        if (off !== undefined) patch.schedule_off_preset = off;
+        break;
+      }
+      case "occupancy": {
+        const sel = r.getElementById("so-occ-trackers");
+        if (sel) {
+          patch.occupancy_trackers = Array.from(sel.selectedOptions || [])
+            .map((o) => o.value)
+            .filter(Boolean);
+        }
+        const away = this._soptSel("so-occ-away", false);
+        if (away !== undefined) patch.occupancy_away_preset = away;
+        const home = this._soptSel("so-occ-home", false);
+        if (home !== undefined) patch.occupancy_home_preset = home;
+        break;
+      }
+      case "gas": {
+        const rated = this._soptNum("so-gas-rated");
+        const minKw = this._soptNum("so-gas-min");
+        const nomod = this._soptNum("so-gas-nomod");
+        const calib = this._soptNum("so-gas-calib");
+        const price = this._soptNum("so-gas-price");
+        if (rated != null) patch.rated_heat_input_kw = rated;
+        if (minKw != null) patch.min_heat_input_kw = minKw;
+        if (nomod != null) patch.nomod_duty_factor = nomod;
+        if (calib != null) patch.gas_calibration = calib;
+        if (price != null) patch.gas_price_per_kwh = price;
+        break;
+      }
+      default:
+        return;
+    }
+    this._setOptions(patch);
   }
 
   async _calibrateZone(action, zoneName, entityId) {

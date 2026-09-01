@@ -13,6 +13,17 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from .const import (
+    CONF_OCCUPANCY_AWAY_PRESET,
+    CONF_OCCUPANCY_ENABLED,
+    CONF_OCCUPANCY_HOME_PRESET,
+    CONF_OCCUPANCY_TRACKERS,
+    CONF_OUTDOOR_SENSOR,
+    CONF_SCHEDULE_ENTITY,
+    CONF_SCHEDULE_OFF_PRESET,
+    CONF_SCHEDULE_ON_PRESET,
+    CONF_WIND_ENABLED,
+    CONF_WIND_ENTITY,
+    CONF_WIND_MAX_DELTA,
     CONF_ZONE_FLOOR,
     CONF_ZONE_HEAT_CONTROL,
     CONF_ZONE_NAME,
@@ -20,9 +31,18 @@ from .const import (
     CONF_ZONE_TRV_CLIMATES,
     CONF_ZONE_WINDOW_SENSORS,
     CONF_ZONES,
+    DEFAULT_BOILER_MIN_MODULATION,
+    DEFAULT_CURVE_COEFF,
+    DEFAULT_MAX_FLOW_TEMP,
+    DEFAULT_MIN_FLOW_TEMP,
+    DEFAULT_WIND_MAX_DELTA,
     DEFAULT_ZONE_SETPOINT,
     DOMAIN,
     HEAT_CONTROL_SMART,
+    PRESET_AWAY,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    ZONE_PRESETS,
 )
 from .firmware_manager import (
     async_setup_firmware_manager,
@@ -60,6 +80,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         return
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_set_zone)
+    websocket_api.async_register_command(hass, ws_set_options)
     websocket_api.async_register_command(hass, ws_calibrate_zone)
     websocket_api.async_register_command(hass, ws_add_zone)
     websocket_api.async_register_command(hass, ws_rename_zone)
@@ -191,6 +212,12 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                 "wind_trim": diag.get("wind_trim"),
                 "cycle_guard": diag.get("cycle_guard"),
                 "boiler_info": boiler_info,
+                "options": _options_view(
+                    getattr(
+                        hass.config_entries.async_get_entry(entry_id), "options", {}
+                    )
+                    or {}
+                ),
                 "update_info": update_info,
                 "zones": zones_out,
             }
@@ -368,6 +395,185 @@ def _zone_entry_and_names(hass: HomeAssistant, zone_name: str):
             if entry is not None:
                 return entry, names
     return None, []
+
+
+# ── Editable integration options from the app Settings tab ────────────────
+# Whitelist: only these keys may be written via home_climate_control/set_options.
+# Numbers are (min, max) ranges; entity fields enforce domain prefixes;
+# empty string/None on an optional entity field removes it from options.
+_OPTION_RANGES: dict[str, tuple[float, float]] = {
+    "min_flow_temp": (10.0, 90.0),
+    "max_flow_temp": (20.0, 95.0),
+    "curve_coeff": (0.2, 3.0),
+    "wind_max_delta": (1.0, 6.0),
+    "boiler_min_modulation": (5.0, 80.0),
+    "rated_heat_input_kw": (0.0, 200.0),
+    "min_heat_input_kw": (0.0, 200.0),
+    "nomod_duty_factor": (0.1, 1.0),
+    "gas_calibration": (0.2, 5.0),
+    "gas_price_per_kwh": (0.0, 100.0),
+}
+_OPTION_BOOLS = (
+    "autotune_curve",
+    "learn_setbacks",
+    "wind_compensation",
+    "duty_cycle_enabled",
+    "occupancy_enabled",
+)
+_OPTION_ENTITY_SINGLE: dict[str, tuple[str, ...]] = {
+    "outdoor_sensor": ("sensor.", "weather."),
+    "wind_entity": ("weather.",),
+    "schedule_entity": ("schedule.", "input_select.", "sensor.", "input_text."),
+}
+_OPTION_ENTITY_MULTI: dict[str, tuple[str, ...]] = {
+    "occupancy_trackers": ("device_tracker.", "person.", "binary_sensor."),
+}
+_OPTION_PRESETS = (
+    "schedule_on_preset",
+    "schedule_off_preset",
+    "occupancy_away_preset",
+    "occupancy_home_preset",
+)
+
+_OPTION_VIEW_DEFAULTS = {
+    "curve_coeff": DEFAULT_CURVE_COEFF,
+    "autotune_curve": True,
+    "learn_setbacks": True,
+    "min_flow_temp": DEFAULT_MIN_FLOW_TEMP,
+    "max_flow_temp": DEFAULT_MAX_FLOW_TEMP,
+    "boiler_min_modulation": DEFAULT_BOILER_MIN_MODULATION,
+    "duty_cycle_enabled": True,
+    "wind_max_delta": DEFAULT_WIND_MAX_DELTA,
+    "schedule_on_preset": PRESET_COMFORT,
+    "schedule_off_preset": PRESET_ECO,
+    "occupancy_enabled": False,
+    "occupancy_trackers": [],
+    "occupancy_away_preset": PRESET_AWAY,
+    "occupancy_home_preset": PRESET_COMFORT,
+    "rated_heat_input_kw": 24.0,
+    "min_heat_input_kw": 0.0,
+    "nomod_duty_factor": 0.6,
+    "gas_calibration": 1.0,
+}
+
+
+def _options_view(opts: dict) -> dict:
+    """Effective editable-option values (defaults applied) for the panel."""
+    view = {}
+    for key, default in _OPTION_VIEW_DEFAULTS.items():
+        val = opts.get(key, default)
+        view[key] = val
+    for key in ("outdoor_sensor", "wind_entity", "schedule_entity"):
+        view[key] = opts.get(key)
+    view["wind_compensation"] = opts.get(
+        CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY))
+    )
+    view["gas_price_per_kwh"] = opts.get("gas_price_per_kwh")
+    return view
+
+
+def _primary_entry(hass: HomeAssistant):
+    """The config entry whose controller is loaded (else first of domain)."""
+    for entry_id, data in (hass.data.get(DOMAIN) or {}).items():
+        if isinstance(data, dict) and "controller" in data:
+            entry = hass.config_entries.async_get_entry(entry_id)
+            if entry is not None:
+                return entry
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        return entry
+    return None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/set_options"}
+)
+@websocket_api.async_response
+async def ws_set_options(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Edit integration options from the app Settings tab.
+
+    Only whitelisted keys are accepted; numbers are range-checked, entity
+    fields must carry the right domain prefix, presets must be valid. An
+    empty value on an optional entity field removes it. Unknown keys are
+    rejected (the panel never sends them).
+    """
+    entry = _primary_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "No configured system")
+        return
+
+    patch: dict[str, Any] = {}
+    pop_keys: list[str] = []
+
+    def _err(code: str, text: str) -> None:
+        connection.send_error(msg["id"], code, text)
+
+    for key, raw in msg.items():
+        if key in ("id", "type"):
+            continue
+        if key not in (
+            set(_OPTION_RANGES) | set(_OPTION_BOOLS)
+            | set(_OPTION_ENTITY_SINGLE) | set(_OPTION_ENTITY_MULTI)
+            | set(_OPTION_PRESETS)
+        ):
+            _err("unknown_option", f"Key not editable: {key}")
+            return
+        if key in _OPTION_RANGES:
+            try:
+                val = float(raw)
+            except (TypeError, ValueError):
+                _err("invalid_value", f"{key} must be a number")
+                return
+            lo, hi = _OPTION_RANGES[key]
+            if not lo <= val <= hi:
+                _err("invalid_value", f"{key} must be between {lo} and {hi}")
+                return
+            patch[key] = val
+        elif key in _OPTION_BOOLS:
+            patch[key] = bool(raw)
+        elif key in _OPTION_ENTITY_SINGLE:
+            text = (str(raw) if raw is not None else "").strip()
+            if not text:
+                pop_keys.append(key)
+                continue
+            if not text.startswith(_OPTION_ENTITY_SINGLE[key]):
+                _err("invalid_entity", f"{key} must be one of {', '.join(_OPTION_ENTITY_SINGLE[key])}*")
+                return
+            patch[key] = text
+        elif key in _OPTION_ENTITY_MULTI:
+            items = raw if isinstance(raw, list) else []
+            cleaned = []
+            for item in items:
+                text = str(item).strip()
+                if text and text.startswith(_OPTION_ENTITY_MULTI[key]):
+                    cleaned.append(text)
+            if not cleaned:
+                pop_keys.append(key)
+            else:
+                patch[key] = cleaned
+        elif key in _OPTION_PRESETS:
+            if raw not in ZONE_PRESETS:
+                _err("invalid_value", f"{key} must be one of {', '.join(ZONE_PRESETS)}")
+                return
+            patch[key] = raw
+
+    mn = patch.get("min_flow_temp", (entry.options or {}).get("min_flow_temp"))
+    mx = patch.get("max_flow_temp", (entry.options or {}).get("max_flow_temp"))
+    if mn is not None and mx is not None and float(mn) >= float(mx):
+        _err("min_flow_above_max", "Min flow must be below max flow")
+        return
+
+    options = {**(entry.options or {}), **patch}
+    for key in pop_keys:
+        options.pop(key, None)
+
+    hass.config_entries.async_update_entry(entry, options=options)
+    await hass.config_entries.async_reload(entry.entry_id)
+    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 
 def validate_zone_name(names: list[str | None], new_name: str) -> str | None:

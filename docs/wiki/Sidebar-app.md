@@ -75,6 +75,23 @@ Board management:
 - **OTA flash** — select a board, pick a firmware version, flash over the air with progress indicator
 - **Settings sync** — reads and writes board settings via MQTT (two-way)
 
+## Settings tab
+
+**Editable settings page** — most integration options live here now:
+
+| Card | Controls |
+|---|---|
+| Curve & flow limits | Curve coefficient, min/max flow, auto-tune, learn setbacks |
+| Outdoor & wind | Outdoor fallback sensor, **wind compensation toggle**, weather entity, trim cap |
+| Low-load behaviour | Boiler min modulation %, duty cycling on/off |
+| Schedule | Schedule entity, on/off presets |
+| Occupancy | Enable, presence entities (multi-select), away/home presets |
+| Gas metering | Nameplate kW, min kW, nomod factor, calibration, price |
+| Your boiler | Make/model detection & manual selection |
+| Connection-loss failsafe | Device-side failsafe enable, flow, grace period |
+
+Toggles apply immediately; each card has a **Save** button for its numeric/select fields. Every change writes the integration options and reloads the integration — same path as editing rooms. The HA integration page (Settings → Devices & services → Configure) still offers the same fields.
+
 ## Diagnostics tab
 
 Internal system state for debugging and tuning:

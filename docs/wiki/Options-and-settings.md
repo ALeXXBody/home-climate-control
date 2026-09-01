@@ -1,6 +1,8 @@
 # Options & settings
 
-Open integration **Configure** from **Settings → Devices & services → Home Climate Control → Configure**.
+Open integration **Configure** from **All of these options are editable in the app: sidebar → Home Climate → Settings.**
+
+(The HA integration page — Settings → Devices & services → Home Climate Control → Configure — offers the same fields.).
 
 ## Core control
 
