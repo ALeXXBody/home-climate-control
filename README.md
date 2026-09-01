@@ -18,7 +18,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.5.3 |
+| **Current version** | v1.5.4 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 
@@ -106,6 +106,7 @@ Live data, captured from the sidebar app.
 | Option | Default |
 |---|---|
 | Outdoor temperature fallback | — |
+| Wind compensation (weather entity + cap) | off |
 | Boiler min modulation % | 20 |
 | Low-load duty cycling | on |
 | Heating schedule entity | — |

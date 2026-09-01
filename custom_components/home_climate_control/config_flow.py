@@ -18,6 +18,9 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_WIND_ENABLED,
+    CONF_WIND_ENTITY,
+    CONF_WIND_MAX_DELTA,
     CONF_OCCUPANCY_AWAY_PRESET,
     CONF_OCCUPANCY_ENABLED,
     CONF_OCCUPANCY_HOME_PRESET,
@@ -41,6 +44,7 @@ from .const import (
     CURVE_COEFF_MAX,
     CURVE_COEFF_MIN,
     DEFAULT_BOILER_MIN_MODULATION,
+    DEFAULT_WIND_MAX_DELTA,
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
@@ -407,6 +411,32 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     description="duty_cycle_enabled",
                 ): bool,
                 vol.Optional(
+                    CONF_WIND_ENTITY,
+                    description="wind_entity",
+                    **(
+                        {"default": opts[CONF_WIND_ENTITY]}
+                        if opts.get(CONF_WIND_ENTITY)
+                        else {}
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["weather"],
+                        multiple=False,
+                    )
+                ),
+                vol.Required(
+                    CONF_WIND_ENABLED,
+                    default=opts.get(CONF_WIND_ENABLED, False),
+                    description="wind_compensation",
+                ): bool,
+                vol.Required(
+                    CONF_WIND_MAX_DELTA,
+                    default=opts.get(
+                        CONF_WIND_MAX_DELTA, DEFAULT_WIND_MAX_DELTA
+                    ),
+                    description="wind_max_delta",
+                ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=6.0)),
+                vol.Optional(
                     CONF_SCHEDULE_ENTITY,
                     description="schedule_entity",
                     **(
@@ -503,6 +533,7 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                 # Clearing the entity picker omits the key — drop stale value.
                 for key in (
                     CONF_OUTDOOR_SENSOR,
+                    CONF_WIND_ENTITY,
                     CONF_SCHEDULE_ENTITY,
                     CONF_OCCUPANCY_TRACKERS,
                 ):

@@ -51,6 +51,9 @@ class CentralController:
         outdoor_stale_s: float = OUTDOOR_STALE_AFTER_SECONDS,
         min_modulation_pct: float = DEFAULT_BOILER_MIN_MODULATION,
         duty_cycle_enabled: bool = True,
+        wind_entity: str | None = None,
+        wind_enabled: bool = False,
+        wind_max_delta: float = 3.0,
     ) -> None:
         self.hass = hass
         self.backend = backend
@@ -87,8 +90,15 @@ class CentralController:
         self.active_zone_names: list[str] = []
         self.estimated_gas_percent: float | None = None
         self.outdoor_source: str | None = None  # boiler | ha | design
+        self.wind_trim_c: float = 0.0
         self._condense_pull_c: float = 0.0
         self._condense_active: bool = False
+
+        from .windtrim import WindTrimmer
+
+        self.windtrim = WindTrimmer(
+            hass, wind_entity, enabled=wind_enabled, max_delta=wind_max_delta
+        )
 
         self._unsub_loop = None
         self._ch_on: bool = False
@@ -366,7 +376,15 @@ class CentralController:
                 self.occupancy.apply(force=False)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("occupancy tick failed", exc_info=True)
-        outdoor = self.outdoor_temp()
+        outdoor_raw = self.outdoor_temp()
+        # Wind trim: bounded infiltration correction on what the curve (and
+        # load-based helpers) see. Raw outdoor stays for display/logging.
+        try:
+            self.windtrim.refresh()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("wind trim refresh failed", exc_info=True)
+        outdoor = self.windtrim.effective(outdoor_raw)
+        self.wind_trim_c = self.windtrim.trim_c
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
         raw_demand = sum(z.demand_level() for z in demanding) if demanding else 0.0
 
@@ -634,6 +652,10 @@ class CentralController:
         data["duty_cycle"] = self.dutycycle.as_dict()
         data["outdoor_source"] = self.outdoor_source
         data["outdoor_sensor"] = self.outdoor_sensor
+        data["wind_trim"] = self.windtrim.as_dict()
+        data["outdoor_effective"] = self.windtrim.effective(
+            self.outdoor_temp()
+        )
         if self.schedule is not None:
             data["schedule"] = self.schedule.as_dict()
         if self.occupancy is not None:

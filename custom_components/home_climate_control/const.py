@@ -88,6 +88,10 @@ DEMO_DEFAULT_ROOMS = (
     ("Bedroom", 17.0, 19.0),
 )
 CONF_OUTDOOR_SENSOR = "outdoor_sensor"
+CONF_WIND_ENABLED = "wind_compensation"
+CONF_WIND_ENTITY = "wind_entity"
+CONF_WIND_MAX_DELTA = "wind_max_delta"
+DEFAULT_WIND_MAX_DELTA = 3.0
 CONF_SCHEDULE_ENTITY = "schedule_entity"
 CONF_SCHEDULE_ON_PRESET = "schedule_on_preset"
 CONF_SCHEDULE_OFF_PRESET = "schedule_off_preset"

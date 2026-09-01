@@ -188,6 +188,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                 "autotune": diag.get("autotune"),
                 "schedule": diag.get("schedule"),
                 "occupancy": diag.get("occupancy"),
+                "wind_trim": diag.get("wind_trim"),
                 "cycle_guard": diag.get("cycle_guard"),
                 "boiler_info": boiler_info,
                 "update_info": update_info,

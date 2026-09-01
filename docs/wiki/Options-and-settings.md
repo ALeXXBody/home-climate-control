@@ -17,6 +17,27 @@ Open integration **Configure** from **Settings → Devices & services → Home C
 | Option | Default | Description |
 |---|---|---|
 | Outdoor temperature fallback | — | `sensor.*` or `weather.*` entity; used when boiler outdoor is missing or stale (>30 min) |
+| Weather entity for wind | — | `weather.*` entity providing `wind_speed` |
+| Wind compensation | off | Bounded trim (≤ cap) on the curve's outdoor input on windy days |
+| Wind trim cap | 3 °C | Maximum curve trim from wind |
+
+## Wind compensation (optional — off by default)
+
+Wind raises building heat loss through infiltration. When enabled, HCC
+trims the outdoor temperature **the heating curve sees**:
+
+```
+trim = min(cap, 0.25 × wind_kmh^0.9)   effective_outdoor = outdoor − trim
+```
+
+- **Not** a weather-app "feels like" value — skin wind-chill would
+  over-heat the building. This is a bounded infiltration correction
+  (same idea commercial weather compensators call a "chill factor").
+- Systemic benefit: windy-day cold rooms no longer push auto-tune to
+  inflate the curve coefficient (which overshoots calm days) — the
+  learned coefficient settles lower and steadier.
+- Raw outdoor stays untouched for display, logging, and the Diagnostics
+  tab shows the current wind, trim and cap.
 
 **Priority chain:** boiler outdoor (fresh, <30 min) → HA fallback sensor → stale boiler → none.
 

@@ -1762,6 +1762,10 @@ class HomeClimatePanel extends HTMLElement {
           <div class="metric" style="font-size:1.2rem">${this._esc(sys.occupancy.last_presence || "—")}${sys.occupancy.last_preset ? ` → ${this._esc(sys.occupancy.last_preset)}` : ""}</div>
           <p class="sub">${(sys.occupancy.entity_ids || []).length} tracker${(sys.occupancy.entity_ids || []).length === 1 ? "" : "s"} · away→${this._esc(sys.occupancy.away_preset)} · home→${this._esc(sys.occupancy.home_preset)}</p>
         </div>` : ""}
+        ${sys.wind_trim?.entity ? `<div class="card"><h3>Wind trim</h3>
+          <div class="metric" style="font-size:1.2rem">${sys.wind_trim.trim_c ? `−${this._esc(sys.wind_trim.trim_c)}<span class="unit">°C</span>` : "0<span class=\"unit\">°C</span>"}</div>
+          <p class="sub">${this._esc(sys.wind_trim.entity)}${sys.wind_trim.wind_kmh != null ? ` · wind ${this._esc(sys.wind_trim.wind_kmh)} km/h` : " · no wind data"} · cap ${this._esc(sys.wind_trim.max_delta_c)}°C${sys.wind_trim.enabled ? "" : " · disabled"}</p>
+        </div>` : ""}
         ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
           ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
         </div>` : ""}
