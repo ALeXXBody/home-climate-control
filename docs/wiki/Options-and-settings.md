@@ -17,7 +17,8 @@ Open integration **Configure** from **Settings → Devices & services → Home C
 | Option | Default | Description |
 |---|---|---|
 | Outdoor temperature fallback | — | `sensor.*` or `weather.*` entity; used when boiler outdoor is missing or stale (>30 min) |
-| Weather entity for wind | — | `weather.*` entity providing `wind_speed` — **selecting one enables wind compensation** |
+| Weather entity for wind | — | `weather.*` entity providing `wind_speed` |
+| Wind compensation | auto | Toggle in Configure; defaults **on** when an entity is selected, off disables without clearing it |
 | Wind trim cap | 3 °C | Maximum curve trim from wind |
 
 ## Wind compensation (optional — off by default)

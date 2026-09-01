@@ -18,6 +18,7 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_WIND_ENABLED,
     CONF_WIND_ENTITY,
     CONF_WIND_MAX_DELTA,
     CONF_OCCUPANCY_AWAY_PRESET,
@@ -423,6 +424,13 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                         multiple=False,
                     )
                 ),
+                vol.Required(
+                    CONF_WIND_ENABLED,
+                    default=opts.get(
+                        CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY, False))
+                    ),
+                    description="wind_compensation",
+                ): bool,
                 vol.Required(
                     CONF_WIND_MAX_DELTA,
                     default=opts.get(
