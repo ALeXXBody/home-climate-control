@@ -105,6 +105,15 @@ class HomeClimatePanel extends HTMLElement {
         this._onSoptSave(sopt.getAttribute("data-sopt-save"));
         return;
       }
+      if (t.closest("[data-occ-add]")) {
+        this._occAddTracker();
+        return;
+      }
+      const occRm = t.closest("[data-occ-remove]");
+      if (occRm) {
+        this._occRemoveTracker(occRm.getAttribute("data-occ-remove"));
+        return;
+      }
       this._onBoardClick(ev); // board/WC controls (no-op when unmatched)
     });
 
@@ -648,14 +657,14 @@ class HomeClimatePanel extends HTMLElement {
           min-height: 38px;
         }
         .hcc-switch {
-          display: flex;
+          display: inline-flex;
           align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          margin: 14px 0;
+          gap: 10px;
+          margin: 12px 0;
           color: var(--primary-text-color, inherit);
           font-size: .9rem;
           cursor: pointer;
+          white-space: nowrap;
         }
         .hcc-switch input {
           position: absolute;
@@ -704,6 +713,43 @@ class HomeClimatePanel extends HTMLElement {
           border-top: 1px solid var(--divider-color, #2a2a2a);
         }
         .settings-save button { margin-top: 0 !important; }
+        .chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin: 6px 0;
+        }
+        .chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 6px 4px 12px;
+          border-radius: 999px;
+          background: var(--secondary-background-color, #1c1c1c);
+          border: 1px solid var(--divider-color, #2a2a2a);
+          font-size: .85rem;
+          max-width: 100%;
+        }
+        .chip button {
+          background: none;
+          border: none;
+          color: var(--secondary-text-color, #999);
+          cursor: pointer;
+          padding: 0 4px;
+          font-size: .95rem;
+          line-height: 1;
+        }
+        .chip button:hover { color: var(--primary-color, #03a9f4); }
+        .occ-add-row {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .occ-add-row select { flex: 1; }
+        .occ-add-row button {
+          padding: 8px 14px;
+          white-space: nowrap;
+        }
         @media (max-width: 620px) {
           .settings-grid { grid-template-columns: 1fr; }
         }
@@ -1824,6 +1870,21 @@ class HomeClimatePanel extends HTMLElement {
     };
     const selCls = 'style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px"';
     const numCls = selCls;
+    // Presence chips: draft survives re-renders until Save commits it.
+    const occSel = Array.isArray(this._occDraft)
+      ? this._occDraft
+      : (o.occupancy_trackers || []);
+    const hassStates = this._hass?.states || {};
+    const fname = (id) => hassStates[id]?.attributes?.friendly_name || id;
+    const presenceIds = Object.keys(hassStates)
+      .filter((id) => /^(device_tracker|person|binary_sensor)\./.test(id))
+      .sort();
+    const avail = presenceIds.filter((id) => !occSel.includes(id));
+    const chips = occSel.length
+      ? occSel.map((id) =>
+          `<span class="chip"><span>${this._esc(fname(id))}</span><button type="button" data-occ-remove="${this._esc(id)}" title="Remove">✕</button></span>`
+        ).join("")
+      : `<span class="sub" style="margin:0">No presence entities selected</span>`;
     const ck = (key, label, checked) => `
       <label class="hcc-switch">
         <span>
@@ -1882,11 +1943,14 @@ class HomeClimatePanel extends HTMLElement {
         <h3>Occupancy (phones)</h3>
         ${ck("occupancy_enabled", "Occupancy auto-setback", o.occupancy_enabled)}
         <label>Presence entities</label>
-        <select id="so-occ-trackers" multiple size="1" ${selCls}>${(this._hass?.states ? Object.keys(this._hass.states) : [])
-          .filter((id) => /^(device_tracker|person|binary_sensor)\./.test(id))
-          .sort()
-          .map((id) => `<option value="${this._esc(id)}" ${(o.occupancy_trackers || []).includes(id) ? "selected" : ""}>${this._esc(this._hass.states[id]?.attributes?.friendly_name || id)}</option>`).join("")}</select>
-        <label style="margin-top:6px">Away preset</label>
+        <div class="chips">${chips}</div>
+        <div class="occ-add-row">
+          <select id="so-occ-add" ${selCls}><option value="">— choose entity —</option>${avail
+            .map((id) => `<option value="${this._esc(id)}">${this._esc(fname(id))}</option>`)
+            .join("")}</select>
+          <button class="ghost" type="button" data-occ-add>Add</button>
+        </div>
+        <label style="margin-top:8px">Away preset</label>
         <select id="so-occ-away" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_away_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
         <label style="margin-top:6px">Home preset</label>
         <select id="so-occ-home" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_home_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
@@ -2598,6 +2662,7 @@ class HomeClimatePanel extends HTMLElement {
       this._status = res.status || this._status;
       this._error = null;
       this._soptMsg = "Saved ✓";
+      this._occDraft = null; // committed — future renders bind to saved values
     } catch (err) {
       this._error = err?.message || String(err);
       this._soptMsg = null;
@@ -2657,12 +2722,9 @@ class HomeClimatePanel extends HTMLElement {
         break;
       }
       case "occupancy": {
-        const sel = r.getElementById("so-occ-trackers");
-        if (sel) {
-          patch.occupancy_trackers = Array.from(sel.selectedOptions || [])
-            .map((o) => o.value)
-            .filter(Boolean);
-        }
+        patch.occupancy_trackers = Array.isArray(this._occDraft)
+          ? [...this._occDraft]
+          : (o.occupancy_trackers || []);
         const away = this._soptSel("so-occ-away", false);
         if (away !== undefined) patch.occupancy_away_preset = away;
         const home = this._soptSel("so-occ-home", false);
@@ -2686,6 +2748,25 @@ class HomeClimatePanel extends HTMLElement {
         return;
     }
     this._setOptions(patch);
+  }
+
+  _occDraftArray() {
+    if (Array.isArray(this._occDraft)) return this._occDraft;
+    return this._status?.systems?.[0]?.options?.occupancy_trackers || [];
+  }
+
+  _occAddTracker() {
+    const sel = this.shadowRoot.getElementById("so-occ-add");
+    const id = sel?.value;
+    if (!id) return;
+    const cur = this._occDraftArray();
+    if (!cur.includes(id)) this._occDraft = [...cur, id];
+    this._render();
+  }
+
+  _occRemoveTracker(id) {
+    this._occDraft = this._occDraftArray().filter((x) => x !== id);
+    this._render();
   }
 
   async _calibrateZone(action, zoneName, entityId) {
