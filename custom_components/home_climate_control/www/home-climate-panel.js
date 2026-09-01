@@ -610,6 +610,95 @@ class HomeClimatePanel extends HTMLElement {
         }
         .unit { font-size: 1rem; opacity: 0.7; margin-left: 2px; }
         .sub { font-size: 0.85rem; color: var(--secondary-text-color, #aaa); margin-top: 6px; }
+        .settings-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+          gap: 14px;
+          align-items: start;
+        }
+        .settings-grid > .card {
+          min-width: 0;
+          height: 100%;
+          box-sizing: border-box;
+        }
+        .settings-grid > .card h3 {
+          color: var(--primary-text-color, inherit);
+          font-size: .92rem;
+          letter-spacing: .02em;
+          text-transform: none;
+          padding-bottom: 9px;
+          border-bottom: 1px solid var(--divider-color, #2a2a2a);
+        }
+        .settings-grid > .card > label:not(.hcc-switch) {
+          display: block;
+          font-size: .78rem;
+          color: var(--secondary-text-color, #aaa);
+          margin: 10px 0 5px;
+        }
+        .settings-grid input[type="number"],
+        .settings-grid select {
+          box-sizing: border-box;
+          min-height: 38px;
+        }
+        .hcc-switch {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin: 14px 0;
+          color: var(--primary-text-color, inherit);
+          font-size: .9rem;
+          cursor: pointer;
+        }
+        .hcc-switch input {
+          position: absolute;
+          opacity: 0;
+          width: 1px;
+          height: 1px;
+        }
+        .hcc-switch-track {
+          position: relative;
+          width: 42px;
+          height: 24px;
+          flex: 0 0 auto;
+          border-radius: 999px;
+          background: var(--disabled-text-color, #777);
+          transition: background .18s ease;
+        }
+        .hcc-switch-track::after {
+          content: "";
+          position: absolute;
+          top: 3px;
+          left: 3px;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: #fff;
+          box-shadow: 0 1px 3px #0006;
+          transition: transform .18s ease;
+        }
+        .hcc-switch input:checked + .hcc-switch-track {
+          background: var(--primary-color, #03a9f4);
+        }
+        .hcc-switch input:checked + .hcc-switch-track::after {
+          transform: translateX(18px);
+        }
+        .hcc-switch input:focus-visible + .hcc-switch-track {
+          outline: 2px solid var(--primary-color, #03a9f4);
+          outline-offset: 2px;
+        }
+        .settings-save {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 14px;
+          padding-top: 10px;
+          border-top: 1px solid var(--divider-color, #2a2a2a);
+        }
+        .settings-save button { margin-top: 0 !important; }
+        @media (max-width: 620px) {
+          .settings-grid { grid-template-columns: 1fr; }
+        }
         .badge {
           display: inline-block;
           padding: 2px 8px;
@@ -1728,14 +1817,19 @@ class HomeClimatePanel extends HTMLElement {
     const selCls = 'style="width:100%;padding:8px;background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px"';
     const numCls = selCls;
     const ck = (key, label, checked) => `
-      <label style="display:flex;align-items:center;gap:8px;margin:8px 0">
-        <input type="checkbox" class="sopt-live" data-sopt="${key}" ${checked ? "checked" : ""}> ${label}
+      <label class="hcc-switch">
+        <span>${label}</span>
+        <span>
+          <input type="checkbox" class="sopt-live" data-sopt="${key}" ${checked ? "checked" : ""}>
+          <span class="hcc-switch-track" aria-hidden="true"></span>
+        </span>
       </label>`;
     const saveBtn = (group) => `
       <button class="ghost" type="button" data-sopt-save="${group}"
         style="margin-top:8px;padding:6px 14px">Save</button>
       <span class="sopt-msg" data-sopt-msg="${group}" style="margin-left:8px;font-size:.85rem"></span>`;
     return `
+      <div class="settings-grid">
       <div class="card">
         <h3>Curve &amp; flow limits</h3>
         <label>Heating curve coefficient</label>
@@ -1746,7 +1840,7 @@ class HomeClimatePanel extends HTMLElement {
         <input type="number" id="so-maxflow" step="1" min="20" max="95" value="${num(o.max_flow_temp)}" ${numCls}>
         ${ck("autotune_curve", "Auto-tune curve", o.autotune_curve)}
         ${ck("learn_setbacks", "Learn smart setbacks", o.learn_setbacks)}
-        ${saveBtn("curve")}
+        <div class="settings-save">${saveBtn("curve")}</div>
       </div>
       <div class="card">
         <h3>Outdoor &amp; wind</h3>
@@ -1757,14 +1851,14 @@ class HomeClimatePanel extends HTMLElement {
         <select id="so-wind-entity" ${selCls}>${optList(["weather"], o.wind_entity, "— none —")}</select>
         <label style="margin-top:6px">Wind trim cap (°C)</label>
         <input type="number" id="so-wind-cap" step="0.5" min="1" max="6" value="${num(o.wind_max_delta)}" ${numCls}>
-        ${saveBtn("outdoor")}
+        <div class="settings-save">${saveBtn("outdoor")}</div>
       </div>
       <div class="card">
         <h3>Low-load behaviour</h3>
         <label>Boiler minimum modulation (%)</label>
         <input type="number" id="so-minmod" step="1" min="5" max="80" value="${num(o.boiler_min_modulation)}" ${numCls}>
         ${ck("duty_cycle_enabled", "Low-load duty cycling", o.duty_cycle_enabled)}
-        ${saveBtn("load")}
+        <div class="settings-save">${saveBtn("load")}</div>
       </div>
       <div class="card">
         <h3>Schedule</h3>
@@ -1774,7 +1868,7 @@ class HomeClimatePanel extends HTMLElement {
         <select id="so-sched-on" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_on_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
         <label style="margin-top:6px">Preset when OFF</label>
         <select id="so-sched-off" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_off_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
-        ${saveBtn("schedule")}
+        <div class="settings-save">${saveBtn("schedule")}</div>
       </div>
       <div class="card">
         <h3>Occupancy (phones)</h3>
@@ -1788,7 +1882,7 @@ class HomeClimatePanel extends HTMLElement {
         <select id="so-occ-away" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_away_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
         <label style="margin-top:6px">Home preset</label>
         <select id="so-occ-home" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_home_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
-        ${saveBtn("occupancy")}
+        <div class="settings-save">${saveBtn("occupancy")}</div>
       </div>
       <div class="card">
         <h3>Gas metering</h3>
@@ -1802,7 +1896,7 @@ class HomeClimatePanel extends HTMLElement {
         <input type="number" id="so-gas-calib" step="0.05" min="0.2" max="5" value="${num(o.gas_calibration)}" ${numCls}>
         <label style="margin-top:6px">Price per kWh</label>
         <input type="number" id="so-gas-price" step="0.01" min="0" max="100" value="${num(o.gas_price_per_kwh)}" ${numCls}>
-        ${saveBtn("gas")}
+        <div class="settings-save">${saveBtn("gas")}</div>
       </div>
       <div class="card">
         <h3>Your boiler</h3>
@@ -1834,6 +1928,7 @@ class HomeClimatePanel extends HTMLElement {
         <button class="ghost" type="button" data-action="save-failsafe"
           style="margin-top:8px;padding:6px 14px">Save to device</button>
         <span id="hcc-fs-msg" style="margin-left:8px;font-size:.85rem"></span>
+      </div>
       </div>`;
   }
 
