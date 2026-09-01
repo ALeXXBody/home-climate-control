@@ -18,7 +18,7 @@ weather compensation, learned behaviour, and the lowest workable flow temperatur
 | | |
 |---|---|
 | **Repo** | https://github.com/ALeXXBody/home-climate-control |
-| **Current version** | v1.6.4 |
+| **Current version** | v1.7.0 |
 | **Domain** | `home_climate_control` |
 | **License** | MIT |
 

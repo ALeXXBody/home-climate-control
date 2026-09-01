@@ -26,6 +26,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
+    CONF_ZONE_CO2_SENSOR,
+    CONF_ZONE_LUX_SENSOR,
+    CONF_ZONE_RADIATOR_KW,
+    CONF_ZONE_TRV_POSITION,
     DEFAULT_MAX_ROOM_TEMP,
     DEFAULT_MIN_ROOM_TEMP,
     DEFAULT_TARGET_STEP,
@@ -36,7 +40,10 @@ from .const import (
     PRESET_OFFSETS,
     ZONE_PRESETS,
 )
+from .balancing import BalanceMonitor
+from .co2 import Co2Guard
 from .pid import PID
+from .solar import SolarGain
 from .window_detect import SlopeWindowDetector
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,6 +125,26 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # an away/eco setback so the room is warm when the recovery window
         # would otherwise already be blown.
         self._preheat_active: bool = False
+
+        # ── Tier 3/4 per-room extras ────────────────────────────────────
+        self._lux_sensor = zone_cfg.get(CONF_ZONE_LUX_SENSOR) or None
+        self._co2_sensor = zone_cfg.get(CONF_ZONE_CO2_SENSOR) or None
+        self._trv_position_entity = (
+            zone_cfg.get(CONF_ZONE_TRV_POSITION) or None
+        )
+        try:
+            self.radiator_kw = (
+                float(zone_cfg[CONF_ZONE_RADIATOR_KW])
+                if zone_cfg.get(CONF_ZONE_RADIATOR_KW) is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            self.radiator_kw = None
+        self.solar = SolarGain()
+        self.co2 = Co2Guard()
+        self.balance = BalanceMonitor()
+        self._valve_pct: float | None = None
+        self._radiator_kw_est: float | None = None
 
         curve_coeff = coordinator.curve_coeff
         self.pid = PID(
@@ -213,6 +240,16 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             "effective_setpoint": self.effective_setpoint(),
             "preheat": bool(self._preheat_active),
             "preset_source": self._preset_source,
+            # Tier 3/4
+            "solar_gain": self.solar.active,
+            "co2_ppm": (
+                round(self.co2.ppm) if self.co2.ppm is not None else None
+            ),
+            "needs_ventilation": self.co2.needs_ventilation,
+            "valve_pct": self._valve_pct,
+            "balance": self.balance.report(),
+            "radiator_kw": self.radiator_kw,
+            "radiator_kw_est": self._radiator_kw_est,
             "dead_time_s": round(dead, 0) if dead is not None else None,
             "lead_time_s": round(lead, 0) if lead is not None else None,
             "warm_rate_cph": self._warm_rate_cph(),
@@ -337,6 +374,11 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 fallback=offset,
                 dead_time_s=self._dead_time_s(),
             )
+        # Tier 3 solar gain: a sun-warmed room is comfortable slightly
+        # cooler — shave the comfort target while direct sun holds.
+        # Only on comfort-side presets so setback learning stays untouched.
+        if self._preset not in ("away", "eco"):
+            offset += self.solar.offset_contribution
         # Optimal-start catch-up: while pre-heating out of a setback, drive
         # the room toward the comfort target (not the lowered night SP).
         if self._preheat_active and self._preset in ("away", "eco"):
@@ -529,6 +571,38 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         """TRV state changed — refresh temp if we use TRV as sensor."""
         if not self._temp_sensor:
             self._refresh_temp_from_trv()
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    # ── Tier 3/4 sensor feeds ────────────────────────────────────────────
+    @callback
+    def on_lux_update(self, lux: float | None) -> None:
+        """Lux sensor reading — feeds the solar-gain detector."""
+        self.solar.update(lux)
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    @callback
+    def on_co2_update(self, ppm: float | None) -> None:
+        """CO₂ sensor reading — feeds the ventilation flag."""
+        self.co2.update(ppm)
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    @callback
+    def on_valve_update(self, pct: float | None) -> None:
+        """TRV valve position 0–100 — feeds the balance monitor."""
+        if pct is None:
+            return
+        try:
+            self._valve_pct = max(0.0, min(100.0, float(pct)))
+        except (TypeError, ValueError):
+            return
+        below = (
+            self._current_temp is not None
+            and self.effective_setpoint() - self._current_temp > 0.1
+        )
+        self.balance.sample(self._valve_pct, below)
         if self.hass is not None:
             self.async_write_ha_state()
 

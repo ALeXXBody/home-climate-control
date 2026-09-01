@@ -28,6 +28,7 @@ from .const import (
 )
 from .condense import as_dict_snapshot as condense_snapshot, condense_pull
 from .dutycycle import DutyCycler
+from .radiators import radiator_output_kw
 from .health import FLOW_NEAR_MAX_K, RoomHealthMonitor
 from .heating_curve import clamp, flow_for_outdoor
 
@@ -539,6 +540,22 @@ class CentralController:
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("health feed failed", exc_info=True)
+
+        # ── Tier 4: radiator metering + TRV balancing feed ──────────────
+        be_flow = getattr(self.backend, "flow_temp", None)
+        be_ret = getattr(self.backend, "return_temp", None)
+        for z in self.zones:
+            if getattr(z, "radiator_kw", None):
+                z._radiator_kw_est = radiator_output_kw(
+                    z.radiator_kw, be_flow, be_ret, z.current_temperature
+                )
+            valve = getattr(z, "_valve_pct", None)
+            if valve is not None:
+                below = (
+                    z.current_temperature is not None
+                    and z.effective_setpoint() - z.current_temperature > 0.1
+                )
+                z.balance.sample(valve, below)
 
         # Training-data log: one compact snapshot per control tick (60 s).
         if self.datalogger is not None:

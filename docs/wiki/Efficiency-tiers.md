@@ -59,24 +59,21 @@ Practical roadmap for gas-heating efficiency. Each tier adds capability and save
 - **Pre-heat before arrival** — dead-time lead calculates recovery
 - Works with schedule: schedule drives home, occupancy handles absence
 
-## Tier 3 — cheap sensors (future)
+## Tier 3 — cheap sensors ✅ (v1.7.0)
 
-**Needs:** CO₂ sensors, light sensors per room.
-
-**What you get:**
-- CO₂-volume-based ventilation and heating decisions
-- Solar gain detection via lux sensors
-- Not yet implemented
-
-## Tier 4 — deep OT / radiator fleet (future)
-
-**Needs:** Full OT slave, radiator thermoweb, TRV position feedback.
+**Needs:** CO₂ sensor and/or lux sensor per room (optional).
 
 **What you get:**
-- True radiator watt metering
-- TRV balancing assistance
-- Condensing optimisation with real return temps from radiators
-- Partial now (return temp, modulation, ΔT kW available)
+- **Solar gain trim** — a sunlit room (lux > 5000, hysteresis) shaves 0.5 °C off the comfort target automatically; radiant warmth covers it, gas doesn't
+- **CO₂ ventilation flag** — per-room "needs ventilation" (CO₂ > 1100 ppm, clears < 800) surfaced in the panel/attributes for HA automations (heating is deliberately NOT paused on CO₂ — comfort first)
+
+## Tier 4 — deep OT / radiator fleet ✅ (v1.7.0, partial)
+
+**Implemented (v1.7.0):**
+- **True radiator metering** — set a room's nominal radiator kW (ΔT50 rating) and HCC computes the actual output from real OT flow/return/room temps: `Q = nominal × (ΔT/50)^1.3`
+- **TRV balancing assistance** — assign a valve-position entity (0–100 %) and HCC builds a 2-hour picture: `undersupplied` (valve pegged open, room cold), `oversupplied` (valve closed, room warm), or `ok`
+
+**Still future:** full OT slave depth, per-radiator thermoweb, automatic lockshield suggestions
 
 ## What tier should I aim for?
 

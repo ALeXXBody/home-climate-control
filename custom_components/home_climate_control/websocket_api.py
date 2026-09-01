@@ -23,8 +23,12 @@ from .const import (
     CONF_WIND_ENABLED,
     CONF_WIND_ENTITY,
     CONF_WIND_MAX_DELTA,
+    CONF_ZONE_CO2_SENSOR,
     CONF_ZONE_FLOOR,
     CONF_ZONE_HEAT_CONTROL,
+    CONF_ZONE_LUX_SENSOR,
+    CONF_ZONE_RADIATOR_KW,
+    CONF_ZONE_TRV_POSITION,
     CONF_ZONE_NAME,
     CONF_ZONE_TEMP_SENSOR,
     CONF_ZONE_TRV_CLIMATES,
@@ -51,7 +55,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.6.4"
+INTEGRATION_VERSION = "1.7.0"
 
 
 def _integration_version() -> str:
@@ -163,6 +167,28 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         else None
                     ),
                     "state": state.state if state else None,
+                    # Tier 3/4
+                    "solar_gain": getattr(zone, "solar", None) is not None
+                    and zone.solar.active,
+                    "co2_ppm": (
+                        round(zone.co2.ppm)
+                        if getattr(zone, "co2", None) is not None
+                        and zone.co2.ppm is not None
+                        else None
+                    ),
+                    "needs_ventilation": (
+                        zone.co2.needs_ventilation
+                        if getattr(zone, "co2", None) is not None
+                        else False
+                    ),
+                    "valve_pct": getattr(zone, "_valve_pct", None),
+                    "balance": (
+                        zone.balance.report()
+                        if getattr(zone, "balance", None) is not None
+                        else None
+                    ),
+                    "radiator_kw": getattr(zone, "radiator_kw", None),
+                    "radiator_kw_est": getattr(zone, "_radiator_kw_est", None),
                 }
             )
 
@@ -608,6 +634,10 @@ def build_zone_config(
     trv_climates: list[str] | None = None,
     temp_sensor: str | None = None,
     window_sensors: list[str] | None = None,
+    lux_sensor: str | None = None,
+    co2_sensor: str | None = None,
+    trv_position_entity: str | None = None,
+    radiator_kw: float | None = None,
 ) -> dict[str, Any]:
     """Validate a new-room request; returns the zone dict or raises ValueError.
 
@@ -631,7 +661,23 @@ def build_zone_config(
     if sensor and not sensor.startswith("sensor."):
         raise ValueError(f"'{sensor}' is not a sensor entity")
     windows = [w.strip() for w in (window_sensors or []) if w and w.strip()]
-    return {
+    lux = (lux_sensor or "").strip() or None
+    if lux and not lux.startswith("sensor."):
+        raise ValueError(f"'{lux}' is not a sensor entity")
+    co2 = (co2_sensor or "").strip() or None
+    if co2 and not co2.startswith("sensor."):
+        raise ValueError(f"'{co2}' is not a sensor entity")
+    valve = (trv_position_entity or "").strip() or None
+    if valve and not valve.startswith(("sensor.", "number.")):
+        raise ValueError(f"'{valve}' is not a sensor or number entity")
+    if radiator_kw is not None:
+        try:
+            radiator_kw = float(radiator_kw)
+        except (TypeError, ValueError):
+            raise ValueError("radiator_kw must be a number")
+        if not 0 <= radiator_kw <= 20:
+            raise ValueError("radiator_kw must be between 0 and 20")
+    cfg = {
         CONF_ZONE_NAME: name,
         CONF_ZONE_TRV_CLIMATES: trvs,
         CONF_ZONE_TEMP_SENSOR: sensor,
@@ -640,6 +686,15 @@ def build_zone_config(
         CONF_ZONE_HEAT_CONTROL: heat_control,
         "setpoint": DEFAULT_ZONE_SETPOINT,
     }
+    if lux:
+        cfg[CONF_ZONE_LUX_SENSOR] = lux
+    if co2:
+        cfg[CONF_ZONE_CO2_SENSOR] = co2
+    if valve:
+        cfg[CONF_ZONE_TRV_POSITION] = valve
+    if radiator_kw:
+        cfg[CONF_ZONE_RADIATOR_KW] = radiator_kw
+    return cfg
 
 
 def validate_zone_update(
@@ -680,6 +735,10 @@ def validate_zone_update(
         vol.Optional("trv_climates"): [str],
         vol.Optional("temp_sensor"): vol.Any(str, None),
         vol.Optional("window_sensors"): [str],
+        vol.Optional("lux_sensor"): vol.Any(str, None),
+        vol.Optional("co2_sensor"): vol.Any(str, None),
+        vol.Optional("trv_position_entity"): vol.Any(str, None),
+        vol.Optional("radiator_kw"): vol.Any(vol.Coerce(float), None),
     }
 )
 @websocket_api.async_response
@@ -704,10 +763,18 @@ async def ws_rename_zone(
     trv_climates = msg.get("trv_climates")
     temp_sensor = msg.get("temp_sensor")
     window_sensors = msg.get("window_sensors")
+    lux_sensor = msg.get("lux_sensor")
+    co2_sensor = msg.get("co2_sensor")
+    trv_position_entity = msg.get("trv_position_entity")
+    radiator_kw = msg.get("radiator_kw")
     device_fields = (
         trv_climates is not None
         or "temp_sensor" in msg
         or window_sensors is not None
+        or "lux_sensor" in msg
+        or "co2_sensor" in msg
+        or "trv_position_entity" in msg
+        or "radiator_kw" in msg
     )
     err = validate_zone_update(
         [n for n in names if n != msg["zone"]],
@@ -758,6 +825,58 @@ async def ws_rename_zone(
             z[CONF_ZONE_WINDOW_SENSORS] = [
                 w.strip() for w in window_sensors if w and w.strip()
             ]
+        if "lux_sensor" in msg:
+            lux = (lux_sensor or "").strip() or None
+            if lux and not lux.startswith("sensor."):
+                connection.send_error(
+                    msg["id"], "invalid_zone", f"'{lux}' is not a sensor entity"
+                )
+                return
+            if lux:
+                z[CONF_ZONE_LUX_SENSOR] = lux
+            else:
+                z.pop(CONF_ZONE_LUX_SENSOR, None)
+        if "co2_sensor" in msg:
+            co2 = (co2_sensor or "").strip() or None
+            if co2 and not co2.startswith("sensor."):
+                connection.send_error(
+                    msg["id"], "invalid_zone", f"'{co2}' is not a sensor entity"
+                )
+                return
+            if co2:
+                z[CONF_ZONE_CO2_SENSOR] = co2
+            else:
+                z.pop(CONF_ZONE_CO2_SENSOR, None)
+        if "trv_position_entity" in msg:
+            valve = (trv_position_entity or "").strip() or None
+            if valve and not valve.startswith(("sensor.", "number.")):
+                connection.send_error(
+                    msg["id"], "invalid_zone",
+                    f"'{valve}' is not a sensor or number entity",
+                )
+                return
+            if valve:
+                z[CONF_ZONE_TRV_POSITION] = valve
+            else:
+                z.pop(CONF_ZONE_TRV_POSITION, None)
+        if "radiator_kw" in msg:
+            if radiator_kw is None:
+                z.pop(CONF_ZONE_RADIATOR_KW, None)
+            else:
+                try:
+                    rkw = float(radiator_kw)
+                except (TypeError, ValueError):
+                    connection.send_error(
+                        msg["id"], "invalid_zone", "radiator_kw must be a number"
+                    )
+                    return
+                if not 0 <= rkw <= 20:
+                    connection.send_error(
+                        msg["id"], "invalid_zone",
+                        "radiator_kw must be between 0 and 20",
+                    )
+                    return
+                z[CONF_ZONE_RADIATOR_KW] = rkw
         new_zones.append(z)
     new_options = {**entry.options, CONF_ZONES: new_zones}
     # Migrate learned history before the reload swaps the entity out.
@@ -778,6 +897,10 @@ async def ws_rename_zone(
         vol.Optional("trv_climates", default=[]): [str],
         vol.Optional("temp_sensor"): str,
         vol.Optional("window_sensors", default=[]): [str],
+        vol.Optional("lux_sensor"): str,
+        vol.Optional("co2_sensor"): str,
+        vol.Optional("trv_position_entity"): str,
+        vol.Optional("radiator_kw"): vol.Any(vol.Coerce(float), None),
     }
 )
 @websocket_api.async_response
@@ -812,6 +935,10 @@ async def ws_add_zone(
             trv_climates=msg["trv_climates"],
             temp_sensor=msg.get("temp_sensor"),
             window_sensors=msg["window_sensors"],
+            lux_sensor=msg.get("lux_sensor"),
+            co2_sensor=msg.get("co2_sensor"),
+            trv_position_entity=msg.get("trv_position_entity"),
+            radiator_kw=msg.get("radiator_kw"),
         )
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_zone", str(err))

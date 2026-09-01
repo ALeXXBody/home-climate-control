@@ -1617,9 +1617,25 @@ class HomeClimatePanel extends HTMLElement {
       .filter((id) => id.startsWith("binary_sensor.")
         && hass[id]?.attributes?.device_class === "opening")
       .sort((a, b) => friendly(a).localeCompare(friendly(b)));
+    const luxSensors = Object.keys(hass)
+      .filter((id) => id.startsWith("sensor.")
+        && hass[id]?.attributes?.device_class === "illuminance")
+      .sort((a, b) => friendly(a).localeCompare(friendly(b)));
+    const co2Sensors = Object.keys(hass)
+      .filter((id) => id.startsWith("sensor.")
+        && hass[id]?.attributes?.device_class === "carbon_dioxide")
+      .sort((a, b) => friendly(a).localeCompare(friendly(b)));
+    const valveSensors = Object.keys(hass)
+      .filter((id) => /^(sensor|number)\./.test(id)
+        && /valve|position/i.test(id + " " + (hass[id]?.attributes?.friendly_name || "")))
+      .sort((a, b) => friendly(a).localeCompare(friendly(b)));
     const curTrv = isEdit ? (z.trv || "") : "";
     const curSensor = isEdit ? (z.temp_sensor || "") : "";
     const curWindows = isEdit ? (z.window_sensors || []).join(", ") : "";
+    const curLux = isEdit ? (z.lux_sensor || "") : "";
+    const curCo2 = isEdit ? (z.co2_sensor || "") : "";
+    const curValve = isEdit ? (z.trv_position_entity || "") : "";
+    const curRadKw = isEdit && z.radiator_kw != null ? z.radiator_kw : "";
     const curName = isEdit ? (z.name || "") : "";
     const curControl = isEdit ? (z.heat_control || "smart") : "smart";
     const curFloor = isEdit ? String(z.floor ?? 0) : "0";
@@ -1647,6 +1663,17 @@ class HomeClimatePanel extends HTMLElement {
         <div class="row"><label>Window/door<br><span style="font-weight:400">(optional, comma-sep)</span></label>
           <input id="${prefix}-window" list="${prefix}-windows" value="${this._esc(curWindows)}" placeholder="binary_sensor.…" style="flex:1">
           <datalist id="${prefix}-windows">${windowSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
+        <div class="row"><label>Lux sensor<br><span style="font-weight:400">(Tier 3, optional)</span></label>
+          <input id="${prefix}-lux" list="${prefix}-luxs" value="${this._esc(curLux)}" placeholder="sensor.… (solar gain)" style="flex:1">
+          <datalist id="${prefix}-luxs">${luxSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
+        <div class="row"><label>CO₂ sensor<br><span style="font-weight:400">(Tier 3, optional)</span></label>
+          <input id="${prefix}-co2" list="${prefix}-co2s" value="${this._esc(curCo2)}" placeholder="sensor.… ppm (ventilation flag)" style="flex:1">
+          <datalist id="${prefix}-co2s">${co2Sensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
+        <div class="row"><label>TRV valve position<br><span style="font-weight:400">(Tier 4, optional)</span></label>
+          <input id="${prefix}-valve" list="${prefix}-valves" value="${this._esc(curValve)}" placeholder="sensor.°/number.… 0-100%" style="flex:1">
+          <datalist id="${prefix}-valves">${valveSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
+        <div class="row"><label>Radiator nominal kW<br><span style="font-weight:400">(Tier 4 @ ΔT50, optional)</span></label>
+          <input id="${prefix}-radkw" type="number" step="0.1" min="0" max="20" value="${this._esc(curRadKw)}" placeholder="e.g. 1.8" style="flex:1"></div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button type="button" class="a" data-zone-action="${action}" ${isEdit ? `data-zone-name="${this._esc(z.name || "")}"` : ""} style="flex:1">${isEdit ? "Save changes" : "Create room"}</button>
           <button type="button" class="ghost" data-zone-action="${isEdit ? "cancel-edit" : "cancel-add"}" style="flex:1">Cancel</button>
@@ -1687,7 +1714,8 @@ class HomeClimatePanel extends HTMLElement {
                     ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}
                     temp source: ${z.temp_sensor || (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
                     ${!manual && z.trv ? `TRV: ${this._esc(z.trv)}<br>` : ""}
-                    ${(z.window_sensors || []).length ? `window sensors: ${this._esc((z.window_sensors || []).join(", "))}` : "no window sensors"}
+                    ${(z.window_sensors || []).length ? `window sensors: ${this._esc((z.window_sensors || []).join(", "))}<br>` : "no window sensors<br>"}
+                    ${z.solar_gain ? `<span style="color:#ffd54f">☀️ solar gain</span> · ` : ""}${z.co2_ppm != null ? `CO₂ ${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠ ventilate" : ""} · ` : ""}${z.valve_pct != null ? `valve ${Math.round(z.valve_pct)}% · ` : ""}${z.radiator_kw_est != null ? `radiator ~${z.radiator_kw_est} kW · ` : ""}${z.balance && z.balance.state !== "learning" && z.balance.state !== "ok" ? `<span style="color:#ef9a9a">balance: ${this._esc(z.balance.state)}</span>` : ""}
                   </div>
                 </details>
               </div>`;
@@ -2038,6 +2066,9 @@ class HomeClimatePanel extends HTMLElement {
         ${sys.wind_trim?.entity ? `<div class="card"><h3>Wind trim</h3>
           <div class="metric" style="font-size:1.2rem">${sys.wind_trim.trim_c ? `−${this._esc(sys.wind_trim.trim_c)}<span class="unit">°C</span>` : "0<span class=\"unit\">°C</span>"}</div>
           <p class="sub">${this._esc(sys.wind_trim.entity)}${sys.wind_trim.wind_kmh != null ? ` · wind ${this._esc(sys.wind_trim.wind_kmh)} km/h` : " · no wind data"} · cap ${this._esc(sys.wind_trim.max_delta_c)}°C${sys.wind_trim.enabled ? "" : " · disabled"}</p>
+        </div>` : ""}
+        ${(sys.zones || []).some((z) => z.solar_gain || z.co2_ppm != null || z.valve_pct != null || z.radiator_kw_est != null) ? `<div class="card" style="grid-column:1/-1"><h3>Tier 3/4 — rooms</h3>
+          ${sys.zones.filter((z) => z.solar_gain || z.co2_ppm != null || z.valve_pct != null || z.radiator_kw_est != null || (z.balance && z.balance.state !== "learning")).map((z) => `<p class="sub"><strong>${this._esc(z.name)}</strong>: ${z.solar_gain ? "☀️ solar · " : ""}${z.co2_ppm != null ? `CO₂ ${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠ ventilate" : ""} · ` : ""}${z.valve_pct != null ? `valve ${Math.round(z.valve_pct)}% · ` : ""}${z.radiator_kw_est != null ? `radiator ~${z.radiator_kw_est} kW · ` : ""}${z.balance ? this._esc(z.balance.state) : ""}</p>`).join("")}
         </div>` : ""}
         ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
           ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
@@ -2556,11 +2587,19 @@ class HomeClimatePanel extends HTMLElement {
         .split(",").map((x) => x.trim()).filter(Boolean);
       if (!name) { this._error = "Room name is required"; this._render(); return; }
       this._addingRoom = false;
+      const lux = root.getElementById("nr-lux")?.value?.trim();
+      const co2 = root.getElementById("nr-co2")?.value?.trim();
+      const valve = root.getElementById("nr-valve")?.value?.trim();
+      const radkw = root.getElementById("nr-radkw")?.value;
       this._adminZone("add_zone", {
         name, heat_control, floor,
         trv_climates: trv ? [trv] : [],
         temp_sensor: temp_sensor || undefined,
         window_sensors,
+        lux_sensor: lux || undefined,
+        co2_sensor: co2 || undefined,
+        trv_position_entity: valve || undefined,
+        radiator_kw: radkw !== "" && radkw != null ? parseFloat(radkw) : undefined,
       });
       return;
     }
@@ -2585,11 +2624,19 @@ class HomeClimatePanel extends HTMLElement {
       const window_sensors = (root.getElementById("er-window")?.value || "")
         .split(",").map((x) => x.trim()).filter(Boolean);
       this._editingZone = null;
+      const elux = root.getElementById("er-lux")?.value?.trim() ?? null;
+      const eco2 = root.getElementById("er-co2")?.value?.trim() ?? null;
+      const evalve = root.getElementById("er-valve")?.value?.trim() ?? null;
+      const eradkw = root.getElementById("er-radkw")?.value;
       this._adminZone("rename_zone", {
         zone: zoneName, heat_control, floor,
         trv_climates: trv ? [trv] : [],
         temp_sensor: temp_sensor || null,
         window_sensors,
+        lux_sensor: elux,
+        co2_sensor: eco2,
+        trv_position_entity: evalve,
+        radiator_kw: eradkw !== "" && eradkw != null ? parseFloat(eradkw) : null,
       });
       return;
     }

@@ -115,6 +115,12 @@ HEAT_CONTROL_SMART = "smart"    # addressable TRV: HCC commands it
 HEAT_CONTROL_MANUAL = "manual"  # hand-turned valve: HCC observes only
 CONF_ZONE_IS_UNDERFLOOR = "underfloor"
 
+# Tier 3/4 per-room extras
+CONF_ZONE_LUX_SENSOR = "lux_sensor"          # Tier 3: solar gain (sensor.*)
+CONF_ZONE_CO2_SENSOR = "co2_sensor"          # Tier 3: air quality (sensor.*)
+CONF_ZONE_RADIATOR_KW = "radiator_kw"        # Tier 4: nominal kW @ ΔT50
+CONF_ZONE_TRV_POSITION = "trv_position_entity"  # Tier 4: valve 0-100 (sensor./number.*)
+
 # Telemetry subjects on the native hcs/<node> bus (informational only):
 # (docs/api/MQTT.md "OpenTherm Numeric Values" + status flags).
 # Command subjects under <prefix>/set/<node-id>/<command> (MQTTstuff.ino setcmds).

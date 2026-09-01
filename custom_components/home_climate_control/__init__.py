@@ -232,6 +232,14 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
         for z in zones
         if z.temp_sensor_entity
     }
+    # Tier 3/4 per-room sensor maps
+    lux_map = {z._lux_sensor: z for z in zones if getattr(z, "_lux_sensor", None)}
+    co2_map = {z._co2_sensor: z for z in zones if getattr(z, "_co2_sensor", None)}
+    valve_map = {
+        z._trv_position_entity: z
+        for z in zones
+        if getattr(z, "_trv_position_entity", None)
+    }
     trv_map: dict[str, list] = {}
     for z in zones:
         for trv in getattr(z, "trv_entities", None) or []:
@@ -244,7 +252,10 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
                 trv_map[trv].append(z)
 
     window_entities = sorted({s for z in zones for s in z.window_sensor_entities})
-    watched = list(temp_map.keys()) + list(trv_map.keys()) + window_entities
+    watched = (
+        list(temp_map.keys()) + list(trv_map.keys()) + window_entities
+        + list(lux_map.keys()) + list(co2_map.keys()) + list(valve_map.keys())
+    )
     if not watched:
         return
 
@@ -255,6 +266,22 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
                 zone.on_sensor_update(float(state.state), None)
             except ValueError:
                 pass
+
+    def _seed_float(entity_id, zone, handler):
+        state = hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return
+        try:
+            handler(float(state.state))
+        except (TypeError, ValueError):
+            pass
+
+    for entity_id, zone in lux_map.items():
+        _seed_float(entity_id, zone, zone.on_lux_update)
+    for entity_id, zone in co2_map.items():
+        _seed_float(entity_id, zone, zone.on_co2_update)
+    for entity_id, zone in valve_map.items():
+        _seed_float(entity_id, zone, zone.on_valve_update)
 
     for entity_id, room_list in trv_map.items():
         for zone in room_list:
@@ -281,6 +308,25 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
             try:
                 zone.on_sensor_update(float(new.state), None)
             except ValueError:
+                pass
+            return
+
+        if entity_id in lux_map:
+            try:
+                lux_map[entity_id].on_lux_update(float(new.state))
+            except (TypeError, ValueError):
+                pass
+            return
+        if entity_id in co2_map:
+            try:
+                co2_map[entity_id].on_co2_update(float(new.state))
+            except (TypeError, ValueError):
+                pass
+            return
+        if entity_id in valve_map:
+            try:
+                valve_map[entity_id].on_valve_update(float(new.state))
+            except (TypeError, ValueError):
                 pass
             return
 
