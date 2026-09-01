@@ -4,6 +4,8 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import voluptuous as vol
+
 from custom_components.home_climate_control import websocket_api
 from custom_components.home_climate_control.const import DOMAIN
 
@@ -105,6 +107,6 @@ def test_settings_payload_passes_websocket_envelope_schema():
         "wind_max_delta": 3,
         "id": 58,
     }
-    validated = websocket_api._SET_OPTIONS_SCHEMA(payload)
+    validated = vol.Schema(websocket_api._SET_OPTIONS_SCHEMA)(payload)
     assert validated["wind_max_delta"] == 3
     assert validated["outdoor_sensor"] == ""

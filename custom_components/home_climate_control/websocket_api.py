@@ -51,7 +51,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.6.0"
+INTEGRATION_VERSION = "1.6.1"
 
 
 def _integration_version() -> str:
@@ -471,24 +471,25 @@ def _primary_entry(hass: HomeAssistant):
     return None
 
 
-_SET_OPTIONS_SCHEMA = vol.Schema(
-    {
-        vol.Required("type"): f"{DOMAIN}/set_options",
-        vol.Optional("id"): int,
-        **{
-            vol.Optional(key): vol.Any(
-                str, float, int, bool, list, dict, type(None)
-            )
-            for key in (
-                set(_OPTION_RANGES)
-                | set(_OPTION_BOOLS)
-                | set(_OPTION_ENTITY_SINGLE)
-                | set(_OPTION_ENTITY_MULTI)
-                | set(_OPTION_PRESETS)
-            )
-        },
-    }
-)
+# Home Assistant's websocket_command decorator expects the raw schema
+# mapping and reads schema.validators[0].schema["type"] itself. Do not wrap
+# this in vol.Schema here; HA performs that wrapping internally.
+_SET_OPTIONS_SCHEMA = {
+    vol.Required("type"): f"{DOMAIN}/set_options",
+    vol.Optional("id"): int,
+    **{
+        vol.Optional(key): vol.Any(
+            str, float, int, bool, list, dict, type(None)
+        )
+        for key in (
+            set(_OPTION_RANGES)
+            | set(_OPTION_BOOLS)
+            | set(_OPTION_ENTITY_SINGLE)
+            | set(_OPTION_ENTITY_MULTI)
+            | set(_OPTION_PRESETS)
+        )
+    },
+}
 
 
 @websocket_api.require_admin
