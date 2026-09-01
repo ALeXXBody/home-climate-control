@@ -1,6 +1,6 @@
 # Efficiency tiers
 
-Practical roadmap for gas-heating efficiency. Each tier adds capability and saves more gas. HCC v1.5.4 implements tiers 0–2 fully (0b learned control, 0c outdoor+curve incl. wind compensation, 1 schedules, 2 occupancy); tiers 3–4 need extra sensors/OT depth.
+Practical roadmap for gas-heating efficiency. Each tier adds capability and saves more gas. HCC v1.5.5 implements tiers 0–2 fully (0b learned control, 0c outdoor+curve incl. wind compensation, 1 schedules, 2 occupancy); tiers 3–4 need extra sensors/OT depth.
 
 ## Tier 0 — room temp + boiler switch
 
@@ -36,7 +36,7 @@ Practical roadmap for gas-heating efficiency. Each tier adds capability and save
 - **Heating curve** — outdoor→flow mapping
 - **Auto-tune curve** — learns optimal coefficient
 - **Outdoor HA fallback** — boiler → HA sensor → stale boiler → none
-- **Wind compensation** — bounded infiltration trim on the curve (v1.5.4; not a "feels like" value)
+- **Wind compensation** — bounded infiltration trim on the curve (v1.5.5; not a "feels like" value)
 - **Condensing pull-down** — shaves flow when return >54 °C
 - **Load-aware health** (improved with outdoor data)
 - **Gas ΔT estimate** — `P_max × ΔT/20K / η` when mod% is 0

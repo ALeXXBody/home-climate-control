@@ -13,8 +13,8 @@
         "description": "Creates a simulated boiler with outdoor temperature, flame/modulation, and two rooms (Living Room + Bedroom). No MQTT or hardware required. Open the **Home Climate** sidebar after setup.",
         "data": {
           "name": "Name",
-          "min_flow_temp": "Minimum flow temperature (\u00b0C)",
-          "max_flow_temp": "Maximum flow temperature (\u00b0C)",
+          "min_flow_temp": "Minimum flow temperature (°C)",
+          "max_flow_temp": "Maximum flow temperature (°C)",
           "curve_coeff": "Heating curve coefficient"
         }
       },
@@ -24,14 +24,14 @@
         "data": {
           "name": "Name",
           "node_id": "Preferred gateway node id (any live board is followed automatically)",
-          "min_flow_temp": "Minimum flow temperature (\u00b0C)",
-          "max_flow_temp": "Maximum flow temperature (\u00b0C)",
+          "min_flow_temp": "Minimum flow temperature (°C)",
+          "max_flow_temp": "Maximum flow temperature (°C)",
           "curve_coeff": "Heating curve coefficient"
         }
       },
       "zone": {
         "title": "Add a room",
-        "description": "Rooms already added: {zone_count}. A room is: **TRV** + optional **wall temperature sensor** + optional **window/door sensors**. Open window/door pauses heating for that room. No external temp \u2192 TRV temperature is used. The ESP gateway is boiler-only, not part of a room.",
+        "description": "Rooms already added: {zone_count}. A room is: **TRV** + optional **wall temperature sensor** + optional **window/door sensors**. Open window/door pauses heating for that room. No external temp → TRV temperature is used. The ESP gateway is boiler-only, not part of a room.",
         "data": {
           "name": "Room name",
           "trv_climates": "TRV (climate entity)",
@@ -42,7 +42,7 @@
       },
       "discovery": {
         "title": "New Home Climate System gateway found",
-        "description": "Board **{node}** announced itself on MQTT. Confirm to adopt it as the boiler gateway \u2014 rooms are configured on the next screen."
+        "description": "Board **{node}** announced itself on MQTT. Confirm to adopt it as the boiler gateway — rooms are configured on the next screen."
       }
     },
     "abort": {
@@ -58,14 +58,13 @@
       "init": {
         "title": "Home Climate Control options",
         "data": {
-          "min_flow_temp": "Minimum flow temperature (\u00b0C)",
-          "max_flow_temp": "Maximum flow temperature (\u00b0C)",
+          "min_flow_temp": "Minimum flow temperature (°C)",
+          "max_flow_temp": "Maximum flow temperature (°C)",
           "curve_coeff": "Heating curve coefficient",
           "auto_tune_curve": "Auto-tune the heating curve (recommended)",
           "learn_setbacks": "Learn smart night/Away setbacks per room",
           "outdoor_sensor": "Outdoor temperature fallback (sensor or weather)",
           "wind_entity": "Weather entity for wind compensation",
-          "wind_compensation": "Wind compensation (bounded curve trim)",
           "wind_max_delta": "Wind trim cap (°C)",
           "boiler_min_modulation": "Boiler minimum modulation (%)",
           "duty_cycle_enabled": "Low-load duty cycling",
@@ -87,7 +86,6 @@
           "learn_setbacks": "Measures how fast each room recovers after away/eco periods and sizes future setbacks so mornings are warm without wasteful catch-up burns.",
           "outdoor_sensor": "Used when the boiler outdoor reading is missing or older than 30 minutes. Pick a HA temperature sensor or weather entity.",
           "wind_entity": "Weather entity providing wind_speed. Its wind is used to trim the heating curve's outdoor input on windy days (infiltration correction).",
-          "wind_compensation": "Applies a bounded trim (up to the cap below) to the curve's outdoor temperature when wind blows. Not a 'feels like' value — building heat loss only.",
           "wind_max_delta": "Maximum curve trim from wind, in °C-equivalent.",
           "boiler_min_modulation": "Lowest continuous fire the boiler can hold (nameplate). Below this, HCC duty-cycles CH instead of short-cycling.",
           "duty_cycle_enabled": "When demand is below min modulation, PWM the burner with long on/off slices (default 10 min floors) instead of continuous low fire.",

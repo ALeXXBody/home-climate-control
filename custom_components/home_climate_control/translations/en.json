@@ -79,7 +79,6 @@
           "gas_calibration": "Calibration factor",
           "gas_price_per_kwh": "Gas price per kWh (optional)",
           "wind_entity": "Weather entity for wind compensation",
-          "wind_compensation": "Wind compensation (bounded curve trim)",
           "wind_max_delta": "Wind trim cap (°C)"
         },
         "data_description": {

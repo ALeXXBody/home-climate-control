@@ -113,3 +113,46 @@ def test_controller_uses_effective_outdoor():
     diag = c.diagnostics()
     assert diag["wind_trim"]["trim_c"] == 3.0
     assert diag["outdoor_effective"] == 2.0
+
+
+def test_trimmer_unit_conversion():
+    hass = MagicMock()
+
+    def with_wind(wind, unit):
+        st = MagicMock()
+        st.state = "sunny"
+        st.attributes = {"wind_speed": wind, "wind_speed_unit": unit}
+        hass.states.get.return_value = st
+        t = WindTrimmer(hass, "weather.home", enabled=True, max_delta=6.0)
+        t.refresh()
+        return t.wind_kmh
+
+    assert with_wind(20.9, "km/h") == 20.9
+    assert with_wind(5.0, "m/s") == 18.0
+    assert with_wind(10.0, "mph") == pytest.approx(16.1, abs=0.05)
+    assert with_wind(10.0, "ft/s") == pytest.approx(11.0, abs=0.05)
+    # unknown unit → passthrough
+    assert with_wind(7.0, "furlongs/fortnight") == 7.0
+
+
+def test_entity_selection_enables_compensation():
+    """No separate toggle: picking the entity enables the trim."""
+    from custom_components.home_climate_control.central import CentralController
+
+    hass = MagicMock()
+    st = MagicMock()
+    st.state = "cloudy"
+    st.attributes = {"wind_speed": 20}
+    hass.states.get.return_value = st
+    backend = MagicMock()
+    backend.outdoor_temp = 5.0
+    backend.outdoor_age_s = 0
+
+    c = CentralController(
+        hass, backend, curve_coeff=1.0, design_outdoor=-10.0,
+        min_flow=25, max_flow=75,
+        wind_entity="weather.home", wind_enabled=True, wind_max_delta=3.0,
+    )
+    assert c.windtrim.enabled is True
+    c.windtrim.refresh()
+    assert c.windtrim.trim_c == 3.0

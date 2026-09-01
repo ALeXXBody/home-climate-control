@@ -11,7 +11,6 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
-    CONF_WIND_ENABLED,
     CONF_WIND_ENTITY,
     CONF_WIND_MAX_DELTA,
     CONF_OCCUPANCY_AWAY_PRESET,
@@ -144,7 +143,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         outdoor_sensor=opts.get(CONF_OUTDOOR_SENSOR)
         or entry.data.get(CONF_OUTDOOR_SENSOR),
         wind_entity=opts.get(CONF_WIND_ENTITY),
-        wind_enabled=opts.get(CONF_WIND_ENABLED, False),
+        # Wind compensation is on whenever a weather entity is selected —
+        # no separate toggle (a lone off-toggle next to a picked entity was
+        # a confusing trap: card rendered but read nothing).
+        wind_enabled=bool(opts.get(CONF_WIND_ENTITY)),
         wind_max_delta=opts.get(CONF_WIND_MAX_DELTA, DEFAULT_WIND_MAX_DELTA),
         min_modulation_pct=opts.get(
             "boiler_min_modulation", DEFAULT_BOILER_MIN_MODULATION

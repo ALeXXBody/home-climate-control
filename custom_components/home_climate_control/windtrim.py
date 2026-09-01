@@ -55,7 +55,12 @@ class WindTrimmer:
         self.trim_c: float = 0.0
 
     def refresh(self) -> None:
-        """Re-read wind speed from the configured weather entity (if any)."""
+        """Re-read wind speed from the configured weather entity (if any).
+
+        ``wind_speed`` is converted to km/h from whatever unit the weather
+        integration reports (``wind_speed_unit``): m/s, mph, ft/s — some
+        integrations are configured in units other than HA's km/h default.
+        """
         self.wind_kmh = None
         self.trim_c = 0.0
         if not self.enabled or not self.entity or self.hass is None:
@@ -70,12 +75,20 @@ class WindTrimmer:
         if raw is None:
             return
         try:
-            kmh = float(raw)
-        except (TypeError, ValueError):
+            val = float(str(raw).split()[0])
+        except (TypeError, ValueError, IndexError):
             return
-        if kmh < 0:
+        if val < 0:
             return
-        self.wind_kmh = kmh
+        unit = (st.attributes.get("wind_speed_unit") or "km/h").strip().lower()
+        conv = {
+            "km/h": 1.0, "kph": 1.0, "kmh": 1.0,
+            "m/s": 3.6, "ms": 3.6,
+            "mph": 1.609344,
+            "ft/s": 1.09728, "fts": 1.09728,
+        }.get(unit, 1.0)
+        kmh = val * conv
+        self.wind_kmh = round(kmh, 1)
         self.trim_c = round(wind_trim_c(kmh, self.max_delta), 1)
 
     def effective(self, outdoor: float | None) -> float | None:
