@@ -357,7 +357,6 @@ def get_controller(hass: HomeAssistant, entry: ConfigEntry) -> CentralController
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    from .panel import async_unregister_panel
 
     # Audit F1: sensor platform was never unloaded, boiler_info kept its
     # MQTT subscription and update_checker its interval after entry removal.
@@ -388,7 +387,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if isinstance(v, dict) and "controller" in v
     ]
     if not remaining:
-        await async_unregister_panel(hass)
+        # NOTE: deliberately NOT unregistering the sidebar panel here.
+        # Unregistering kicks HA off the /home-climate route (it falls back
+        # to the default dashboard), and every options save reloads this
+        # entry — one switch flip used to throw the user to Overview.
+        # The panel renders an empty state gracefully with no entry.
 
         from .update_checker import get_update_checker
 

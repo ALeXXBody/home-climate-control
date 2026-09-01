@@ -55,7 +55,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.7.0"
+INTEGRATION_VERSION = "1.7.1"
 
 
 def _integration_version() -> str:
