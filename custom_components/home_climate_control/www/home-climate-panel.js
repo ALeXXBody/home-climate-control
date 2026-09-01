@@ -657,14 +657,16 @@ class HomeClimatePanel extends HTMLElement {
           min-height: 38px;
         }
         .hcc-switch {
-          display: inline-flex;
+          display: flex;
           align-items: center;
           gap: 10px;
           margin: 12px 0;
+          position: relative; /* anchors the hidden input inside the row */
           color: var(--primary-text-color, inherit);
           font-size: .9rem;
           cursor: pointer;
           white-space: nowrap;
+          width: fit-content;
         }
         .hcc-switch input {
           position: absolute;
@@ -673,6 +675,10 @@ class HomeClimatePanel extends HTMLElement {
           height: 1px;
         }
         .hcc-switch-track {
+          /* MUST be non-inline: bare <span> ignores width/height, which
+             collapsed the pill to zero width (the knob then floated free
+             over the text). */
+          display: inline-block;
           position: relative;
           width: 42px;
           height: 24px;
@@ -691,14 +697,15 @@ class HomeClimatePanel extends HTMLElement {
           border-radius: 50%;
           background: #fff;
           box-shadow: 0 1px 3px #0006;
-          transition: transform .18s ease;
+          transition: transform .18s ease, background .18s ease;
         }
         .hcc-switch input:checked + .hcc-switch-track {
-          background: #2e7d32;
+          /* solid green — same Material green as the header status pill */
+          background: #4caf50;
         }
         .hcc-switch input:checked + .hcc-switch-track::after {
           transform: translateX(18px);
-          background: #b9f6ca;
+          background: #fff;
         }
         .hcc-switch input:focus-visible + .hcc-switch-track {
           outline: 2px solid var(--primary-color, #03a9f4);
