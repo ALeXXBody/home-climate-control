@@ -1771,9 +1771,9 @@ class HomeClimatePanel extends HTMLElement {
         <label>Schedule entity</label>
         <select id="so-sched" ${selCls}>${optList(["schedule", "input_select", "sensor", "input_text"], o.schedule_entity, "— none —")}</select>
         <label style="margin-top:6px">Preset when ON</label>
-        <select id="so-sched-on" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_on_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        <select id="so-sched-on" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_on_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
         <label style="margin-top:6px">Preset when OFF</label>
-        <select id="so-sched-off" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_off_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        <select id="so-sched-off" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.schedule_off_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
         ${saveBtn("schedule")}
       </div>
       <div class="card">
@@ -1785,9 +1785,9 @@ class HomeClimatePanel extends HTMLElement {
           .sort()
           .map((id) => `<option value="${this._esc(id)}" ${(o.occupancy_trackers || []).includes(id) ? "selected" : ""}>${this._esc(this._hass.states[id]?.attributes?.friendly_name || id)}</option>`).join("")}</select>
         <label style="margin-top:6px">Away preset</label>
-        <select id="so-occ-away" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_away_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        <select id="so-occ-away" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_away_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
         <label style="margin-top:6px">Home preset</label>
-        <select id="so-occ-home" ${selCls}>${ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_home_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
+        <select id="so-occ-home" ${selCls}>${HomeClimatePanel.ZONE_PRESET_OPTS.map((p) => `<option value="${p}" ${p === o.occupancy_home_preset ? "selected" : ""}>${p}</option>`).join("")}</select>
         ${saveBtn("occupancy")}
       </div>
       <div class="card">
