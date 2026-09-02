@@ -61,14 +61,10 @@ def test_solar_offset_applies_to_zone_comfort_only():
         z.on_lux_update(7000)
     assert z.solar.active
     assert z.effective_setpoint() == pytest.approx(20.5)
-    # away preset: solar offset must NOT interfere with the setback
+    # away preset: absolute default (16 °C); solar trim still applies
     z._preset = "away"
     z._target_temp = 16.0
-    base = z._target_temp + PRESET_OFF_AWAY_OFFSET
-    assert z.effective_setpoint() == pytest.approx(base)
-
-
-PRESET_OFF_AWAY_OFFSET = -4.0  # matches PRESET_OFFSETS["away"]
+    assert z.effective_setpoint() == pytest.approx(15.5)  # 16 default − 0.5 solar
 
 
 # ── Tier 3: CO₂ guard ─────────────────────────────────────────────────────

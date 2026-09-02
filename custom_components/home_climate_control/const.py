@@ -52,22 +52,16 @@ PRESET_COMFORT = "comfort"
 PRESET_BOOST = "boost"
 ZONE_PRESETS = [PRESET_NONE, PRESET_AWAY, PRESET_ECO, PRESET_COMFORT, PRESET_BOOST]
 
-PRESET_OFFSETS = {
-    PRESET_AWAY: -4.0,
-    PRESET_ECO: -2.0,
-    PRESET_COMFORT: 0.5,
-    PRESET_BOOST: +2.0,
-}
-
-# Editable preset offsets (°C relative to the room target). Stored under
-# options key CONF_PRESET_OFFSETS; DEFAULT_PRESET_OFFSETS apply for keys the
-# user has not overridden.
-CONF_PRESET_OFFSETS = "preset_offsets"
-DEFAULT_PRESET_OFFSETS = {
-    PRESET_AWAY: -4.0,
-    PRESET_ECO: -2.0,
-    PRESET_COMFORT: 0.5,
-    PRESET_BOOST: +2.0,
+# Preset temperatures (ABSOLUTE °C — an active preset sets the room target
+# to this value directly, it is not relative to the room's own target).
+# Stored under options key CONF_PRESET_TEMPS; DEFAULT_PRESET_TEMPS apply for
+# keys the user has not overridden.
+CONF_PRESET_TEMPS = "preset_temps"
+DEFAULT_PRESET_TEMPS = {
+    PRESET_COMFORT: 21.0,
+    PRESET_ECO: 19.0,
+    PRESET_AWAY: 16.0,
+    PRESET_BOOST: 23.0,
 }
 
 DEFAULT_MIN_ROOM_TEMP = 5.0

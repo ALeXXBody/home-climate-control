@@ -113,39 +113,38 @@ def test_settings_payload_passes_websocket_envelope_schema():
     assert validated["outdoor_sensor"] == ""
 
 
-def test_set_options_preset_offsets():
+def test_set_options_preset_temps():
     hass, entry = _make_hass()
     conn = MagicMock()
     asyncio.run(websocket_api.ws_set_options(
         hass, conn,
-        {"id": 9, "preset_offsets": {"comfort": 0.0, "eco": -3.5, "away": -6}}))
+        {"id": 9, "preset_temps": {"comfort": 22.0, "eco": 18.5, "away": 15}}))
     opts = hass.config_entries.async_update_entry.call_args.kwargs["options"]
-    assert opts["preset_offsets"] == {"comfort": 0.0, "eco": -3.5, "away": -6.0}
+    assert opts["preset_temps"] == {"comfort": 22.0, "eco": 18.5, "away": 15.0}
     # controller merges with defaults for missing keys
-    from custom_components.home_climate_control.const import DEFAULT_PRESET_OFFSETS
-    merged = {**DEFAULT_PRESET_OFFSETS, **opts["preset_offsets"]}
-    assert merged["boost"] == 2.0
+    from custom_components.home_climate_control.const import DEFAULT_PRESET_TEMPS
+    merged = {**DEFAULT_PRESET_TEMPS, **opts["preset_temps"]}
+    assert merged["boost"] == 23.0
 
 
-def test_set_options_preset_offsets_rejects_bad():
+def test_set_options_preset_temps_rejects_bad():
     hass, _ = _make_hass()
     conn = MagicMock()
     asyncio.run(websocket_api.ws_set_options(
-        hass, conn, {"id": 10, "preset_offsets": {"night": -3}}))
+        hass, conn, {"id": 10, "preset_temps": {"night": 18}}))
     assert conn.send_error.call_args.args[1] == "invalid_value"
     asyncio.run(websocket_api.ws_set_options(
-        hass, conn, {"id": 11, "preset_offsets": {"eco": 99}}))
+        hass, conn, {"id": 11, "preset_temps": {"eco": 99}}))
     assert conn.send_error.call_args.args[1] == "invalid_value"
 
 
-def test_zone_uses_configurable_preset_offsets():
-    from types import SimpleNamespace
+def test_zone_uses_absolute_preset_temps():
     from custom_components.home_climate_control.zone import ZoneClimateEntity
 
     class _Coord:
         curve_coeff = 1.2
         setbacks = None
-        preset_offsets = {"away": -6.0, "eco": -2.0, "comfort": 0.5, "boost": 2.0}
+        preset_temps = {"comfort": 22.0, "eco": 18.5, "away": 15.0, "boost": 23.0}
 
         def register_zone(self, z): pass
 
@@ -154,5 +153,11 @@ def test_zone_uses_configurable_preset_offsets():
                               {"name": "R", "setpoint": 21.0})
     z.hass = None
     z._current_temp = 20.0
-    z._preset = "away"
-    assert z.effective_setpoint() == pytest.approx(15.0)  # 21 + user away -6
+    # active preset = absolute target, regardless of the room's own target
+    z._preset = "eco"
+    assert z.effective_setpoint() == pytest.approx(18.5)
+    z._preset = "comfort"
+    assert z.effective_setpoint() == pytest.approx(22.0)
+    # no preset → the room's own target
+    z._preset = "none"
+    assert z.effective_setpoint() == pytest.approx(21.0)

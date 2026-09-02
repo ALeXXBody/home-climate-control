@@ -141,15 +141,16 @@ def test_zone_effective_setpoint_uses_learned_offset():
     room._current_temp = 19.0
 
     room._preset = "away"
-    fixed = 21.0 - 4.0
-    assert room.effective_setpoint() == pytest.approx(fixed)  # immature
+    # Away is an absolute preset (default 16 °C). The learned depth may
+    # deepen below it, never above it.
+    assert room.effective_setpoint() == pytest.approx(16.0)  # immature
 
     t = 0.0
     for _ in range(MIN_CYCLES):
         t = run_cycle(coord.setbacks, "Study", t + 3600.0, -1.2, 6.0)
 
-    learned = coord.setbacks.offset_for("Study", -4.0)
-    assert room.effective_setpoint() == pytest.approx(21.0 + learned)
+    learned = coord.setbacks.offset_for("Study", -5.0)
+    assert room.effective_setpoint() == pytest.approx(min(16.0, 21.0 + learned))
 
 
 def test_window_open_freezes_learning():

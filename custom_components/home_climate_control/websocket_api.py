@@ -17,7 +17,7 @@ from .const import (
     CONF_OCCUPANCY_HOME_PRESET,
     CONF_OCCUPANCY_TRACKERS,
     CONF_OUTDOOR_SENSOR,
-    CONF_PRESET_OFFSETS,
+    CONF_PRESET_TEMPS,
     CONF_SCHEDULE_ENTITY,
     CONF_SCHEDULE_OFF_PRESET,
     CONF_SCHEDULE_ON_PRESET,
@@ -39,7 +39,7 @@ from .const import (
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
-    DEFAULT_PRESET_OFFSETS,
+    DEFAULT_PRESET_TEMPS,
     DEFAULT_WIND_MAX_DELTA,
     DEFAULT_ZONE_SETPOINT,
     DOMAIN,
@@ -57,7 +57,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.7.2"
+INTEGRATION_VERSION = "1.7.3"
 
 
 def _integration_version() -> str:
@@ -443,7 +443,7 @@ _OPTION_ENTITY_SINGLE: dict[str, tuple[str, ...]] = {
 _OPTION_ENTITY_MULTI: dict[str, tuple[str, ...]] = {
     "occupancy_trackers": ("device_tracker.", "person.", "binary_sensor."),
 }
-_OPTION_DICTS = {"preset_offsets"}
+_OPTION_DICTS = {"preset_temps"}
 _OPTION_PRESETS = (
     "schedule_on_preset",
     "schedule_off_preset",
@@ -485,9 +485,9 @@ def _options_view(opts: dict) -> dict:
         CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY))
     )
     view["gas_price_per_kwh"] = opts.get("gas_price_per_kwh")
-    view["preset_offsets"] = {
-        **DEFAULT_PRESET_OFFSETS,
-        **(opts.get(CONF_PRESET_OFFSETS) or {}),
+    view["preset_temps"] = {
+        **DEFAULT_PRESET_TEMPS,
+        **(opts.get(CONF_PRESET_TEMPS) or {}),
     }
     return view
 
@@ -600,7 +600,7 @@ async def ws_set_options(
                 return
             cleaned = {}
             for pk, pv in raw.items():
-                if pk not in DEFAULT_PRESET_OFFSETS:
+                if pk not in DEFAULT_PRESET_TEMPS:
                     _err("invalid_value",
                          f"{key}: unknown preset '{pk}'")
                     return
@@ -609,9 +609,9 @@ async def ws_set_options(
                 except (TypeError, ValueError):
                     _err("invalid_value", f"{key}.{pk} must be a number")
                     return
-                if not -10.0 <= pv <= 10.0:
+                if not 5.0 <= pv <= 35.0:
                     _err("invalid_value",
-                         f"{key}.{pk} must be between -10 and 10")
+                         f"{key}.{pk} must be between 5 and 35")
                     return
                 cleaned[pk] = pv
             patch[key] = cleaned

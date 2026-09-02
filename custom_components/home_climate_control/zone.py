@@ -34,10 +34,10 @@ from .const import (
     DEFAULT_MIN_ROOM_TEMP,
     DEFAULT_TARGET_STEP,
     DEFAULT_ZONE_SETPOINT,
+    DEFAULT_PRESET_TEMPS,
     PID_INTEGRAL_CLAMP,
     PID_KI,
     PID_KP,
-    PRESET_OFFSETS,
     ZONE_PRESETS,
 )
 from .balancing import BalanceMonitor
@@ -366,27 +366,41 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         )
 
     def effective_setpoint(self) -> float:
-        offsets = getattr(self.coordinator, "preset_offsets", None)
-        if not isinstance(offsets, dict):
-            offsets = PRESET_OFFSETS
-        offset = offsets.get(self._preset, 0.0)
-        learner = getattr(self.coordinator, "setbacks", None)
-        if learner is not None and self._preset in ("away", "eco"):
-            offset = learner.offset_for(
-                self._zone_name(),
-                fallback=offset,
-                dead_time_s=self._dead_time_s(),
-            )
-        # Tier 3 solar gain: a sun-warmed room is comfortable slightly
-        # cooler — shave the comfort target while direct sun holds.
-        # Only on comfort-side presets so setback learning stays untouched.
-        if self._preset not in ("away", "eco"):
-            offset += self.solar.offset_contribution
-        # Optimal-start catch-up: while pre-heating out of a setback, drive
-        # the room toward the comfort target (not the lowered night SP).
-        if self._preheat_active and self._preset in ("away", "eco"):
-            return self.comfort_setpoint()
-        return self._target_temp + offset
+        """Active preset = ABSOLUTE target temperature (user-editable).
+
+        No preset ("none") → the room heats at its own target. Away/eco:
+        the preset temperature caps the target, while the per-room learned
+        deepening may push it further down (never up). The Tier 3 solar
+        trim applies in every state.
+        """
+        solar = getattr(self, "solar", None)
+        solar_off = solar.offset_contribution if solar is not None else 0.0
+        temps = getattr(self.coordinator, "preset_temps", None)
+        if not isinstance(temps, dict):
+            temps = DEFAULT_PRESET_TEMPS
+
+        if self._preset in ("away", "eco"):
+            preset_t = float(temps.get(self._preset, self._target_temp))
+            target = preset_t
+            learner = getattr(self.coordinator, "setbacks", None)
+            if learner is not None:
+                fallback = preset_t - self.comfort_setpoint()
+                learned = learner.offset_for(
+                    self._zone_name(),
+                    fallback=fallback,
+                    dead_time_s=self._dead_time_s(),
+                )
+                target = min(preset_t, self.comfort_setpoint() + learned)
+            # Optimal-start catch-up: drive to the comfort target instead.
+            if self._preheat_active:
+                return self.comfort_setpoint()
+            return target + solar_off
+
+        if self._preset in ("comfort", "boost") and self._preset in temps:
+            return float(temps[self._preset]) + solar_off
+
+        # "none" — the room's own target
+        return self._target_temp + solar_off
 
     def _update_preheat(self) -> None:
         """Arm/disarm reactive pre-heat from dead-time + warm-rate model."""

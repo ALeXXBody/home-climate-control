@@ -2006,16 +2006,16 @@ class HomeClimatePanel extends HTMLElement {
         <div class="settings-save">${saveBtn("gas")}</div>
       </div>
       <div class="card">
-        <h3>Presets (°C vs target)</h3>
+        <h3>Preset temperatures (°C)</h3>
         <label>Comfort</label>
-        <input type="number" id="so-pre-comfort" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.comfort)}" ${numCls}>
+        <input type="number" id="so-pre-comfort" step="0.5" min="5" max="35" value="${num(o.preset_temps?.comfort)}" ${numCls}>
         <label style="margin-top:6px">Eco</label>
-        <input type="number" id="so-pre-eco" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.eco)}" ${numCls}>
+        <input type="number" id="so-pre-eco" step="0.5" min="5" max="35" value="${num(o.preset_temps?.eco)}" ${numCls}>
         <label style="margin-top:6px">Away</label>
-        <input type="number" id="so-pre-away" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.away)}" ${numCls}>
+        <input type="number" id="so-pre-away" step="0.5" min="5" max="35" value="${num(o.preset_temps?.away)}" ${numCls}>
         <label style="margin-top:6px">Boost</label>
-        <input type="number" id="so-pre-boost" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.boost)}" ${numCls}>
-        <p class="sub">Offsets apply to every room's target; smart setbacks may deepen away/eco further.</p>
+        <input type="number" id="so-pre-boost" step="0.5" min="5" max="35" value="${num(o.preset_temps?.boost)}" ${numCls}>
+        <p class="sub">Absolute target a room gets while the preset is active. Smart setbacks may deepen away/eco per room.</p>
         <div class="settings-save">${saveBtn("presets")}</div>
       </div>
       <div class="card">
@@ -2799,12 +2799,12 @@ class HomeClimatePanel extends HTMLElement {
         break;
       }
       case "presets": {
-        const po = {};
+        const pt = {};
         for (const k of ["comfort", "eco", "away", "boost"]) {
           const v = this._soptNum(`so-pre-${k}`);
-          if (v != null) po[k] = v;
+          if (v != null) pt[k] = v;
         }
-        if (Object.keys(po).length) patch.preset_offsets = po;
+        if (Object.keys(pt).length) patch.preset_temps = pt;
         break;
       }
       case "gas": {

@@ -11,7 +11,7 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
-    CONF_PRESET_OFFSETS,
+    CONF_PRESET_TEMPS,
     CONF_WIND_ENABLED,
     CONF_WIND_ENTITY,
     CONF_WIND_MAX_DELTA,
@@ -148,7 +148,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Explicit toggle with a sensible fallback: when the flag was never
         # stored (older configs), an entity selection implies enabled.
         wind_enabled=opts.get(CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY))),
-        preset_offsets=opts.get(CONF_PRESET_OFFSETS),
+        preset_temps=opts.get(CONF_PRESET_TEMPS),
         wind_max_delta=opts.get(CONF_WIND_MAX_DELTA, DEFAULT_WIND_MAX_DELTA),
         min_modulation_pct=opts.get(
             "boiler_min_modulation", DEFAULT_BOILER_MIN_MODULATION
