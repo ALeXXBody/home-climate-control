@@ -55,6 +55,7 @@ class CentralController:
         wind_entity: str | None = None,
         wind_enabled: bool = False,
         wind_max_delta: float = 3.0,
+        preset_offsets: dict | None = None,
     ) -> None:
         self.hass = hass
         self.backend = backend
@@ -94,6 +95,14 @@ class CentralController:
         self.wind_trim_c: float = 0.0
         self._condense_pull_c: float = 0.0
         self._condense_active: bool = False
+
+        # Editable preset offsets (°C vs room target); user overrides win.
+        from .const import DEFAULT_PRESET_OFFSETS
+
+        self.preset_offsets = {
+            **DEFAULT_PRESET_OFFSETS,
+            **(preset_offsets or {}),
+        }
 
         from .windtrim import WindTrimmer
 

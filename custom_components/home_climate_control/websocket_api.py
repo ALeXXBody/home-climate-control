@@ -17,6 +17,7 @@ from .const import (
     CONF_OCCUPANCY_HOME_PRESET,
     CONF_OCCUPANCY_TRACKERS,
     CONF_OUTDOOR_SENSOR,
+    CONF_PRESET_OFFSETS,
     CONF_SCHEDULE_ENTITY,
     CONF_SCHEDULE_OFF_PRESET,
     CONF_SCHEDULE_ON_PRESET,
@@ -38,6 +39,7 @@ from .const import (
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
+    DEFAULT_PRESET_OFFSETS,
     DEFAULT_WIND_MAX_DELTA,
     DEFAULT_ZONE_SETPOINT,
     DOMAIN,
@@ -55,7 +57,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.7.1"
+INTEGRATION_VERSION = "1.7.2"
 
 
 def _integration_version() -> str:
@@ -441,6 +443,7 @@ _OPTION_ENTITY_SINGLE: dict[str, tuple[str, ...]] = {
 _OPTION_ENTITY_MULTI: dict[str, tuple[str, ...]] = {
     "occupancy_trackers": ("device_tracker.", "person.", "binary_sensor."),
 }
+_OPTION_DICTS = {"preset_offsets"}
 _OPTION_PRESETS = (
     "schedule_on_preset",
     "schedule_off_preset",
@@ -482,6 +485,10 @@ def _options_view(opts: dict) -> dict:
         CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY))
     )
     view["gas_price_per_kwh"] = opts.get("gas_price_per_kwh")
+    view["preset_offsets"] = {
+        **DEFAULT_PRESET_OFFSETS,
+        **(opts.get(CONF_PRESET_OFFSETS) or {}),
+    }
     return view
 
 
@@ -550,7 +557,7 @@ async def ws_set_options(
         if key not in (
             set(_OPTION_RANGES) | set(_OPTION_BOOLS)
             | set(_OPTION_ENTITY_SINGLE) | set(_OPTION_ENTITY_MULTI)
-            | set(_OPTION_PRESETS)
+            | set(_OPTION_PRESETS) | set(_OPTION_DICTS)
         ):
             _err("unknown_option", f"Key not editable: {key}")
             return
@@ -587,6 +594,27 @@ async def ws_set_options(
                 pop_keys.append(key)
             else:
                 patch[key] = cleaned
+        elif key in _OPTION_DICTS:
+            if not isinstance(raw, dict):
+                _err("invalid_value", f"{key} must be an object")
+                return
+            cleaned = {}
+            for pk, pv in raw.items():
+                if pk not in DEFAULT_PRESET_OFFSETS:
+                    _err("invalid_value",
+                         f"{key}: unknown preset '{pk}'")
+                    return
+                try:
+                    pv = float(pv)
+                except (TypeError, ValueError):
+                    _err("invalid_value", f"{key}.{pk} must be a number")
+                    return
+                if not -10.0 <= pv <= 10.0:
+                    _err("invalid_value",
+                         f"{key}.{pk} must be between -10 and 10")
+                    return
+                cleaned[pk] = pv
+            patch[key] = cleaned
         elif key in _OPTION_PRESETS:
             if raw not in ZONE_PRESETS:
                 _err("invalid_value", f"{key} must be one of {', '.join(ZONE_PRESETS)}")

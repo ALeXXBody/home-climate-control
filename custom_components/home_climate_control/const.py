@@ -59,6 +59,17 @@ PRESET_OFFSETS = {
     PRESET_BOOST: +2.0,
 }
 
+# Editable preset offsets (°C relative to the room target). Stored under
+# options key CONF_PRESET_OFFSETS; DEFAULT_PRESET_OFFSETS apply for keys the
+# user has not overridden.
+CONF_PRESET_OFFSETS = "preset_offsets"
+DEFAULT_PRESET_OFFSETS = {
+    PRESET_AWAY: -4.0,
+    PRESET_ECO: -2.0,
+    PRESET_COMFORT: 0.5,
+    PRESET_BOOST: +2.0,
+}
+
 DEFAULT_MIN_ROOM_TEMP = 5.0
 DEFAULT_MAX_ROOM_TEMP = 30.0
 DEFAULT_TARGET_STEP = 0.5

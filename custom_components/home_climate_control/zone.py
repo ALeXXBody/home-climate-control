@@ -366,7 +366,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         )
 
     def effective_setpoint(self) -> float:
-        offset = PRESET_OFFSETS.get(self._preset, 0.0)
+        offsets = getattr(self.coordinator, "preset_offsets", None)
+        if not isinstance(offsets, dict):
+            offsets = PRESET_OFFSETS
+        offset = offsets.get(self._preset, 0.0)
         learner = getattr(self.coordinator, "setbacks", None)
         if learner is not None and self._preset in ("away", "eco"):
             offset = learner.offset_for(

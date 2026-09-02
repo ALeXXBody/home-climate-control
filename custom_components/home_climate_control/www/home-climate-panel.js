@@ -1531,7 +1531,7 @@ class HomeClimatePanel extends HTMLElement {
   static FLOOR_LABEL = (f) =>
     f === 0 ? "Ground floor" : `${f}${f === 1 ? "st" : f === 2 ? "nd" : f === 3 ? "rd" : "th"} floor`;
 
-  static ZONE_PRESET_OPTS = ["comfort", "eco", "away", "night", "none"];
+  static ZONE_PRESET_OPTS = ["comfort", "eco", "away", "boost"];
 
   _zonesHtml(sys, compact = false) {
     const zones = sys.zones || [];
@@ -2004,6 +2004,19 @@ class HomeClimatePanel extends HTMLElement {
         <label style="margin-top:6px">Price per kWh</label>
         <input type="number" id="so-gas-price" step="0.01" min="0" max="100" value="${num(o.gas_price_per_kwh)}" ${numCls}>
         <div class="settings-save">${saveBtn("gas")}</div>
+      </div>
+      <div class="card">
+        <h3>Presets (°C vs target)</h3>
+        <label>Comfort</label>
+        <input type="number" id="so-pre-comfort" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.comfort)}" ${numCls}>
+        <label style="margin-top:6px">Eco</label>
+        <input type="number" id="so-pre-eco" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.eco)}" ${numCls}>
+        <label style="margin-top:6px">Away</label>
+        <input type="number" id="so-pre-away" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.away)}" ${numCls}>
+        <label style="margin-top:6px">Boost</label>
+        <input type="number" id="so-pre-boost" step="0.5" min="-10" max="10" value="${num(o.preset_offsets?.boost)}" ${numCls}>
+        <p class="sub">Offsets apply to every room's target; smart setbacks may deepen away/eco further.</p>
+        <div class="settings-save">${saveBtn("presets")}</div>
       </div>
       <div class="card">
         <h3>Your boiler</h3>
@@ -2783,6 +2796,15 @@ class HomeClimatePanel extends HTMLElement {
         if (away !== undefined) patch.occupancy_away_preset = away;
         const home = this._soptSel("so-occ-home", false);
         if (home !== undefined) patch.occupancy_home_preset = home;
+        break;
+      }
+      case "presets": {
+        const po = {};
+        for (const k of ["comfort", "eco", "away", "boost"]) {
+          const v = this._soptNum(`so-pre-${k}`);
+          if (v != null) po[k] = v;
+        }
+        if (Object.keys(po).length) patch.preset_offsets = po;
         break;
       }
       case "gas": {
