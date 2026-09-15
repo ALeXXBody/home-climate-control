@@ -2168,8 +2168,7 @@ class HomeClimatePanel extends HTMLElement {
         </div>
         <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
         ${sys.autotune ? `<p class="sub">auto-tune: ${this._esc(sys.autotune.last_action || "")}${sys.autotune.mean_error != null ? ` · err ${this._esc(sys.autotune.mean_error)}°C` : ""} · ${sys.autotune.adjustments} adjustment${sys.autotune.adjustments === 1 ? "" : "s"}</p>` : ""}</div>
-        <div class="card"><h3>Min flow</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit">°C</span></div></div>
-        <div class="card"><h3>Max flow</h3><div class="metric">${this._fmt(sys.max_flow)}<span class="unit">°C</span></div></div>
+        <div class="card"><h3>Flow limits</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit"> / </span>${this._fmt(sys.max_flow)}<span class="unit">°C</span></div></div>
         ${sys.cycle_guard ? `<div class="card"><h3>Burner cycles</h3><div class="metric">${sys.cycle_guard.starts_1h}<span class="unit">/h</span></div><p class="sub">${this._esc(sys.cycle_guard.last_reason || sys.cycle_guard.state)} · patience ×${this._esc(sys.cycle_guard.multiplier)}</p></div>` : ""}
         ${sys.gas ? `<div class="card"><h3>Gas (est.)</h3>
           <div class="metric">${this._esc(sys.gas.today_kwh)}<span class="unit">kWh today</span></div>
