@@ -2169,12 +2169,50 @@ class HomeClimatePanel extends HTMLElement {
           <div class="metric" style="font-size:1.2rem">${sys.wind_trim.trim_c ? `−${this._esc(sys.wind_trim.trim_c)}<span class="unit">°C</span>` : "0<span class=\"unit\">°C</span>"}</div>
           <p class="sub">${this._esc(sys.wind_trim.entity)}${sys.wind_trim.wind_kmh != null ? ` · wind ${this._esc(sys.wind_trim.wind_kmh)} km/h` : " · no wind data"} · cap ${this._esc(sys.wind_trim.max_delta_c)}°C${sys.wind_trim.enabled ? "" : " · disabled"}</p>
         </div>` : ""}
-        ${(sys.zones || []).some((z) => z.solar_gain || z.co2_ppm != null || z.valve_pct != null || z.radiator_kw_est != null) ? `<div class="card" style="grid-column:1/-1"><h3>Tier 3/4 — rooms</h3>
-          ${sys.zones.filter((z) => z.solar_gain || z.co2_ppm != null || z.valve_pct != null || z.radiator_kw_est != null || (z.balance && z.balance.state !== "learning")).map((z) => `<p class="sub"><strong>${this._esc(z.name)}</strong>: ${z.solar_gain ? "☀️ solar · " : ""}${z.co2_ppm != null ? `CO₂ ${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠ ventilate" : ""} · ` : ""}${z.valve_pct != null ? `valve ${Math.round(z.valve_pct)}% · ` : ""}${z.radiator_kw_est != null ? `radiator ~${z.radiator_kw_est} kW · ` : ""}${z.balance ? this._esc(z.balance.state) : ""}${z.balance?.suggested_cap_pct ? ` · suggest cap ≈ ${this._esc(z.balance.suggested_cap_pct)}%` : ""}</p>`).join("")}
-        </div>` : ""}
-        ${sys.setbacks ? `<div class="card"><h3>Smart setbacks</h3>
-          ${Object.entries(sys.setbacks.rooms || {}).length === 0 ? '<p class="sub">No rooms seen yet — learning starts after the first away/eco period.</p>' : Object.entries(sys.setbacks.rooms).map(([n, r]) => `<p class="sub"><strong>${this._esc(n)}</strong>: ${r.mature ? `${this._esc(r.learned_offset)}°C` : "learning…"} <span style="opacity:.7">(${r.cycles} cycle${r.cycles === 1 ? "" : "s"}${r.warm_rate ? ` · ${this._esc(r.warm_rate)}°C/h recovery` : ""})</span></p>`).join("")}
-        </div>` : ""}
+        ${(() => {
+          const rooms = sys.zones || [];
+          const t34 = new Map();
+          for (const z of rooms) {
+            if (z.solar_gain || z.co2_ppm != null || z.valve_pct != null ||
+                z.radiator_kw_est != null || (z.balance && z.balance.state !== "learning")) {
+              t34.set(z.name, {
+                solar: !!z.solar_gain,
+                co2: z.co2_ppm != null ? `${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠" : ""}` : "—",
+                valve: z.valve_pct != null ? `${Math.round(z.valve_pct)} %` : "—",
+                radiator: z.radiator_kw_est != null ? `~${z.radiator_kw_est} kW` : "—",
+                balance: z.balance ? (z.balance.state + (z.balance.suggested_cap_pct ? ` · cap ≈ ${z.balance.suggested_cap_pct}%` : "")) : "—",
+              });
+            }
+          }
+          const sb = new Map(Object.entries(sys.setbacks?.rooms || {}));
+          const names = [];
+          for (const n of sb.keys()) if (!t34.has(n)) names.push(n);
+          for (const n of t34.keys()) if (!names.includes(n)) names.push(n);
+          if (!names.length) return "";
+          const head = ["Room", "Setback", "☀️/CO₂", "Valve", "Radiator", "Balance"];
+          const th = head.map((h) => `<th style="text-align:left;padding:3px 10px 3px 0;color:var(--secondary-text-color,#999);font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--divider-color,#333)">${this._esc(h)}</th>`).join("");
+          const trs = names.map((n) => {
+            const s = sb.get(n) || {};
+            const sbTxt = (sys.setbacks ? (s.mature ? `${this._esc(s.learned_offset)}°C` : "learning…") : "—");
+            const sInfo = s.cycles ? ` (${s.cycles} cyc${s.warm_rate ? ` · ${this._esc(s.warm_rate)}°C/h` : ""})` : "";
+            const v = t34.get(n) || { co2: "—", valve: "—", radiator: "—", balance: "—" };
+            const cell = (val) => `<td style="padding:3px 10px 3px 0;font-variant-numeric:tabular-nums">${val}</td>`;
+            return `<tr>
+              <td style="padding:3px 10px 3px 0;font-weight:600">${this._esc(n)}</td>
+              <td style="padding:3px 10px 3px 0" title="${this._esc(sInfo)}">${sbTxt}</td>
+              <td style="padding:3px 10px 3px 0">${v.solar ? "☀️ " : ""}${this._esc(v.co2 ?? "—")}</td>
+              <td style="padding:3px 10px 3px 0">${this._esc(v.valve ?? "—")}</td>
+              <td style="padding:3px 10px 3px 0">${this._esc(v.radiator ?? "—")}</td>
+              <td style="padding:3px 10px 3px 0">${this._esc(v.balance ?? "—")}</td>
+            </tr>`;
+          }).join("");
+          return `<div class="card" style="grid-column:1/-1">
+            <h3>Rooms — setbacks &amp; Tier 3/4</h3>
+            <table style="border-collapse:collapse;font-size:.82rem;width:100%">
+              <thead><tr>${th}</tr></thead><tbody>${trs}</tbody>
+            </table>
+          </div>`;
+        })()}
         ${sys.boiler?.datalogger ? `<div class="card"><h3>Training data</h3>
           <div class="metric">${sys.boiler.datalogger.rows_total ?? 0}<span class="unit">rows logged</span></div>
           <p class="sub">${sys.boiler.datalogger.last_row_ts ? `last: ${this._esc(sys.boiler.datalogger.last_row_ts)} · ` : ""}buffered: ${this._esc(sys.boiler.datalogger.rows_buffered ?? 0)}</p>
