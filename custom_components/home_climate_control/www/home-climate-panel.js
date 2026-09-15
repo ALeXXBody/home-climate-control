@@ -629,7 +629,7 @@ class HomeClimatePanel extends HTMLElement {
         }
         .unit { font-size: 1rem; opacity: 0.7; margin-left: 2px; }
         .sub { font-size: 0.85rem; color: var(--secondary-text-color, #aaa); margin-top: 6px; }
-        #hcc-diag-wrap .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+        #hcc-diag-wrap .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
         #hcc-diag-wrap .card > h3 { font-size: .72rem; margin-bottom: 4px; }
         #hcc-diag-wrap .metric { font-size: 1.25rem; }
         #hcc-diag-wrap .card { padding: 10px 12px; }
