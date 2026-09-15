@@ -2166,8 +2166,6 @@ class HomeClimatePanel extends HTMLElement {
           <h3>Heating curve — 24 h operating points</h3>
           <div id="hcc-curve-wrap">${this._curveChartHtml()}</div>
         </div>
-      </div>
-      <div class="grid">
         <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
         ${sys.autotune ? `<p class="sub">auto-tune: ${this._esc(sys.autotune.last_action || "")}${sys.autotune.mean_error != null ? ` · err ${this._esc(sys.autotune.mean_error)}°C` : ""} · ${sys.autotune.adjustments} adjustment${sys.autotune.adjustments === 1 ? "" : "s"}</p>` : ""}</div>
         <div class="card"><h3>Min flow</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit">°C</span></div></div>
@@ -2228,7 +2226,7 @@ class HomeClimatePanel extends HTMLElement {
               <td style="padding:3px 10px 3px 0">${this._esc(v.balance ?? "—")}</td>
             </tr>`;
           }).join("");
-          return `<div class="card" style="grid-column:1/-1">
+          return `<div class="card">
             <h3>Rooms — setbacks &amp; Tier 3/4</h3>
             <table style="border-collapse:collapse;font-size:.82rem;width:100%">
               <thead><tr>${th}</tr></thead><tbody>${trs}</tbody>
