@@ -49,9 +49,17 @@ class BalanceMonitor:
             state = "oversupplied"
         else:
             state = "ok"
-        return {
+        out = {
             "state": state,
             "avg_open_pct": round(avg_open, 1),
             "below_share": round(below_share, 2),
             "samples": n,
         }
+        if state == "oversupplied":
+            # Radiator holds target with only ~avg_open % valve travel:
+            # a TRV max-opening cap around 2.5× the measured average gives
+            # every other room headroom without losing this room's comfort.
+            out["suggested_cap_pct"] = int(
+                min(60, max(15, round(avg_open * 2.5 / 5) * 5))
+            )
+        return out

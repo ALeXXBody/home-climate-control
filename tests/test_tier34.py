@@ -126,3 +126,18 @@ def test_zone_valve_feeds_balance():
         z.on_valve_update(96.0)
     assert z._valve_pct == 96.0
     assert z.balance.report()["state"] == "undersupplied"
+
+
+def test_balancing_suggests_cap_for_oversupplied():
+    b = BalanceMonitor()
+    for _ in range(15):
+        b.sample(8, False)
+    r = b.report()
+    assert r["state"] == "oversupplied"
+    cap = r["suggested_cap_pct"]
+    assert 15 <= cap <= 60
+    # ok / undersupplied never carry a cap suggestion
+    b2 = BalanceMonitor()
+    for _ in range(15):
+        b2.sample(50, True)
+    assert "suggested_cap_pct" not in b2.report()
