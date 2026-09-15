@@ -58,7 +58,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.7.5"
+INTEGRATION_VERSION = "1.7.6"
 
 
 def _integration_version() -> str:
@@ -73,6 +73,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     if hass.data.get(key):
         return
     websocket_api.async_register_command(hass, ws_get_status)
+    websocket_api.async_register_command(hass, ws_get_curve)
     websocket_api.async_register_command(hass, ws_set_zone)
     websocket_api.async_register_command(hass, ws_set_options)
     websocket_api.async_register_command(hass, ws_calibrate_zone)
@@ -311,6 +312,31 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
             "flash": "https://github.com/ALeXXBody/home-climate-system/blob/main/docs/flash.md",
         },
     }
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_curve"})
+@websocket_api.async_response
+async def ws_get_curve(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Panel curve chart: operating-point ring + reference curve line."""
+    data = {
+        "points": [],
+        "line": [],
+        "params": {"coeff": None, "design": -10.0,
+                   "min_flow": None, "max_flow": None,
+                   "ref_setpoint": None},
+    }
+    for entry_id, dd in (hass.data.get(DOMAIN) or {}).items():
+        if isinstance(dd, dict) and "controller" in dd:
+            try:
+                data = dd["controller"].curve_data()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("curve_data failed", exc_info=True)
+            break
+    connection.send_result(msg["id"], data)
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_status"})

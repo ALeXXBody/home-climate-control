@@ -57,6 +57,9 @@ ZONE_PRESETS = [PRESET_NONE, PRESET_AWAY, PRESET_ECO, PRESET_COMFORT, PRESET_BOO
 # Stored under options key CONF_PRESET_TEMPS; DEFAULT_PRESET_TEMPS apply for
 # keys the user has not overridden.
 CONF_PRESET_TEMPS = "preset_temps"
+
+# Panel curve chart: operating points kept in RAM (24 h @ 5-min sampling).
+CURVE_RING_POINTS = 288
 DEFAULT_PRESET_TEMPS = {
     PRESET_COMFORT: 21.0,
     PRESET_ECO: 19.0,

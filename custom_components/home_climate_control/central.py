@@ -11,6 +11,8 @@ Control loop (every CONTROL_LOOP_SECONDS):
 from __future__ import annotations
 
 import logging
+import time as _time_mod
+from collections import deque
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
@@ -20,6 +22,7 @@ from .boiler.base import BoilerBackend
 from .calibrate import RoomCalibrator
 from .const import (
     CONTROL_LOOP_SECONDS,
+    CURVE_RING_POINTS,
     DEFAULT_BOILER_MIN_MODULATION,
     DEFAULT_MAX_FLOW_TEMP,
     DUTY_CYCLE_MIN_OFF_SECONDS,
@@ -95,6 +98,11 @@ class CentralController:
         self.wind_trim_c: float = 0.0
         self._condense_pull_c: float = 0.0
         self._condense_active: bool = False
+
+        # Curve chart ring: one operating point per 5th tick (5 min) —
+        # 24 h of (epoch, outdoor, flow, setpoint-used) for the panel chart.
+        self._curve_ring = deque(maxlen=CURVE_RING_POINTS)
+        self._curve_i = 0
 
         # Editable preset offsets (°C vs room target); user overrides win.
         from .const import DEFAULT_PRESET_TEMPS
@@ -467,6 +475,16 @@ class CentralController:
             worst_pid_extra = max(z.pid_flow_contribution() for z in demanding)
             target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
 
+            # Curve chart ring (panel Diagnostics): 1 point per 5th tick.
+            self._curve_i += 1
+            if self._curve_i % 5 == 0 and outdoor is not None:
+                self._curve_ring.append({
+                    "t": int(_time_mod.time()),
+                    "o": round(outdoor, 2),
+                    "f": round(target_flow, 1),
+                    "s": round(max_setpoint, 1),
+                })
+
             # Condensing pull-down: if return water is above dew-point, shave
             # flow so the boiler can stay in condensing mode (comfort first).
             worst_def = None
@@ -648,6 +666,46 @@ class CentralController:
                 "flow_t": getattr(backend, "flow_temp", None),
             },
             "zones": zones_out,
+        }
+
+    def curve_data(self) -> dict:
+        """Operating-point ring + reference curve line for the panel chart."""
+        from .heating_curve import flow_for_outdoor
+        from .const import DEFAULT_PRESET_TEMPS
+
+        ref = self._curve_ring[-1].get("s") if self._curve_ring else None
+        if ref is None:
+            ref = max(
+                (
+                    z.effective_setpoint()
+                    for z in self.zones
+                    if z.wants_heat() and z.current_temperature is not None
+                ),
+                default=DEFAULT_PRESET_TEMPS.get("comfort", 21.0),
+            )
+        lo = self.design_outdoor
+        hi = 25.0
+        steps = 16
+        line = []
+        for i in range(steps + 1):
+            o = lo + (hi - lo) * i / steps
+            line.append({
+                "o": round(o, 1),
+                "f": round(flow_for_outdoor(
+                    ref, o, self.curve_coeff, self.min_flow, self.max_flow,
+                    self.design_outdoor,
+                ), 2),
+            })
+        return {
+            "params": {
+                "coeff": round(self.curve_coeff, 3),
+                "design": self.design_outdoor,
+                "min_flow": self.min_flow,
+                "max_flow": self.max_flow,
+                "ref_setpoint": round(float(ref), 2),
+            },
+            "line": line,
+            "points": list(self._curve_ring),
         }
 
     def diagnostics(self) -> dict:

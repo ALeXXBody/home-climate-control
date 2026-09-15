@@ -18,6 +18,8 @@ class HomeClimatePanel extends HTMLElement {
     this._busy = {};
     this._poll = null;
     this._selectedBoardId = null;
+    this._curveData = null;
+    this._curveAt = 0;
     this._drafts = {};
   }
 
@@ -420,6 +422,7 @@ class HomeClimatePanel extends HTMLElement {
       case "diagnostics": {
         const w = root.getElementById("hcc-diag-wrap");
         if (w && sys) w.innerHTML = this._settingsLiveHtml(sys);
+        this._curveTick_();
         break;
       }
       default: { // home
@@ -2073,9 +2076,65 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
+  _curveChartHtml() {
+    const d = this._curveData;
+    if (!d || !d.params || d.params.coeff == null)
+      return '<p class="sub" style="margin:4px 0" id="hcc-curve-msg">loading…</p>';
+    const P = d.params;
+    const x0 = Math.min(P.design, 25), x1 = 25;
+    const y0 = P.min_flow, y1 = P.max_flow;
+    const W = 640, H = 240, L = 42, R = 10, T = 12, B = 26;
+    const X = (o) => L + (W - L - R) * ((Math.max(x0, Math.min(x1, o)) - x0) / (x1 - x0 || 1));
+    const Y = (f) => H - B - (H - T - B) * ((Math.max(y0, Math.min(y1, f)) - y0) / (y1 - y0 || 1));
+    const esc = (v) => this._esc(String(v));
+    const line = (d.line || []).map((p) => `${p ? X(p.o).toFixed(1) : 0},${Y(p.f).toFixed(1)}`).join(" ");
+    const dots = (d.points || []).map((p) =>
+      `<circle cx="${X(p.o).toFixed(1)}" cy="${Y(p.f).toFixed(1)}" r="2.5" fill="#4fc3f7" fill-opacity=".75"/>`).join("");
+    const last = (d.points || [])[((d.points || []).length || 1) - 1];
+    const lastDot = last
+      ? `<circle cx="${X(last.o).toFixed(1)}" cy="${Y(last.f).toFixed(1)}" r="4.5" fill="#fff"/>`
+      : "";
+    return `
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+        <rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="none" stroke="var(--divider-color,#333)"/>
+        <line x1="${L}" x2="${W-R}" y1="${Y(0.5*(y0+y1)).toFixed(1)}" y2="${Y(0.5*(y0+y1)).toFixed(1)}" stroke="var(--divider-color,#333)" stroke-dasharray="4 4"/>
+        <text x="${L+6}" y="${T+14}" fill="#999" font-size="11">max ${esc(y1)}°C</text>
+        <text x="${L+4}" y="${H-B-6}" fill="#999" font-size="11">min ${esc(y0)}°C</text>
+        <text x="${L}" y="${H-8}" fill="#888" font-size="11">${esc(x0)}°C out</text>
+        <text x="${W-R-70}" y="${H-8}" fill="#888" font-size="11">+25°C out</text>
+        <polyline points="${line}" fill="none" stroke="#ffb74d" stroke-width="2"/>
+        ${dots}${lastDot}
+        <text x="${W-R-160}" y="${T+14}" fill="#ffcc80" font-size="11" text-anchor="end">${
+          esc(P.ref_setpoint)}°C SP · coeff ${esc(P.coeff)}</text>
+      </svg>`;
+  }
+
+  async _fetchCurve() {
+    if (!this._hass) return;
+    const now = Date.now();
+    if (this._curveData && now - (this._curveAt || 0) < 60000) return;
+    try {
+      this._curveData = await this._hass.callWS({
+        type: "home_climate_control/get_curve",
+      });
+      this._curveAt = now;
+      const w = this.shadowRoot.getElementById("hcc-curve-wrap");
+      if (w && !this._focusBlocked(w)) w.innerHTML = this._curveChartHtml();
+    } catch (e) {
+      /* silent — chart is optional */
+    }
+  }
+
+  _curveTick_() {
+    if (this._tab === "diagnostics") this._fetchCurve();
+  }
   _settingsLiveHtml(sys) {
     return `
       ${this._setupChecklistHtml(sys)}
+      <div class="card" style="grid-column:1/-1">
+        <h3>Heating curve — 24 h operating points</h3>
+        <div id="hcc-curve-wrap">${this._curveChartHtml()}</div>
+      </div>
       <div class="grid">
         <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
         ${sys.autotune ? `<p class="sub">auto-tune: ${this._esc(sys.autotune.last_action || "")}${sys.autotune.mean_error != null ? ` · err ${this._esc(sys.autotune.mean_error)}°C` : ""} · ${sys.autotune.adjustments} adjustment${sys.autotune.adjustments === 1 ? "" : "s"}</p>` : ""}</div>
