@@ -629,6 +629,32 @@ class HomeClimatePanel extends HTMLElement {
         }
         .unit { font-size: 1rem; opacity: 0.7; margin-left: 2px; }
         .sub { font-size: 0.85rem; color: var(--secondary-text-color, #aaa); margin-top: 6px; }
+        #hcc-diag-wrap .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+        #hcc-diag-wrap .card > h3 { font-size: .72rem; margin-bottom: 4px; }
+        #hcc-diag-wrap .metric { font-size: 1.25rem; }
+        #hcc-diag-wrap .card { padding: 10px 12px; }
+        #hcc-diag-wrap .card .unit { font-size: .8rem; }
+        .diag-compact { display: flex; flex-direction: column; gap: 12px; }
+        .diag-list {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+          gap: 3px 22px;
+          font-size: .85rem;
+        }
+        .diag-item {
+          display: flex; align-items: baseline; gap: 7px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          title: auto;
+        }
+        .diag-item .nm {
+          cursor: help; text-decoration: underline dotted #666;
+          text-underline-offset: 3px;
+          overflow: hidden; text-overflow: ellipsis;
+        }
+        .diag-kv { display: flex; justify-content: space-between; gap: 12px; }
+        .diag-kv .k { color: var(--secondary-text-color, #999); font-size: .8rem; }
+        .diag-kv .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .diag-summary { float: right; font-size: .8rem; color: var(--secondary-text-color,#999); }
         .settings-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
@@ -2067,17 +2093,17 @@ class HomeClimatePanel extends HTMLElement {
     if (!Array.isArray(items) || !items.length) return "";
     const icon = (lvl) => lvl === "ready" ? "✓" : lvl === "task" ? "⚠" : "ⓘ";
     const color = (lvl) => lvl === "ready" ? "#66bb6a" : lvl === "task" ? "#ef9a9a" : "#ffcc80";
-    const rows = items.map((it) => `
-      <p class="sub" style="margin:5px 0">
-        <span style="color:${color(it.level)};font-weight:700">${icon(it.level)}</span>
-        <strong>${this._esc(it.title)}</strong> — ${this._esc(it.detail)}
-      </p>`).join("");
     const nReady = items.filter((i) => i.level === "ready").length;
+    const rows = items.map((it) => `
+      <div class="diag-item">
+        <span style="color:${color(it.level)};font-weight:700">${icon(it.level)}</span>
+        <span class="nm" title="${this._esc(it.title)} — ${this._esc(it.detail)}">${this._esc(it.title)}</span>
+      </div>`).join("");
     return `
-      <div class="card" style="grid-column:1/-1">
-        <h3>Setup &amp; suggestions</h3>
-        <div class="metric" style="font-size:1.2rem">${nReady}<span class="unit">/ ${items.length} capabilities ready</span></div>
-        ${rows}
+      <div class="card">
+        <h3>Setup &amp; suggestions
+          <span class="diag-summary">${nReady} / ${items.length} ready</span></h3>
+        <div class="diag-list">${rows}</div>
       </div>`;
   }
 
@@ -2091,48 +2117,27 @@ class HomeClimatePanel extends HTMLElement {
     const W = 640, H = 240, L = 42, R = 10, T = 12, B = 26;
     const X = (o) => L + (W - L - R) * ((Math.max(x0, Math.min(x1, o)) - x0) / (x1 - x0 || 1));
     const Y = (f) => H - B - (H - T - B) * ((Math.max(y0, Math.min(y1, f)) - y0) / (y1 - y0 || 1));
-    const esc = (v) => this._esc(String(v));
-    const line = (d.line || []).map((p) => `${p ? X(p.o).toFixed(1) : 0},${Y(p.f).toFixed(1)}`).join(" ");
+    const line = (d.line || []).map((p) => `${X(p.o).toFixed(1)},${Y(p.f).toFixed(1)}`).join(" ");
     const dots = (d.points || []).map((p) =>
       `<circle cx="${X(p.o).toFixed(1)}" cy="${Y(p.f).toFixed(1)}" r="2.5" fill="#4fc3f7" fill-opacity=".75"/>`).join("");
-    const last = (d.points || [])[((d.points || []).length || 1) - 1];
-    const lastDot = last
-      ? `<circle cx="${X(last.o).toFixed(1)}" cy="${Y(last.f).toFixed(1)}" r="4.5" fill="#fff"/>`
-      : "";
+    const pts = d.points || [];
+    const last = pts.length ? pts[pts.length - 1] : null;
+    const lastDot = last ? `<circle cx="${X(last.o).toFixed(1)}" cy="${Y(last.f).toFixed(1)}" r="4.5" fill="#fff"/>` : "";
     return `
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
-        <rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="none" stroke="var(--divider-color,#333)"/>
-        <line x1="${L}" x2="${W-R}" y1="${Y(0.5*(y0+y1)).toFixed(1)}" y2="${Y(0.5*(y0+y1)).toFixed(1)}" stroke="var(--divider-color,#333)" stroke-dasharray="4 4"/>
-        <text x="${L+6}" y="${T+14}" fill="#999" font-size="11">max ${esc(y1)}°C</text>
-        <text x="${L+4}" y="${H-B-6}" fill="#999" font-size="11">min ${esc(y0)}°C</text>
-        <text x="${L}" y="${H-8}" fill="#888" font-size="11">${esc(x0)}°C out</text>
-        <text x="${W-R-70}" y="${H-8}" fill="#888" font-size="11">+25°C out</text>
+        <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="none" stroke="var(--divider-color,#333)"/>
+        <line x1="${L}" x2="${W - R}" y1="${Y(0.5 * (y0 + y1)).toFixed(1)}" y2="${Y(0.5 * (y0 + y1)).toFixed(1)}" stroke="var(--divider-color,#333)" stroke-dasharray="4 4"/>
+        <text x="${L + 6}" y="${T + 14}" fill="#999" font-size="11">max ${this._esc(y1)}°C</text>
+        <text x="${L + 4}" y="${H - B - 6}" fill="#999" font-size="11">min ${this._esc(y0)}°C</text>
+        <text x="${L}" y="${H - 8}" fill="#888" font-size="11">${this._esc(x0)}°C out</text>
+        <text x="${W - R - 70}" y="${H - 8}" fill="#888" font-size="11">+25°C out</text>
         <polyline points="${line}" fill="none" stroke="#ffb74d" stroke-width="2"/>
         ${dots}${lastDot}
-        <text x="${W-R-160}" y="${T+14}" fill="#ffcc80" font-size="11" text-anchor="end">${
-          esc(P.ref_setpoint)}°C SP · coeff ${esc(P.coeff)}</text>
-      </svg>`;
+        <text x="${W - R - 4}" y="${T + 14}" fill="#ffcc80" font-size="11" text-anchor="end">${this._esc(P.ref_setpoint)}°C SP · coeff ${this._esc(P.coeff)}</text>
+      </svg>
+      ${pts.length ? "" : '<p class="sub" style="margin:4px 0" id="hcc-curve-msg">No operating points yet — the chart fills as the control loop runs.</p>'}`;
   }
 
-  async _fetchCurve() {
-    if (!this._hass) return;
-    const now = Date.now();
-    if (this._curveData && now - (this._curveAt || 0) < 60000) return;
-    try {
-      this._curveData = await this._hass.callWS({
-        type: "home_climate_control/get_curve",
-      });
-      this._curveAt = now;
-      const w = this.shadowRoot.getElementById("hcc-curve-wrap");
-      if (w && !this._focusBlocked(w)) w.innerHTML = this._curveChartHtml();
-    } catch (e) {
-      /* silent — chart is optional */
-    }
-  }
-
-  _curveTick_() {
-    if (this._tab === "diagnostics") this._fetchCurve();
-  }
   _settingsLiveHtml(sys) {
     return `
       ${this._setupChecklistHtml(sys)}
