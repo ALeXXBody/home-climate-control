@@ -2107,10 +2107,30 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
+  async _fetchCurve() {
+    if (!this._hass) return;
+    const now = Date.now();
+    if (this._curveData && now - (this._curveAt || 0) < 60000) return;
+    try {
+      this._curveData = await this._hass.callWS({
+        type: "home_climate_control/get_curve",
+      });
+      this._curveAt = now;
+      const w = this.shadowRoot.getElementById("hcc-curve-wrap");
+      if (w && !this._focusBlocked(w)) w.innerHTML = this._curveChartHtml();
+    } catch (e) {
+      this._curveAt = 0;  // force a retry on the next poll
+    }
+  }
+
+  _curveTick_() {
+    if (this._tab === "diagnostics") this._fetchCurve();
+  }
+
   _curveChartHtml() {
     const d = this._curveData;
     if (!d || !d.params || d.params.coeff == null)
-      return '<p class="sub" style="margin:4px 0" id="hcc-curve-msg">loading…</p>';
+      return '<p class="sub" style="margin:4px 0" id="hcc-curve-msg">Curve data unavailable — retrying automatically.</p>';
     const P = d.params;
     const x0 = Math.min(P.design, 25), x1 = 25;
     const y0 = P.min_flow, y1 = P.max_flow;
@@ -2140,10 +2160,12 @@ class HomeClimatePanel extends HTMLElement {
 
   _settingsLiveHtml(sys) {
     return `
-      ${this._setupChecklistHtml(sys)}
-      <div class="card" style="grid-column:1/-1">
-        <h3>Heating curve — 24 h operating points</h3>
-        <div id="hcc-curve-wrap">${this._curveChartHtml()}</div>
+      <div class="diag-compact">
+        ${this._setupChecklistHtml(sys)}
+        <div class="card">
+          <h3>Heating curve — 24 h operating points</h3>
+          <div id="hcc-curve-wrap">${this._curveChartHtml()}</div>
+        </div>
       </div>
       <div class="grid">
         <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
