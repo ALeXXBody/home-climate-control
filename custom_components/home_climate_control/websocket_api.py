@@ -58,7 +58,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.7.6"
+INTEGRATION_VERSION = "1.7.7"
 
 
 def _integration_version() -> str:
@@ -512,6 +512,7 @@ _OPTION_RANGES: dict[str, tuple[float, float]] = {
     "gas_price_per_kwh": (0.0, 100.0),
 }
 _OPTION_BOOLS = (
+    "balance_autocap",
     "autotune_curve",
     "learn_setbacks",
     "wind_compensation",
@@ -568,6 +569,7 @@ def _options_view(opts: dict) -> dict:
         CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY))
     )
     view["gas_price_per_kwh"] = opts.get("gas_price_per_kwh")
+    view["balance_autocap"] = opts.get("balance_autocap", False)
     view["preset_temps"] = {
         **DEFAULT_PRESET_TEMPS,
         **(opts.get(CONF_PRESET_TEMPS) or {}),

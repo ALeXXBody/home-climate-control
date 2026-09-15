@@ -11,6 +11,7 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_BALANCE_AUTOCAP,
     CONF_PRESET_TEMPS,
     CONF_WIND_ENABLED,
     CONF_WIND_ENTITY,
@@ -149,6 +150,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # stored (older configs), an entity selection implies enabled.
         wind_enabled=opts.get(CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY))),
         preset_temps=opts.get(CONF_PRESET_TEMPS),
+        balance_autocap=opts.get(CONF_BALANCE_AUTOCAP, False),
         wind_max_delta=opts.get(CONF_WIND_MAX_DELTA, DEFAULT_WIND_MAX_DELTA),
         min_modulation_pct=opts.get(
             "boiler_min_modulation", DEFAULT_BOILER_MIN_MODULATION

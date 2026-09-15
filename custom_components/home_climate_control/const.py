@@ -60,6 +60,12 @@ CONF_PRESET_TEMPS = "preset_temps"
 
 # Panel curve chart: operating points kept in RAM (24 h @ 5-min sampling).
 CURVE_RING_POINTS = 288
+
+# Tier 4: optionally let HCC write the TRV max-opening cap (number entity)
+# when a room stays oversupplied (2 h verdict). Off by default.
+CONF_BALANCE_AUTOCAP = "balance_autocap"
+BALANCE_AUTOCAP_MIN_PCT = 15   # never cap a valve below this
+BALANCE_AUTOCAP_INTERVAL_S = 3600  # at most one adjustment per hour
 DEFAULT_PRESET_TEMPS = {
     PRESET_COMFORT: 21.0,
     PRESET_ECO: 19.0,

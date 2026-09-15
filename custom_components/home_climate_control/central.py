@@ -21,6 +21,8 @@ from homeassistant.helpers.event import async_track_time_interval
 from .boiler.base import BoilerBackend
 from .calibrate import RoomCalibrator
 from .const import (
+    BALANCE_AUTOCAP_INTERVAL_S,
+    BALANCE_AUTOCAP_MIN_PCT,
     CONTROL_LOOP_SECONDS,
     CURVE_RING_POINTS,
     DEFAULT_BOILER_MIN_MODULATION,
@@ -59,6 +61,7 @@ class CentralController:
         wind_enabled: bool = False,
         wind_max_delta: float = 3.0,
         preset_temps: dict | None = None,
+        balance_autocap: bool = False,
     ) -> None:
         self.hass = hass
         self.backend = backend
@@ -111,6 +114,7 @@ class CentralController:
             **DEFAULT_PRESET_TEMPS,
             **(preset_temps or {}),
         }
+        self.balance_autocap = bool(balance_autocap)
 
         from .windtrim import WindTrimmer
 
@@ -583,6 +587,7 @@ class CentralController:
                     and z.effective_setpoint() - z.current_temperature > 0.1
                 )
                 z.balance.sample(valve, below)
+                await self._async_maybe_autocap(z, now)
 
         # Training-data log: one compact snapshot per control tick (60 s).
         if self.datalogger is not None:
@@ -707,6 +712,47 @@ class CentralController:
             "line": line,
             "points": list(self._curve_ring),
         }
+
+    async def _async_maybe_autocap(self, z, now) -> None:
+        """Tier 4: write the suggested opening-degree cap to an oversized
+        room's TRV number entity (only when the user turned it on).
+
+        Guards: `number.` entity assigned, oversupplied verdict with a
+        suggestion, current opening above the suggestion, and at most one
+        adjustment per hour per room. Never opens a valve up.
+        """
+        if not self.balance_autocap:
+            return
+        ent = getattr(z, "_trv_position_entity", None)
+        if not ent or not str(ent).startswith("number."):
+            return
+        rep = z.balance.report()
+        cap = rep.get("suggested_cap_pct")
+        if rep.get("state") != "oversupplied" or cap is None:
+            return
+        last = getattr(z, "_cap_last_ts", None)
+        if last is not None and (now.timestamp() - last) < BALANCE_AUTOCAP_INTERVAL_S:
+            return
+        try:
+            st = self.hass.states.get(ent)
+            cur = float(st.state) if st else None
+        except (AttributeError, TypeError, ValueError):
+            cur = None
+        if cur is None or cur <= cap + 4.0:
+            return  # already capped (or lower) — nothing to write
+        try:
+            await self.hass.services.async_call(
+                "number", "set_value",
+                {"entity_id": ent, "value": max(float(cap), BALANCE_AUTOCAP_MIN_PCT)},
+                blocking=False,
+            )
+            z._cap_last_ts = now.timestamp()
+            _LOGGER.info(
+                "%s: balance auto-cap → TRV %s opening capped at %s%% (was %.0f%%)",
+                z.name, ent, cap, cur,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("balance auto-cap write failed", exc_info=True)
 
     def diagnostics(self) -> dict:
         data = {

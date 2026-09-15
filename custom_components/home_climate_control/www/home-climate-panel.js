@@ -2009,6 +2009,11 @@ class HomeClimatePanel extends HTMLElement {
         <div class="settings-save">${saveBtn("gas")}</div>
       </div>
       <div class="card">
+        <h3>TRV balancing</h3>
+        ${ck("balance_autocap", "Auto-apply opening-degree cap", o.balance_autocap)}
+        <p class="sub">When a room stays oversupplied (valve sliver-open, target reached), writes the suggested opening-degree cap directly to its TRV number entity. At most one adjustment per room per hour; never below 15%.</p>
+      </div>
+            <div class="card">
         <h3>Preset temperatures (°C)</h3>
         <label>Comfort</label>
         <input type="number" id="so-pre-comfort" step="0.5" min="5" max="35" value="${num(o.preset_temps?.comfort)}" ${numCls}>
