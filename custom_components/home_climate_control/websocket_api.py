@@ -49,6 +49,7 @@ from .const import (
     PRESET_ECO,
     ZONE_PRESETS,
 )
+from .setuphealth import analyze as _setup_analyze
 from .firmware_manager import (
     async_setup_firmware_manager,
     catalog_item,
@@ -57,7 +58,7 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.7.4"
+INTEGRATION_VERSION = "1.7.5"
 
 
 def _integration_version() -> str:
@@ -94,6 +95,61 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_ot_log)
     hass.data[key] = True
 
+
+
+def _setup_health(hass, entry_id, controller, zones_out):
+    """Build the normalized room list and run the setup analyzer."""
+    try:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        opts = dict(getattr(entry, "options", None) or {})
+        opts["outdoor_source"] = getattr(controller, "outdoor_source", None)
+    except Exception:  # noqa: BLE001
+        opts = {"outdoor_source": None}
+    try:
+        entity_ids = [s.entity_id for s in hass.states.async_all()]
+    except Exception:  # noqa: BLE001
+        entity_ids = []
+
+    setback_rooms = {}
+    try:
+        setback_rooms = (
+            (controller.diagnostics().get("setbacks") or {}).get("rooms") or {}
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    zones_by_name = {
+        getattr(z, "name", None): z
+        for z in getattr(controller, "zones", []) or []
+    }
+    rooms = []
+    for zo in zones_out:
+        name = zo.get("name")
+        if not name:
+            continue
+        z = zones_by_name.get(name)
+        if z is None:
+            continue
+        sb = setback_rooms.get(name) or {}
+        rooms.append({
+            "name": name,
+            "has_trv": bool(
+                getattr(z, "trv_entities", None)
+                or getattr(z, "trv_entity", None)
+            ),
+            "has_temp": zo.get("current_temperature") is not None,
+            "valve_entity": getattr(z, "_trv_position_entity", None),
+            "has_lux": bool(getattr(z, "_lux_sensor", None)),
+            "has_co2": bool(getattr(z, "_co2_sensor", None)),
+            "radiator_kw": getattr(z, "radiator_kw", None),
+            "heat_control": getattr(z, "heat_control", "smart"),
+            "lead_known": zo.get("lead_time_s") is not None,
+            "setback_mature": bool(sb.get("mature")),
+        })
+    try:
+        return _setup_analyze(entity_ids, opts, rooms)
+    except Exception:  # noqa: BLE001
+        return []
 
 def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
     store = hass.data.get(DOMAIN, {})
@@ -233,6 +289,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                     )
                     or {}
                 ),
+                "setup": _setup_health(hass, entry_id, controller, zones_out),
                 "update_info": update_info,
                 "zones": zones_out,
             }

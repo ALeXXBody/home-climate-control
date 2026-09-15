@@ -2054,8 +2054,28 @@ class HomeClimatePanel extends HTMLElement {
 
   /* Diagnostics tab body (read-only engineering telemetry).
      Swapped in place by _applyStatus. */
+  _setupChecklistHtml(sys) {
+    const items = sys.setup;
+    if (!Array.isArray(items) || !items.length) return "";
+    const icon = (lvl) => lvl === "ready" ? "✓" : lvl === "task" ? "⚠" : "ⓘ";
+    const color = (lvl) => lvl === "ready" ? "#66bb6a" : lvl === "task" ? "#ef9a9a" : "#ffcc80";
+    const rows = items.map((it) => `
+      <p class="sub" style="margin:5px 0">
+        <span style="color:${color(it.level)};font-weight:700">${icon(it.level)}</span>
+        <strong>${this._esc(it.title)}</strong> — ${this._esc(it.detail)}
+      </p>`).join("");
+    const nReady = items.filter((i) => i.level === "ready").length;
+    return `
+      <div class="card" style="grid-column:1/-1">
+        <h3>Setup &amp; suggestions</h3>
+        <div class="metric" style="font-size:1.2rem">${nReady}<span class="unit">/ ${items.length} capabilities ready</span></div>
+        ${rows}
+      </div>`;
+  }
+
   _settingsLiveHtml(sys) {
     return `
+      ${this._setupChecklistHtml(sys)}
       <div class="grid">
         <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
         ${sys.autotune ? `<p class="sub">auto-tune: ${this._esc(sys.autotune.last_action || "")}${sys.autotune.mean_error != null ? ` · err ${this._esc(sys.autotune.mean_error)}°C` : ""} · ${sys.autotune.adjustments} adjustment${sys.autotune.adjustments === 1 ? "" : "s"}</p>` : ""}</div>

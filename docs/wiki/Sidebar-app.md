@@ -94,7 +94,8 @@ Toggles apply immediately; each card has a **Save** button for its numeric/selec
 
 ## Diagnostics tab
 
-Internal system state for debugging and tuning:
+Internal system state for debugging and tuning, led by a live **Setup & suggestions** checklist: ticks every app capability against the actual hardware and configuration (green = ready, orange = nice-to-have, red = misconfig). Uses generic rules against the user's own entities — e.g. a smart room without a valve-position entity shows which TRVs report one, missing outdoor data flags the curve, unconfigured gas nameplate flags the estimate accuracy:
+
 
 ### Heating curve
 - Current outdoor→flow mapping
