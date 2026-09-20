@@ -483,3 +483,16 @@ process.exit(0);
   if (!ok) { console.error("EDIT PREFILL GATE FAILED:", valueOf("er-trv"), valueOf("er-sensor"), valueOf("er-humidity")); process.exit(1); }
   console.log("edit prefill gate: passed (TRV/temp/humidity remain selected)");
 }
+
+// ── Gate: double module load must not crash the custom element registry ──
+{
+  try {
+    w.eval(src);
+    const el2 = w.document.createElement("home-climate-panel");
+    w.document.body.appendChild(el2);
+    console.log("define-guard gate: passed (stale element registry-safe)");
+  } catch (e) {
+    console.error("define-guard GATE FAILED:", e.message);
+    process.exit(1);
+  }
+}

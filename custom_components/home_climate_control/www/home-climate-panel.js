@@ -3234,4 +3234,11 @@ class HomeClimatePanel extends HTMLElement {
   }
 }
 
-customElements.define("home-climate-panel", HomeClimatePanel);
+// A stale custom element definition (older cached module in a long-lived
+// SPA session) makes the second define() throw "the name … has already been
+// used with this registry" — and the user keeps running the OLD version
+// without the new page. Guarded define: first-registered wins, and an
+// already-registered element can never shadow or crash a module update.
+if (!customElements.get("home-climate-panel")) {
+  customElements.define("home-climate-panel", HomeClimatePanel);
+}
