@@ -999,6 +999,17 @@ async def ws_rename_zone(
                         msg["id"], "invalid_zone", f"'{t}' is not a climate entity"
                     )
                     return
+            effective_control = (
+                heat_control if heat_control is not None
+                else z.get(CONF_ZONE_HEAT_CONTROL, HEAT_CONTROL_SMART)
+            )
+            if effective_control == HEAT_CONTROL_SMART and not trvs:
+                connection.send_error(
+                    msg["id"], "invalid_zone",
+                    "A smart room needs at least one TRV climate entity — "
+                    "no changes written (this is what kept wiping rooms)"
+                )
+                return
             z[CONF_ZONE_TRV_CLIMATES] = trvs
         if "temp_sensor" in msg:
             sensor = (temp_sensor or "").strip() or None
