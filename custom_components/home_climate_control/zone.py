@@ -664,7 +664,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         )
         self.balance.sample(self._valve_pct, below)
         self._balance_samples_to_save += 1
-        if self._balance_samples_to_save >= 30:
+        if self._balance_samples_to_save >= 15 and self.hass is not None:
             self._balance_samples_to_save = 0
             self.hass.async_create_task(self._async_persist_balance())
         if self.hass is not None:

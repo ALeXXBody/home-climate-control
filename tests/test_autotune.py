@@ -210,3 +210,34 @@ def test_controller_without_autotune_unchanged():
     aio.run(c.async_control_step())
     assert c.curve_coeff == 1.2
     assert "autotune" not in c.diagnostics()
+
+
+# ── Anti-railing relaxation ────────────────────────────────────────────────
+from custom_components.home_climate_control.autotune import (
+    CURVE_COEFF_MAX, AT_LIMIT_RELAX_S, RELAX_EVERY_S)
+
+
+def test_at_limit_relaxes_after_settled_period():
+    t = make_tuner(coeff=CURVE_COEFF_MAX)
+    # cold rooms push the coefficient to the ceiling quickly
+    while t.coeff < CURVE_COEFF_MAX - 1e-6:
+        t._ema = 0.5
+        clk = 1000.0 + t.adjustments * 3700.0
+        got = t.step(clk)
+        assert got is not None
+    assert t.coeff == CURVE_COEFF_MAX
+    # settled: essentially perfect error at the limit
+    t._ema = 0.01
+    t.observe(0.01, True, now=100000.0)
+    got = t.step(100001.0)
+    assert got is None and t._relax_since_mono is not None  # clock armed only
+    # past settle window + next-relax slot → relaxation applies
+    got = t.step(100001.0 + AT_LIMIT_RELAX_S + RELAX_EVERY_S + 10)
+    assert got is not None and got < CURVE_COEFF_MAX
+    assert t.adjustments > 0
+
+def test_relax_requires_being_comfortable():
+    t = make_tuner(coeff=CURVE_COEFF_MAX)
+    t._ema = 0.5               # still cold (>= relax deadband)
+    got = t.step(10000.0)
+    assert t.coeff == CURVE_COEFF_MAX

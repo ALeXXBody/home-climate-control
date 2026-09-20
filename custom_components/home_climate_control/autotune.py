@@ -39,6 +39,17 @@ EMA_WINDOW_S = 30 * 60            # comfort-error smoothing horizon
 DEADBAND_C = 0.2                  # degC; |mean error| under this = fine
 STEP_MIN = 0.01
 STEP_MAX = 0.10
+# Anti-railing: a coefficient can spend weeks parked at a limit even when
+# comfort is fine (observed live: 3.0 with mean_error 0.1). A slow weekly
+# walk back toward the interior keeps the card honest about "learned" vs
+# "railed" — and the roadmap-relevant note: cold-biased rooms will simply
+# push it back up in one step if the walk-back was wrong, so comfort never
+# takes more than a week-long 0.05 step in damage.
+AT_LIMIT_RELAX_S = 6 * 3600    # settle ≥ 6 h before the first relaxation
+RELAX_EVERY_S = 7 * 24 * 3600  # one relaxation per week
+RELAX_STEP = 0.05
+RELAX_DEADBAND_C = 0.05        # comfort must be essentially perfect
+RELAX_MIN_COEFF = CURVE_COEFF_MIN  # never relax below the usable interior
 
 
 class CurveAutoTuner:
@@ -66,6 +77,8 @@ class CurveAutoTuner:
         self._last_sample_mono: float | None = None
         self._next_eval_mono = 0.0
         self._cooldown_until_mono = 0.0
+        self._relax_since_mono: float | None = None
+        self._relax_next_mono: float | None = None
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY) if hass else None
 
     # ------------------------------------------------------------------ I/O
@@ -137,7 +150,50 @@ class CurveAutoTuner:
         self._last_sample_mono = now
         self.mean_error = mean_error_c
 
+    def _maybe_relax(self, now: float, err: float, direction: float) -> str:
+        """At a limit with comfortable rooms? If so, slowly walk back toward
+        the interior. Only fires when i) direction pushed INTO the limit, ii)
+        the error is essentially perfect (tighter than the probe deadband),
+        iii) the limit has been held ≥ AT_LIMIT_RELAX_S, and iv) a further
+        RELAX_EVERY_S has elapsed since the last relaxation move.
+
+        Returns "relaxed" when a move happened (caller logs it), else "".
+        """
+        if abs(err) > RELAX_DEADBAND_C or err * direction <= 0:
+            # comfort not perfect, or pointing the other way — reset clock
+            self._relax_since_mono = None
+            self._relax_next_mono = None
+            return ""
+        if self._relax_since_mono is None:
+            self._relax_since_mono = now
+            self._relax_next_mono = now + AT_LIMIT_RELAX_S
+            return ""
+        if now < self._relax_since_mono + AT_LIMIT_RELAX_S:
+            return ""
+        target = self.coeff + (-RELAX_STEP if direction > 0 else RELAX_STEP)
+        target = min(self.coeff_max, max(RELAX_MIN_COEFF, target))
+        if abs(target - self.coeff) < 1e-6 or (
+            direction > 0 and target <= self.coeff_min + 0.2
+        ) or (direction < 0 and target >= self.coeff_max - 0.2):
+            # interior reached (or target would cross the interior)
+            self._relax_since_mono = None
+            self._relax_next_mono = None
+            return ""
+        if self._relax_next_mono is None:
+            self._relax_next_mono = now + RELAX_EVERY_S
+        if now < self._relax_next_mono:
+            return ""
+        self._relax_next_mono = now + RELAX_EVERY_S
+        self.coeff = round(target, 3)
+        self.adjustments += 1
+        self._cooldown_until_mono = now + COOLDOWN_AFTER_MOVE_S
+        self._relax_since_mono = None
+        _LOGGER.info("Curve auto-tune relaxing at limit: %s", self.last_action)
+        self._persist()
+        return "relaxed"
+
     def step(self, now: float | None = None, *, probe: bool = False) -> float | None:
+
         """Maybe adjust the coefficient. Returns new coeff or None.
 
         probe=True computes what *would* be applied without mutating state —
@@ -153,12 +209,20 @@ class CurveAutoTuner:
             self._next_eval_mono = now + EVALUATE_EVERY_S
 
         err = self._ema
+        direction = 1.0 if err > 0 else -1.0  # cold -> more heat capability
         if abs(err) < DEADBAND_C:
+            # Comfort fine: either hold, or (parked at a limit) relax back
+            # toward the interior — the anti-railing walk (0.05 per week).
+            if not probe and self._maybe_relax(now, err, direction) == "relaxed":
+                self.last_action = (
+                    f"at limit — relaxing to {self.coeff:.2f} "
+                    f"(-{RELAX_STEP:.2f}/week, comfort ok)"
+                )
+                return self.coeff
             if not probe:
                 self.last_action = "comfort ok - holding"
             return None
 
-        direction = 1.0 if err > 0 else -1.0  # cold -> more heat capability
         magnitude = min(STEP_MAX, max(STEP_MIN, 0.05 * abs(err)))
         new_coeff = min(
             self.coeff_max, max(self.coeff_min, self.coeff + direction * magnitude)
