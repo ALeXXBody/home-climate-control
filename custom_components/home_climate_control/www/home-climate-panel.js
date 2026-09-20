@@ -1316,6 +1316,9 @@ class HomeClimatePanel extends HTMLElement {
     const trend = d.trend || {};
     const fmt = (v, unit = "", d = 1) =>
       v == null ? "—" : `${v}${unit}`;
+    // Per-day heat demand, averaged (a straight 30-day sum hides daily shape)
+    const hd30 = rows.slice(-30);
+    const hdAvg = hd30.length ? sm.heat_degmin_30d / hd30.length : 0;
     // Scatter: gas kWh vs outdoor average temp (least-squares trend line)
     const pts = (d.rows || []).filter(r => r.out_avg != null);
     const W = 640, H = 220, PAD = 36;
@@ -1344,6 +1347,14 @@ class HomeClimatePanel extends HTMLElement {
         ${line}${dots}
       </svg>`;
     }
+    const heatChart = this._dailyBars({
+      title: `Heat demand · °C·min/day — last ${Math.min(30, rows.length)} days`,
+      rows, key: "heat_degmin", unit: "°C·min", color: "#4fc3f7",
+    });
+    const gasChart = this._dailyBars({
+      title: `Gas · kWh/day — last ${Math.min(30, rows.length)} days`,
+      rows, key: "gas_kwh", unit: "kWh", color: "#ffb74d",
+    });
     const rowsHtml = (d.rows || []).slice().reverse().slice(0, 21).map(r => `
       <tr><td>${r.day}</td><td>${r.gas_kwh}</td>${price ? `<td>${r.cost != null ? r.cost : "—"}</td>` : ""}
       <td>${r.out_avg != null ? r.out_avg : "—"}/ ${r.out_min != null ? r.out_min : "—"}/${r.out_max != null ? r.out_max : "—"}</td>
@@ -1361,9 +1372,13 @@ class HomeClimatePanel extends HTMLElement {
           <div><small>Today — gas</small><br><b>${sm.today?.gas_kwh ?? "0"} kWh</b>${price && sm.today?.cost != null ? ` (${sm.today.cost})` : ""}</div>
           <div><small>7 days — gas</small><br><b>${sm.gas_kwh_7d} kWh</b>${price && sm.cost_7d != null ? ` (${sm.cost_7d})` : ""}</div>
           <div><small>30 days — gas</small><br><b>${sm.gas_kwh_30d} kWh</b>${price && sm.cost_30d != null ? ` (${sm.cost_30d})` : ""}</div>
-          <div><small>30 days — heat demand</small><br><b>${sm.heat_degmin_30d} °C·min</b></div>
+          <div><small>30 days — heat demand (avg/day)</small><br><b>${hdAvg.toFixed(1)} °C·min</b></div>
           <div><small>30 days — burner</small><br><b>${sm.burner_h_30d} h</b></div>
           <div><small>Days collected</small><br><b>${sm.days}</b></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px">
+          <div style="flex:1 1 440px;min-width:320px">${heatChart}</div>
+          <div style="flex:1 1 440px;min-width:320px">${gasChart}</div>
         </div>
         ${chart || '<p class="sub">Not enough outdoor/gas data yet — the scatter appears once ≥3 days have both an outdoor average and gas consumption.</p>'}
         <h4 style="margin:14px 0 6px">Recent days</h4>
@@ -1372,6 +1387,43 @@ class HomeClimatePanel extends HTMLElement {
           ${rowsHtml}
         </table>
       </div>`;
+  }
+
+  /** Inline-SVG bar chart for one per-day series (rows sorted by day asc). */
+  _dailyBars({ title, rows, key, unit = "", color = "#4fc3f7", days = 30 }) {
+    if (!rows || !rows.length) return "";
+    const W = 640, H = 190, PAD = 42, PBASE = 22;
+    const data = rows.slice(-days);
+    const vals = data.map(r => (typeof r[key] === "number" ? r[key] : 0));
+    const top = Math.max(0.01, Math.max(...vals)) * 1.1;
+    const n = data.length;
+    const plotW = W - PAD - 4, plotH = H - PBASE - 18;
+    const sx = (i) => PAD + (i / n) * plotW;
+    const sy = (v) => (H - PBASE) - (v / top) * plotH;
+    const bw = plotW / n - 2;
+    const fmtV = (v) => v >= 1000
+      ? `${(v / 1000).toFixed(1)}k`
+      : (v >= 100 ? v.toFixed(0) : v.toFixed(1));
+    const grid = [0, 0.5, 1].map((f) => {
+      const y = sy(top * f).toFixed(1);
+      return `<line x1="${PAD}" y1="${y}" x2="${W - 4}" y2="${y}" stroke="#fff" stroke-opacity=".07"/>
+        <text x="${PAD - 6}" y="${+y + 3}" fill="#ffffff88" font-size="9" text-anchor="end">${fmtV(top * f)}</text>`;
+    }).join("");
+    const every = Math.max(1, Math.ceil(n / 8));
+    const xlabels = data.map((r, i) => (i % every === 0 || i === n - 1)
+      ? `<text x="${sx(i).toFixed(1)}" y="${H - 6}" fill="#ffffff88" font-size="9" text-anchor="middle">${r.day.slice(5)}</text>`
+      : "").join("");
+    const bars = data.map((r, i) => {
+      const v = typeof r[key] === "number" ? r[key] : 0;
+      const y = sy(v), h = (H - PBASE) - y;
+      return `<rect x="${(sx(i) + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${Math.max(0, h).toFixed(1)}" rx="2" fill="${color}" opacity=".9">
+        <title>${r.day}: ${typeof r[key] === "number" ? r[key] : 0} ${unit.trim()}</title></rect>`;
+    }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;background:#10151c;border-radius:10px" role="img">
+        <text x="${PAD}" y="14" fill="#8ab" font-size="11">${title}</text>
+        ${grid}${bars}${xlabels}
+      </svg>`;
   }
 
   _overviewHtml(sys) {
