@@ -1548,14 +1548,18 @@ class HomeClimatePanel extends HTMLElement {
     const floors = [...byFloor.keys()].sort((a, b) => a - b);
 
     const RH = 108, GAP = 10, PAD = 6;   // room height / gaps
+    // Same canonical width for EVERY floor → every band scales identically,
+    // so all room tiles render at the same height and floors stack without
+    // ragged sizes or large gaps. Room count only widens/narrows tiles inside
+    // that floor; the map still scales responsively to the container. Each
+    // band is its OWN <svg>, so coordinates are LOCAL per floor (no shared
+    // y-cursor — a shared cursor left dead band-height above lower floors).
+    const W = 1000;
     const bands = [];
-    let y = 0;
     for (let i = floors.length - 1; i >= 0; i--) {   // top floor rendered first
       const f = floors[i];
       const rooms = byFloor.get(f);
-      const W = Math.max(320, rooms.length * 150);
-      const labelY = y + 12;
-      const rectY = y + 20;
+      const rectY = 20;
       let rects = "";
       let x = PAD;
       const w = (W - PAD * 2 - GAP * (rooms.length - 1)) / rooms.length;
@@ -1573,6 +1577,7 @@ class HomeClimatePanel extends HTMLElement {
         if (typeof tgt === "number") subBits.push(`→ ${tgt.toFixed(0)}°`);
         if (manual) subBits.push("✋ manual");
         if (z.window_open) subBits.push("🪟 window");
+        if (z.humidity != null) subBits.push(`${Math.round(z.humidity)}%`);
         const badges = [];
         if (heating) badges.push(`<tspan class="fp-badge" fill="#ff8a65">🔥</tspan>`);
         if (demandPct > 0) badges.push(`<tspan class="fp-badge" fill="#4fc3f7">${demandPct}%</tspan>`);
@@ -1592,7 +1597,6 @@ class HomeClimatePanel extends HTMLElement {
         <svg class="fp-svg" viewBox="0 0 ${W} ${rectY + RH + PAD}" role="img"
              aria-label="Floor plan, ${HomeClimatePanel.FLOOR_LABEL(f)}">${rects}
         </svg>`);
-      y = rectY + RH + PAD + 14;
     }
     return `<div class="card wide" style="padding:14px">
         <p class="sub" style="margin-top:0">Live comfort map — click a room to manage it.
