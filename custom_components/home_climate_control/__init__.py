@@ -354,11 +354,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if stored is not None:
         controller = stored["controller"]
         await controller.async_stop()
-        # Final training-log flush so buffered rows survive the unload.
+        # Flush the statistics store and the training log so buffered rows
+        # survive the unload. Both are optional in the controller — always
+        # resolved from the controller, never a local name from setup.
+        stats = getattr(controller, "stats", None)
+        if stats is not None:
+            await stats.async_unload()
         dl = getattr(controller, "datalogger", None)
         if dl is not None:
-            await stats.async_unload()
-        await dl.async_stop()
+            await dl.async_stop()
 
         bi = stored.get("boiler_info")
         if bi is not None:

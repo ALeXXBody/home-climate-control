@@ -140,3 +140,57 @@ def test_as_dict_json_safe_and_shape():
     d = s.as_dict()
     json.dumps(d)
     assert "summary" in d and "rows" in d and "trend" in d
+
+
+def test_unload_flushes_stats_without_nameerror():
+    """The 1.13.0 insert referenced a local `stats` in the unload path —
+    every entry unload raised NameError → 'failed_unload' → the panel
+    showed 'No Home Climate Control configured'. Pinned: unloading an
+    entry whose controller carries stats works and flushes the store."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    import custom_components.home_climate_control as hcc
+
+
+    class _Store:
+        def __init__(self):
+            self.data = None
+
+        async def async_save(self, payload):
+            self.data = payload
+
+    stats = MagicMock()
+    stats.async_unload = AsyncMock()
+
+    class _Ctrl:
+        async def async_stop(self):
+            pass
+
+        datalogger = None
+        stats = None      # controller without stats must be fine too
+
+    ctrl_bare = _Ctrl()
+    ctrl_with_stats = _Ctrl()
+    ctrl_with_stats.stats = stats
+
+    hass = MagicMock()
+    hass.data = {hcc.DOMAIN: {}}
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.config_entries.async_entries.return_value = []
+
+    entry = MagicMock()
+    entry.entry_id = "e1"
+
+    async def run(controller):
+        hass.data = {hcc.DOMAIN: {"e1": {"controller": controller}}}
+        ok = await hcc.async_unload_entry(hass, entry)
+        hass.data[hcc.DOMAIN] = {}  # reset for the next run
+        return ok
+
+    try:
+        assert asyncio.run(run(ctrl_with_stats)) is True
+        stats.async_unload.assert_awaited_once()
+        assert asyncio.run(run(ctrl_bare)) is True  # no stats → no crash
+    except NameError as err:
+        raise AssertionError(f"unload crashed: {err}")
