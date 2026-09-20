@@ -200,7 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "node_id": entry.data.get(CONF_NODE_ID, ""),
     }
 
-    async_setup_websocket(hass)
+    await async_setup_websocket(hass)
     await async_register_panel(hass)
 
     from .firmware_manager import async_setup_firmware_manager
@@ -291,13 +291,12 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
     for entity_id, zone in valve_map.items():
         _seed_float(entity_id, zone, zone.on_valve_update)
 
-    for entity_id, room_list in trv_map.items():
-        for zone in room_list:
-            if not zone.temp_sensor_entity and hasattr(zone, "on_trv_update"):
-                # ZoneClimateEntity.on_trv_update is safe pre-attach (the
-                # TRV state readout no-ops while hass is None); called here
-                # to seed the room temperature before the first render.
-                zone.on_trv_update()
+    # TRV-map entities: no synchronous readout here. wire_zone_sensors()
+    # runs BEFORE the entities attach — any HA state write in that state
+    # raises NoEntitySpecifiedError and kills the whole climate platform
+    # (the "all rooms disappeared" incident of 2026-09-20). The first TRV
+    # readout is done by ZoneClimateEntity.async_added_to_hass(), which is
+    # the correct place for the seeding.
 
     for entity_id in window_entities:
         state = hass.states.get(entity_id)

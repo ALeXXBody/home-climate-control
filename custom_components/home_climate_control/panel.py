@@ -62,9 +62,10 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     manifest = Path(__file__).parent / "manifest.json"
     if manifest.is_file():
         try:
-            version = json.loads(manifest.read_text(encoding="utf-8")).get(
-                "version", version
-            )
+            # HA calls this on the event loop: read via the executor so the
+            # file IO never blocks the loop (HA flags direct read_text).
+            text = await hass.async_add_executor_job(manifest.read_text)
+            version = json.loads(text).get("version", version)
         except (OSError, json.JSONDecodeError):
             pass
 

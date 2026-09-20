@@ -59,29 +59,31 @@ from .firmware_manager import (
 _LOGGER = logging.getLogger(__name__)
 
 # Single source of truth = manifest.json. A hardcoded copy here drifted from
-# the real version and the panel footer kept showing a stale number.
-try:
-    import json as _json
-
-    from pathlib import Path as _Path
-
-    INTEGRATION_VERSION = (
-        _json.loads((_Path(__file__).parent / "manifest.json").read_text())
-    ).get("version", "1.0.0")
-except Exception:  # noqa: BLE001 - version display only, never break setup
-    INTEGRATION_VERSION = "1.0.0"
+# the real version and the panel footer kept showing a stale number. The
+# read happens in the executor once on WS setup — never on the import path
+# (HA flags blocking file IO on the event loop).
+INTEGRATION_VERSION = "1.0.0"
 
 
 def _integration_version() -> str:
     return INTEGRATION_VERSION
 
 
-@callback
-def async_setup_websocket(hass: HomeAssistant) -> None:
+async def async_setup_websocket(hass: HomeAssistant) -> None:
     """Register WebSocket commands (once)."""
     key = f"{DOMAIN}_ws_registered"
+    global INTEGRATION_VERSION
     if hass.data.get(key):
         return
+    # Version (executor-read) before the UI asks for it, cached globally.
+    try:
+        from pathlib import Path as _Path
+
+        manifest = _Path(__file__).parent / "manifest.json"
+        text = await hass.async_add_executor_job(manifest.read_text)
+        INTEGRATION_VERSION = json.loads(text).get("version", "1.0.0")
+    except (OSError, json.JSONDecodeError):
+        pass
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_get_curve)
     websocket_api.async_register_command(hass, ws_set_zone)
