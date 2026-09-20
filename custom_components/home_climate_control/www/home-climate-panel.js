@@ -2795,27 +2795,39 @@ class HomeClimatePanel extends HTMLElement {
       const root = this.shadowRoot;
       const heat_control = root.getElementById("er-control")?.value || "smart";
       const floor = parseInt(root.getElementById("er-floor")?.value || "0", 10);
-      const trv = root.getElementById("er-trv")?.value?.trim();
-      const temp_sensor = root.getElementById("er-sensor")?.value?.trim();
-      const humidity_sensor = root.getElementById("er-humidity")?.value?.trim();
-      const window_sensors = (root.getElementById("er-window")?.value || "")
-        .split(",").map((x) => x.trim()).filter(Boolean);
+      // Device fields are only sent when their input actually exists in the
+      // rendered form. A half-rendered or stale form (cache race, older
+      // panel version) must NOT be able to wipe configured devices just
+      // because its inputs are missing — omit the field instead.
+      const payload = { zone: zoneName, heat_control, floor };
+      const trvEl = root.getElementById("er-trv");
+      if (trvEl) {
+        const trv = (trvEl.value || "").trim();
+        payload.trv_climates = trv ? [trv] : [];
+      }
+      const tEl = root.getElementById("er-sensor");
+      if (tEl) payload.temp_sensor = (tEl.value || "").trim() || null;
+      const hEl = root.getElementById("er-humidity");
+      if (hEl) payload.humidity_sensor = (hEl.value || "").trim() || null;
+      const wEl = root.getElementById("er-window");
+      if (wEl) {
+        payload.window_sensors = (wEl.value || "")
+          .split(",").map((x) => x.trim()).filter(Boolean);
+      }
+      const lEl = root.getElementById("er-lux");
+      if (lEl) payload.lux_sensor = (lEl.value || "").trim() || null;
+      const cEl = root.getElementById("er-co2");
+      if (cEl) payload.co2_sensor = (cEl.value || "").trim() || null;
+      const vEl = root.getElementById("er-valve");
+      if (vEl) payload.trv_position_entity = (vEl.value || "").trim() || null;
+      const rEl = root.getElementById("er-radkw");
+      if (rEl) {
+        const radkw = rEl.value;
+        payload.radiator_kw =
+          radkw !== "" && radkw != null ? parseFloat(radkw) : null;
+      }
       this._editingZone = null;
-      const elux = root.getElementById("er-lux")?.value?.trim() ?? null;
-      const eco2 = root.getElementById("er-co2")?.value?.trim() ?? null;
-      const evalve = root.getElementById("er-valve")?.value?.trim() ?? null;
-      const eradkw = root.getElementById("er-radkw")?.value;
-      this._adminZone("rename_zone", {
-        zone: zoneName, heat_control, floor,
-        trv_climates: trv ? [trv] : [],
-        temp_sensor: temp_sensor || null,
-        humidity_sensor: humidity_sensor || null,
-        window_sensors,
-        lux_sensor: elux,
-        co2_sensor: eco2,
-        trv_position_entity: evalve,
-        radiator_kw: eradkw !== "" && eradkw != null ? parseFloat(eradkw) : null,
-      });
+      this._adminZone("rename_zone", payload);
       return;
     }
     if (action === "control") {

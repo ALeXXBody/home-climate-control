@@ -456,3 +456,30 @@ if (failures.length) {
 }
 console.log("panel DOM gates: all passed");
 process.exit(0);
+
+// ── Gate: edit-room form keeps selected devices (prefill + safe save) ──
+{
+  const zone = {
+    name: "Office", entity_id: "climate.office", heat_control: "smart", floor: 0,
+    trv: "climate.office_trv",
+    temp_sensor: "sensor.office_sensor_temperature",
+    humidity_sensor: "sensor.office_sensor_humidity",
+    window_sensors: [], lux_sensor: null, co2_sensor: null,
+    trv_position_entity: null, radiator_kw: null,
+  };
+  const el2 = w.document.createElement("home-climate-panel");
+  w.document.body.appendChild(el2);
+  el2._hass = { states: {
+    "climate.office_trv": { attributes: { friendly_name: "Office TRV" } },
+    "sensor.office_sensor_temperature": { attributes: { device_class: "temperature" } },
+    "sensor.office_sensor_humidity": { attributes: { device_class: "humidity" } },
+  }};
+  const html = el2._roomFormHtml(zone);
+  const valueOf = (id) => (html.match(new RegExp(`id="${id}"[^>]*value="([^"]*)"`)) || [])[1];
+  const ok =
+    valueOf("er-trv") === "climate.office_trv" &&
+    valueOf("er-sensor") === "sensor.office_sensor_temperature" &&
+    valueOf("er-humidity") === "sensor.office_sensor_humidity";
+  if (!ok) { console.error("EDIT PREFILL GATE FAILED:", valueOf("er-trv"), valueOf("er-sensor"), valueOf("er-humidity")); process.exit(1); }
+  console.log("edit prefill gate: passed (TRV/temp/humidity remain selected)");
+}
