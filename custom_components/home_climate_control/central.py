@@ -783,6 +783,12 @@ class CentralController:
                 blocking=False,
             )
             z._cap_last_ts = now.timestamp()
+            # flush the auto-cap cooldown + balance history to storage so a
+            # reload right after doesn't lose either
+            try:
+                z.hass.async_create_task(z._async_persist_balance())
+            except AttributeError:
+                pass  # z.hass is None in unit tests
             _LOGGER.info(
                 "%s: balance auto-cap → TRV %s opening capped at %s%% (was %.0f%%)",
                 z.name, ent, cap, cur,

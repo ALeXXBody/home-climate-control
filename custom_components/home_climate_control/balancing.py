@@ -23,10 +23,37 @@ CLOSED_OVERSUPPLIED = 15.0
 
 
 class BalanceMonitor:
-    """Rolling valve-position analysis for one room."""
+    """Rolling valve-position analysis for one room.
+
+    History survives HCC reloads/updates via ZoneClimateEntity persistence
+    (to_state()/from_state()); without it a version bump would silently
+    restart every room's verdict from zero, which reads as "the system
+    forgot what it learned" after minor releases.
+    """
 
     def __init__(self, window: int = WINDOW_SAMPLES) -> None:
         self._hist: deque[tuple[float, bool]] = deque(maxlen=window)
+
+    def to_state(self) -> dict:
+        """Serialize the sample history for Store persistence."""
+        return {
+            "version": 1,
+            "window": self._hist.maxlen,
+            "hist": [(v, bool(b)) for v, b in self._hist],
+        }
+
+    def from_state(self, data) -> None:
+        """Restore history from a Store payload; malformed payloads ignored
+        (learning simply restarts in that case)."""
+        try:
+            hist = [(float(v), bool(b)) for v, b in (data or {}).get("hist", [])]
+        except (AttributeError, TypeError, ValueError):
+            return
+        w = (data or {}).get("window")
+        if isinstance(w, int) and 12 <= w <= 1440 and w != self._hist.maxlen:
+            self._hist = deque(maxlen=w)
+        self._hist.clear()
+        self._hist.extend(hist)
 
     def sample(self, valve_pct: float | None, below_target: bool) -> None:
         if valve_pct is None:

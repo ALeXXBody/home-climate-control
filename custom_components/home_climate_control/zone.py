@@ -24,6 +24,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_HALVES, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_ZONE_CO2_SENSOR,
@@ -143,6 +144,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self.solar = SolarGain()
         self.co2 = Co2Guard()
         self.balance = BalanceMonitor()
+        self._balance_store = None
+        self._balance_samples_to_save = 0
+        self._cap_last_ts: float | None = None
         self._valve_pct: float | None = None
         self._radiator_kw_est: float | None = None
 
@@ -160,6 +164,26 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         self.coordinator.register_zone(self)
+
+        # Balance history + auto-cap cooldown survive reloads/updates —
+        # losing 2 h of valve samples on every minor release reads as
+        # "the system forgot everything" for no reason.
+        self._balance_store = Store(
+            self.hass, 1, f"{self._attr_unique_id}_balance"
+        )
+        try:
+            bal = await self._balance_store.async_load()
+        except Exception:  # noqa: BLE001 - storage never blocks setup
+            bal = None
+        if isinstance(bal, dict):
+            try:
+                cap_ts = bal.get("cap_last_ts")
+                if cap_ts is not None:
+                    self._cap_last_ts = float(cap_ts)
+            except (TypeError, ValueError):
+                self._cap_last_ts = None
+            self.balance.from_state(bal.get("balance") or {})
+
         # Seed temperature from TRV when no external sensor is configured.
         if not self._temp_sensor:
             self._refresh_temp_from_trv()
@@ -188,6 +212,25 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             preset = last.attributes.get("preset_mode")
             if preset in ZONE_PRESETS:
                 self._preset = preset
+
+    async def _async_persist_balance(self) -> None:
+        """Save balance history + cap cooldown so reloads/updates keep it."""
+        if self._balance_store is None:
+            return
+        try:
+            await self._balance_store.async_save({
+                "version": 1,
+                "cap_last_ts": self._cap_last_ts,
+                "balance": self.balance.to_state(),
+            })
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).debug(
+                "balance save failed", exc_info=True
+            )
+
+    async def async_will_remove_from_hass(self) -> None:
+        # Final flush: a 2-hour verdict in progress survives update/reload.
+        await self._async_persist_balance()
 
     @property
     def current_temperature(self) -> float | None:
@@ -620,6 +663,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             and self.effective_setpoint() - self._current_temp > 0.1
         )
         self.balance.sample(self._valve_pct, below)
+        self._balance_samples_to_save += 1
+        if self._balance_samples_to_save >= 30:
+            self._balance_samples_to_save = 0
+            self.hass.async_create_task(self._async_persist_balance())
         if self.hass is not None:
             self.async_write_ha_state()
 
