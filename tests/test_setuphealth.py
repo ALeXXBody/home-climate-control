@@ -108,3 +108,26 @@ def test_smart_room_without_valve_still_flagged():
     ids = {i["id"]: i["level"] for i in items}
     # smart room, no candidates in HA → improvable ("does not report valve position")
     assert ids["balancing"] == "improvable"
+
+
+def test_manual_only_rooms_get_no_per_room_suggestions():
+    """Manual rooms are observation-only: no balancing, metering, solar
+    or CO2 items may be generated from them."""
+    rooms = [_room(name="Hallway", heat_control="manual", valve_entity=None,
+                   radiator_kw=None, has_lux=False, has_co2=False)]
+    items = analyze([], _opts(rated_heat_input_kw=24.0), rooms)
+    ids = [i["id"] for i in items]
+    per_room = {"balancing", "radiator_metering", "solar", "co2"}
+    assert not per_room.intersection(ids)
+    # system-level capabilities still shown
+    assert "outdoor" in ids and "schedule" in ids
+
+
+def test_manual_rooms_ignored_when_smart_rooms_present():
+    rooms = [
+        _room(name="Study", valve_entity=None),          # smart, no valve
+        _room(name="Hallway", heat_control="manual"),    # manual
+    ]
+    items = analyze([], _opts(rated_heat_input_kw=24.0), rooms)
+    bal = [i for i in items if i["id"] == "balancing"][0]
+    assert "Hallway" not in bal["title"] and "Hallway" not in bal["detail"]

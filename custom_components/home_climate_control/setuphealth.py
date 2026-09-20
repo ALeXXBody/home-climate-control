@@ -127,15 +127,15 @@ def analyze(entity_ids, opts, rooms) -> list[dict]:
                        + ", ".join(immature)),
         })
 
-    # ── TRV valve position (balancing) ──────────────────────────────────
-    # Manual rooms have a dumb TRV by definition — no valve-position entity
-    # to assign, so asking for one is noise (report bug Sept 2026).
-    no_valve = [r for r in rooms
-                if r.get("has_trv") and r.get("heat_control") != "manual"
-                and not r.get("valve_entity")]
+    # Manual rooms (heat_control="manual") are observation-only: HCC reads
+    # their temperature and nothing else, so no per-room capability item
+    # (balancing, metering, solar, CO2) may ask for sensors there.
     smart_rooms = [
-        r for r in rooms if r.get("has_trv") and r.get("heat_control") != "manual"
+        r for r in rooms if r.get("heat_control") != "manual"
     ]
+
+    # ── TRV valve position (balancing) ──────────────────────────────────
+    no_valve = [r for r in smart_rooms if not r.get("valve_entity")]
     if smart_rooms and not no_valve:
         items.append({
             "id": "balancing",
@@ -165,14 +165,14 @@ def analyze(entity_ids, opts, rooms) -> list[dict]:
         })
 
     # ── Radiator nominal kW (metering quality) ──────────────────────────
-    if rooms and any(r.get("radiator_kw") for r in rooms):
+    if smart_rooms and any(r.get("radiator_kw") for r in smart_rooms):
         items.append({
             "id": "radiator_metering",
             "level": READY,
             "title": "Radiator output metering",
             "detail": "Nominal kW set — true per-room radiator output is computed.",
         })
-    elif rooms:
+    elif smart_rooms:
         items.append({
             "id": "radiator_metering",
             "level": INFO,
@@ -183,14 +183,14 @@ def analyze(entity_ids, opts, rooms) -> list[dict]:
         })
 
     # ── Tier 3: solar trim ──────────────────────────────────────────────
-    if any(r.get("has_lux") for r in rooms):
+    if any(r.get("has_lux") for r in smart_rooms):
         items.append({
             "id": "solar",
             "level": READY,
             "title": "Solar-gain trim active",
             "detail": "Sun-warmed rooms drift cooler automatically.",
         })
-    else:
+    elif smart_rooms:
         items.append({
             "id": "solar",
             "level": INFO,
@@ -201,14 +201,14 @@ def analyze(entity_ids, opts, rooms) -> list[dict]:
         })
 
     # ── Tier 3: CO₂ ─────────────────────────────────────────────────────
-    if any(r.get("has_co2") for r in rooms):
+    if any(r.get("has_co2") for r in smart_rooms):
         items.append({
             "id": "co2",
             "level": READY,
             "title": "CO₂ ventilation flags active",
             "detail": "Per-room air quality flags are on.",
         })
-    else:
+    elif smart_rooms:
         items.append({
             "id": "co2",
             "level": INFO,
