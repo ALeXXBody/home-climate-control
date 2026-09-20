@@ -19,7 +19,8 @@ def _make_hass():
     hass.config_entries.async_get_entry = lambda eid: entry
     hass.config_entries.async_entries.return_value = []
     hass.config_entries.async_reload = AsyncMock()
-    hass.data = {DOMAIN: {"e1": {"controller": object(), "backend": object()}}}
+    controller = MagicMock()
+    hass.data = {DOMAIN: {"e1": {"controller": controller, "backend": object()}}}
     return hass, entry
 
 
@@ -161,3 +162,31 @@ def test_zone_uses_absolute_preset_temps():
     # no preset → the room's own target
     z._preset = "none"
     assert z.effective_setpoint() == pytest.approx(21.0)
+
+
+def test_set_options_preserves_zones():
+    hass, entry = _make_hass()
+    rooms = [{"name": "Office", "heat_control": "smart"}]
+    entry.options = {
+        "min_flow_temp": 25.0,
+        "max_flow_temp": 75.0,
+        "zones": rooms,
+    }
+    conn = MagicMock()
+    asyncio.run(websocket_api.ws_set_options(
+        hass, conn, {"id": 12, "auto_master": True}))
+    opts = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    assert opts["zones"] == rooms
+    assert opts["auto_master"] is True
+    hass.config_entries.async_reload.assert_not_called()
+
+
+def test_set_options_auto_master_hot_applies():
+    hass, entry = _make_hass()
+    controller = hass.data[DOMAIN]["e1"]["controller"]
+    conn = MagicMock()
+    asyncio.run(websocket_api.ws_set_options(
+        hass, conn, {"id": 13, "auto_master": True, "balance_autocap": True}))
+    assert controller.auto_master is True
+    assert controller.balance_autocap is True
+    hass.config_entries.async_reload.assert_not_called()

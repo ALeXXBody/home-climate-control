@@ -162,6 +162,23 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._pid_output: float = 0.0
         self._demand: float = 0.0
 
+    def _can_write_state(self) -> bool:
+        """False until HA has attached this entity (entity_id + platform).
+
+        Calling async_write_ha_state() before that raises
+        NoEntitySpecifiedError and aborts the whole climate platform —
+        every room then disappears on the next config-entry reload.
+        """
+        return bool(
+            self.hass is not None
+            and getattr(self, "entity_id", None)
+            and getattr(self, "platform", None) is not None
+        )
+
+    def _safe_write_ha_state(self) -> None:
+        if self._can_write_state():
+            self.async_write_ha_state()
+
     async def async_added_to_hass(self) -> None:
         self.coordinator.register_zone(self)
 
@@ -184,8 +201,16 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 self._cap_last_ts = None
             self.balance.from_state(bal.get("balance") or {})
 
-        # Seed temperature from TRV when no external sensor is configured.
-        if not self._temp_sensor:
+        # Seed temperature now that hass + entity_id exist.
+        if self._temp_sensor:
+            st = self.hass.states.get(self._temp_sensor)
+            if st is not None and st.state not in ("unknown", "unavailable"):
+                try:
+                    self._current_temp = float(st.state)
+                    self._temp_from_trv = False
+                except (TypeError, ValueError):
+                    pass
+        else:
             self._refresh_temp_from_trv()
         # Restore the user's last target across entry reloads. Zone cfgs only
         # carry the creation-time setpoint, so without this ANY options
@@ -302,7 +327,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if ATTR_TEMPERATURE in kwargs:
             self._target_temp = float(kwargs[ATTR_TEMPERATURE])
             await self._push_setpoint_to_trv()
-        self.async_write_ha_state()
+        self._safe_write_ha_state()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self._hvac_mode = hvac_mode
@@ -314,7 +339,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         else:
             await self._push_hvac_to_trv(HVACMode.HEAT)
             await self._push_setpoint_to_trv()
-        self.async_write_ha_state()
+        self._safe_write_ha_state()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         if preset_mode not in ZONE_PRESETS:
@@ -323,7 +348,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._preset_source = "user"  # sticky until schedule window changes
         self._preheat_active = False
         await self._push_setpoint_to_trv()
-        self.async_write_ha_state()
+        self._safe_write_ha_state()
 
     def apply_schedule_preset(self, preset_mode: str) -> bool:
         """Apply a timetable preset (sync). Returns True if the room changed."""
@@ -344,7 +369,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             except Exception:  # noqa: BLE001
                 pass
             try:
-                self.async_write_ha_state()
+                self._safe_write_ha_state()
             except Exception:  # noqa: BLE001
                 pass
         return True
@@ -623,16 +648,14 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     )
         if window_open is not None:
             self._window_open = window_open
-        if self.hass is not None:
-            self.async_write_ha_state()
+        self._safe_write_ha_state()
 
     @callback
     def on_trv_update(self) -> None:
         """TRV state changed — refresh temp if we use TRV as sensor."""
         if not self._temp_sensor:
             self._refresh_temp_from_trv()
-        if self.hass is not None:
-            self.async_write_ha_state()
+        self._safe_write_ha_state()
         # setup-time safety lives in _trv_state(): it no-ops while hass is
         # None, so wire_zone_sensors() can call this before entities attach.
 
@@ -641,15 +664,13 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
     def on_lux_update(self, lux: float | None) -> None:
         """Lux sensor reading — feeds the solar-gain detector."""
         self.solar.update(lux)
-        if self.hass is not None:
-            self.async_write_ha_state()
+        self._safe_write_ha_state()
 
     @callback
     def on_co2_update(self, ppm: float | None) -> None:
         """CO₂ sensor reading — feeds the ventilation flag."""
         self.co2.update(ppm)
-        if self.hass is not None:
-            self.async_write_ha_state()
+        self._safe_write_ha_state()
 
     @callback
     def on_valve_update(self, pct: float | None) -> None:
@@ -669,8 +690,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if self._balance_samples_to_save >= 15 and self.hass is not None:
             self._balance_samples_to_save = 0
             self.hass.async_create_task(self._async_persist_balance())
-        if self.hass is not None:
-            self.async_write_ha_state()
+        self._safe_write_ha_state()
 
     def _refresh_temp_from_trv(self) -> None:
         temp = self._trv_current_temp()

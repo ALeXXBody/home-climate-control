@@ -609,6 +609,35 @@ def _primary_entry(hass: HomeAssistant):
     return None
 
 
+def _hot_apply_bools(hass: HomeAssistant, entry, options: dict) -> None:
+    """Apply boolean option toggles without unloading the climate platform."""
+    data = (hass.data.get(DOMAIN) or {}).get(entry.entry_id) or {}
+    controller = data.get("controller")
+    if controller is None:
+        return
+    controller.auto_master = bool(options.get("auto_master", False))
+    controller.balance_autocap = bool(options.get("balance_autocap", False))
+    controller.auto_flowcap = bool(options.get("auto_flowcap", False))
+    occupancy = getattr(controller, "occupancy", None)
+    if occupancy is not None and hasattr(occupancy, "enabled"):
+        occupancy.enabled = bool(options.get("occupancy_enabled", False))
+    wind = getattr(controller, "windtrim", None)
+    if wind is not None and hasattr(wind, "enabled"):
+        wind.enabled = bool(
+            options.get("wind_compensation", getattr(wind, "enabled", False))
+        )
+    tuner = getattr(controller, "autotune", None)
+    if tuner is not None and hasattr(tuner, "enabled"):
+        tuner.enabled = bool(options.get("autotune_curve", True))
+    setbacks = getattr(controller, "setbacks", None)
+    if setbacks is not None and hasattr(setbacks, "enabled"):
+        setbacks.enabled = bool(options.get("learn_setbacks", True))
+    if hasattr(controller, "duty_cycle_enabled"):
+        controller.duty_cycle_enabled = bool(
+            options.get("duty_cycle_enabled", True)
+        )
+
+
 # Home Assistant's websocket_command decorator expects the raw schema
 # mapping and reads schema.validators[0].schema["type"] itself. Do not wrap
 # this in vol.Schema here; HA performs that wrapping internally.
@@ -735,9 +764,21 @@ async def ws_set_options(
     options = {**(entry.options or {}), **patch}
     for key in pop_keys:
         options.pop(key, None)
+    # Rooms live in options["zones"]. A settings toggle must never drop them —
+    # that is how enabling Auto-Optimize emptied the house.
+    if CONF_ZONES in (entry.options or {}) and CONF_ZONES not in options:
+        options[CONF_ZONES] = list(entry.options[CONF_ZONES])
 
     hass.config_entries.async_update_entry(entry, options=options)
-    await hass.config_entries.async_reload(entry.entry_id)
+
+    # Bool-only patches (Auto-Optimize master, occupancy, …) apply hot on
+    # the running controller. Reloading the whole entry is what crashed the
+    # climate platform and deleted every room.
+    bool_only = set(patch) <= set(_OPTION_BOOLS) and not pop_keys
+    if bool_only:
+        _hot_apply_bools(hass, entry, options)
+    else:
+        await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
 

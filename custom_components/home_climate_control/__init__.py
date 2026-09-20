@@ -267,45 +267,6 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
     if not watched:
         return
 
-    for entity_id, zone in temp_map.items():
-        state = hass.states.get(entity_id)
-        if state is not None and state.state not in ("unknown", "unavailable"):
-            try:
-                zone.on_sensor_update(float(state.state), None)
-            except ValueError:
-                pass
-
-    def _seed_float(entity_id, zone, handler):
-        state = hass.states.get(entity_id)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return
-        try:
-            handler(float(state.state))
-        except (TypeError, ValueError):
-            pass
-
-    for entity_id, zone in lux_map.items():
-        _seed_float(entity_id, zone, zone.on_lux_update)
-    for entity_id, zone in co2_map.items():
-        _seed_float(entity_id, zone, zone.on_co2_update)
-    for entity_id, zone in valve_map.items():
-        _seed_float(entity_id, zone, zone.on_valve_update)
-
-    # TRV-map entities: no synchronous readout here. wire_zone_sensors()
-    # runs BEFORE the entities attach — any HA state write in that state
-    # raises NoEntitySpecifiedError and kills the whole climate platform
-    # (the "all rooms disappeared" incident of 2026-09-20). The first TRV
-    # readout is done by ZoneClimateEntity.async_added_to_hass(), which is
-    # the correct place for the seeding.
-
-    for entity_id in window_entities:
-        state = hass.states.get(entity_id)
-        if state is not None:
-            open_ = state.state == "on"
-            for z in zones:
-                if entity_id in z.window_sensor_entities:
-                    z.on_sensor_update(None, open_)
-
     @callback
     def _on_state(event) -> None:
         new = event.data.get("new_state")

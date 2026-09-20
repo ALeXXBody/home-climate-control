@@ -44,3 +44,21 @@ def test_refresh_temp_from_trv_noop_before_attach():
     z = _bare_zone()
     z._refresh_temp_from_trv()  # must not raise
     assert z.current_temperature is None
+
+
+def test_on_sensor_update_before_attach_does_not_raise():
+    z = _bare_zone(temp_sensor="sensor.office_temp")
+    z.hass = MagicMock()
+    z.entity_id = None
+    z.platform = None
+    z.on_sensor_update(21.5, None)
+
+
+def test_on_lux_co2_valve_before_attach_do_not_raise():
+    z = _bare_zone()
+    z.hass = MagicMock()
+    z.entity_id = None
+    z.platform = None
+    z.on_lux_update(400)
+    z.on_co2_update(800)
+    z.on_valve_update(12)
