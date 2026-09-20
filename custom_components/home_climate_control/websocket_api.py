@@ -153,7 +153,11 @@ def _setup_health(hass, entry_id, controller, zones_out):
             "has_lux": bool(getattr(z, "_lux_sensor", None)),
             "has_co2": bool(getattr(z, "_co2_sensor", None)),
             "radiator_kw": getattr(z, "radiator_kw", None),
-            "heat_control": getattr(z, "heat_control", "smart"),
+            # NOTE: the entity attribute is heater_control; heat_control is
+            # only the *key name* in this dict. Nobody noticed the mismatch
+            # before because every manual room reported "smart" here and the
+            # analyzer kept suggesting valve/TRV work on observation-only rooms.
+            "heat_control": getattr(z, "heater_control", "smart"),
             "lead_known": zo.get("lead_time_s") is not None,
             "setback_mature": bool(sb.get("mature")),
         })

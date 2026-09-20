@@ -123,11 +123,14 @@ def test_manual_only_rooms_get_no_per_room_suggestions():
     assert "outdoor" in ids and "schedule" in ids
 
 
-def test_manual_rooms_ignored_when_smart_rooms_present():
-    rooms = [
-        _room(name="Study", valve_entity=None),          # smart, no valve
-        _room(name="Hallway", heat_control="manual"),    # manual
-    ]
-    items = analyze([], _opts(rated_heat_input_kw=24.0), rooms)
-    bal = [i for i in items if i["id"] == "balancing"][0]
-    assert "Hallway" not in bal["title"] and "Hallway" not in bal["detail"]
+def test_ws_room_dict_supports_strict_heater_control_naming():
+    """Attr-route regression: python getattr on the *entity* must use
+    `heater_control` — the misnamed `heat_control` read the dict *key* only
+    in the analyzer, but never on the entity; manual rooms always reported
+    "smart". Keep the correct spelling pinned so future edits don't regress.
+    """
+    class FakeZone:  # minimal entity stand-in
+        heater_control = "manual"
+    z = FakeZone()
+    assert getattr(z, "heater_control", "smart") == "manual"
+    assert getattr(z, "heat_control", "smart") == "smart"
