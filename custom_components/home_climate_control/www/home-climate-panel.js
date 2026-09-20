@@ -1714,7 +1714,12 @@ class HomeClimatePanel extends HTMLElement {
       floor: r.getElementById(prefix + "-floor")?.value || "0",
       trv: r.getElementById(prefix + "-trv")?.value || "",
       sensor: r.getElementById(prefix + "-sensor")?.value || "",
+      humidity: r.getElementById(prefix + "-humidity")?.value || "",
       window: r.getElementById(prefix + "-window")?.value || "",
+      lux: r.getElementById(prefix + "-lux")?.value || "",
+      co2: r.getElementById(prefix + "-co2")?.value || "",
+      valve: r.getElementById(prefix + "-valve")?.value || "",
+      radkw: r.getElementById(prefix + "-radkw")?.value || "",
     };
   }
 
@@ -1726,7 +1731,12 @@ class HomeClimatePanel extends HTMLElement {
     set(s.prefix + "-floor", s.floor);
     set(s.prefix + "-trv", s.trv);
     set(s.prefix + "-sensor", s.sensor);
+    set(s.prefix + "-humidity", s.humidity);
     set(s.prefix + "-window", s.window);
+    set(s.prefix + "-lux", s.lux);
+    set(s.prefix + "-co2", s.co2);
+    set(s.prefix + "-valve", s.valve);
+    set(s.prefix + "-radkw", s.radkw);
   }
 
   _addRoomHtml() {
@@ -1772,7 +1782,11 @@ class HomeClimatePanel extends HTMLElement {
         && (hass[id]?.attributes?.device_class === "humidity"
             || /humid/i.test(id + " " + (hass[id]?.attributes?.friendly_name || ""))))
       .sort((a, b) => friendly(a).localeCompare(friendly(b)));
-    const curTrv = isEdit ? (z.trv || "") : "";
+    const curTrv = isEdit
+      ? ((z.trv_climates && z.trv_climates.length)
+          ? z.trv_climates.join(", ")
+          : (z.trv || ""))
+      : "";
     const curSensor = isEdit ? (z.temp_sensor || "") : "";
     const curWindows = isEdit ? (z.window_sensors || []).join(", ") : "";
     const curLux = isEdit ? (z.lux_sensor || "") : "";
@@ -1798,7 +1812,7 @@ class HomeClimatePanel extends HTMLElement {
           <select id="${prefix}-floor" style="flex:1">
             ${[0, 1, 2, 3].map((f) => `<option value="${f}" ${curFloor === String(f) ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`).join("")}
           </select></div>
-        <div class="row"><label>TRV climate<br><span style="font-weight:400">(required for smart)</span></label>
+        <div class="row"><label>TRV climate<br><span style="font-weight:400">(required for smart, comma-sep)</span></label>
           <input id="${prefix}-trv" list="${prefix}-climates" value="${this._esc(curTrv)}" placeholder="climate.… (blank for manual)" style="flex:1">
           <datalist id="${prefix}-climates">${climates.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div class="row"><label>Temp sensor<br><span style="font-weight:400">(optional)</span></label>
@@ -2864,7 +2878,8 @@ class HomeClimatePanel extends HTMLElement {
       const name = root.getElementById("nr-name")?.value?.trim();
       const heat_control = root.getElementById("nr-control")?.value || "smart";
       const floor = parseInt(root.getElementById("nr-floor")?.value || "0", 10);
-      const trv = root.getElementById("nr-trv")?.value?.trim();
+      const trv = (root.getElementById("nr-trv")?.value || "")
+        .split(",").map((x) => x.trim()).filter(Boolean);
       const temp_sensor = root.getElementById("nr-sensor")?.value?.trim();
       const humidity_sensor = root.getElementById("nr-humidity")?.value?.trim();
       const window_sensors = (root.getElementById("nr-window")?.value || "")
@@ -2877,7 +2892,7 @@ class HomeClimatePanel extends HTMLElement {
       const radkw = root.getElementById("nr-radkw")?.value;
       this._adminZone("add_zone", {
         name, heat_control, floor,
-        trv_climates: trv ? [trv] : [],
+        trv_climates: trv,
         temp_sensor: temp_sensor || undefined,
         humidity_sensor: humidity_sensor || undefined,
         window_sensors,
@@ -2911,8 +2926,8 @@ class HomeClimatePanel extends HTMLElement {
       const payload = { zone: zoneName, heat_control, floor };
       const trvEl = root.getElementById("er-trv");
       if (trvEl) {
-        const trv = (trvEl.value || "").trim();
-        payload.trv_climates = trv ? [trv] : [];
+        payload.trv_climates = (trvEl.value || "")
+          .split(",").map((x) => x.trim()).filter(Boolean);
       }
       const tEl = root.getElementById("er-sensor");
       if (tEl) payload.temp_sensor = (tEl.value || "").trim() || null;

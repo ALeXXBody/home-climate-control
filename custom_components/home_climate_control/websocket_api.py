@@ -46,6 +46,7 @@ from .const import (
     DEFAULT_WIND_MAX_DELTA,
     DEFAULT_ZONE_SETPOINT,
     DOMAIN,
+    INTEGRATION_VERSION as _PACKAGED_VERSION,
     HEAT_CONTROL_SMART,
     PRESET_AWAY,
     PRESET_COMFORT,
@@ -65,7 +66,7 @@ _LOGGER = logging.getLogger(__name__)
 # the real version and the panel footer kept showing a stale number. The
 # read happens in the executor once on WS setup — never on the import path
 # (HA flags blocking file IO on the event loop).
-INTEGRATION_VERSION = "1.0.0"
+INTEGRATION_VERSION = _PACKAGED_VERSION
 
 
 def _integration_version() -> str:
@@ -76,17 +77,16 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     """Register WebSocket commands (once)."""
     key = f"{DOMAIN}_ws_registered"
     global INTEGRATION_VERSION
-    if hass.data.get(key):
-        return
-    # Version (executor-read) before the UI asks for it, cached globally.
     try:
         from pathlib import Path as _Path
 
         manifest = _Path(__file__).parent / "manifest.json"
         text = await hass.async_add_executor_job(manifest.read_text)
-        INTEGRATION_VERSION = json.loads(text).get("version", "1.0.0")
+        INTEGRATION_VERSION = json.loads(text).get("version", _PACKAGED_VERSION)
     except (OSError, json.JSONDecodeError):
-        pass
+        INTEGRATION_VERSION = _PACKAGED_VERSION
+    if hass.data.get(key):
+        return
     websocket_api.async_register_command(hass, ws_get_status)
     websocket_api.async_register_command(hass, ws_get_curve)
     websocket_api.async_register_command(hass, ws_set_zone)
@@ -221,6 +221,11 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         getattr(zone, "window_sensor_entities", []) or []
                     ),
                     "trv": getattr(zone, "trv_entity", None),
+                    "trv_climates": list(
+                        getattr(zone, "trv_entities", None)
+                        or ([getattr(zone, "trv_entity", None)]
+                            if getattr(zone, "trv_entity", None) else [])
+                    ),
                     "humidity": getattr(zone, "current_humidity", None),
                     "humidity_sensor": (
                         getattr(zone, "_humidity_sensor", None)
@@ -1133,6 +1138,7 @@ async def ws_rename_zone(
         len(new_zones),
     )
     hass.config_entries.async_update_entry(entry, options=new_options)
+    ZonesBackup(hass).save(new_zones, hass)
     await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
@@ -1238,6 +1244,7 @@ async def ws_remove_zone(
         return
     new_options = {**entry.options, CONF_ZONES: new_zones}
     hass.config_entries.async_update_entry(entry, options=new_options)
+    ZonesBackup(hass).save(new_zones, hass)
     await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 

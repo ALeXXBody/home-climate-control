@@ -43,6 +43,7 @@ def test_rename_zone_without_device_fields_keeps_them():
     assert z[CONF_ZONE_TRV_CLIMATES] == ["climate.office_trv"]
     assert z[CONF_ZONE_TEMP_SENSOR] == "sensor.office_sensor_temperature"
     assert z.get("humidity_sensor") == "sensor.office_humidity"
+    assert hass.async_create_task.called, "rename must write the zones backup"
 
 
 def test_rename_zone_refuses_empty_trv_for_smart_room():

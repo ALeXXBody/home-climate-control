@@ -25,10 +25,12 @@ from .const import (
     CONF_OCCUPANCY_ENABLED,
     CONF_OCCUPANCY_HOME_PRESET,
     CONF_OCCUPANCY_TRACKERS,
+    CONF_PRESET_TEMPS,
     CONF_SCHEDULE_ENTITY,
     CONF_SCHEDULE_OFF_PRESET,
     CONF_SCHEDULE_ON_PRESET,
     PRESET_AWAY,
+    PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
     ZONE_PRESETS,
@@ -48,6 +50,7 @@ from .const import (
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
     DEFAULT_MIN_FLOW_TEMP,
+    DEFAULT_PRESET_TEMPS,
     DEMO_DEFAULT_OUTDOOR,
     DEMO_DEFAULT_ROOMS,
     DEMO_UNIQUE_ID,
@@ -492,6 +495,34 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     description="occupancy_home_preset",
                 ): vol.In(ZONE_PRESETS),
                 vol.Required(
+                    "preset_comfort",
+                    default=(opts.get(CONF_PRESET_TEMPS) or {}).get(
+                        PRESET_COMFORT, DEFAULT_PRESET_TEMPS[PRESET_COMFORT]
+                    ),
+                    description="preset_comfort",
+                ): vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
+                vol.Required(
+                    "preset_eco",
+                    default=(opts.get(CONF_PRESET_TEMPS) or {}).get(
+                        PRESET_ECO, DEFAULT_PRESET_TEMPS[PRESET_ECO]
+                    ),
+                    description="preset_eco",
+                ): vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
+                vol.Required(
+                    "preset_away",
+                    default=(opts.get(CONF_PRESET_TEMPS) or {}).get(
+                        PRESET_AWAY, DEFAULT_PRESET_TEMPS[PRESET_AWAY]
+                    ),
+                    description="preset_away",
+                ): vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
+                vol.Required(
+                    "preset_boost",
+                    default=(opts.get(CONF_PRESET_TEMPS) or {}).get(
+                        PRESET_BOOST, DEFAULT_PRESET_TEMPS[PRESET_BOOST]
+                    ),
+                    description="preset_boost",
+                ): vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
+                vol.Required(
                     CONF_GAS_POWER_KW,
                     default=opts.get(CONF_GAS_POWER_KW, 24.0),
                     description="rated_heat_input_kw",
@@ -532,6 +563,20 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "min_flow_above_max"
             else:
                 options = {**self.config_entry.options, **user_input}
+                pt = {
+                    **DEFAULT_PRESET_TEMPS,
+                    **(self.config_entry.options.get(CONF_PRESET_TEMPS) or {}),
+                }
+                for src, dest in (
+                    ("preset_comfort", PRESET_COMFORT),
+                    ("preset_eco", PRESET_ECO),
+                    ("preset_away", PRESET_AWAY),
+                    ("preset_boost", PRESET_BOOST),
+                ):
+                    if src in user_input:
+                        pt[dest] = float(user_input[src])
+                    options.pop(src, None)
+                options[CONF_PRESET_TEMPS] = pt
                 # Clearing the entity picker omits the key — drop stale value.
                 for key in (
                     CONF_OUTDOOR_SENSOR,

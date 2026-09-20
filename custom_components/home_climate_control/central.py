@@ -407,7 +407,7 @@ class CentralController:
                     return_temp=getattr(self.backend, "return_temp", None),
                 )
             except Exception:  # noqa: BLE001
-                _LOGGER.debug("gas feed failed", exc_info=True)
+                _LOGGER.exception("gas feed failed")
 
         # Long-lived statistics: daily gas / heat-demand / outdoor buckets.
         if self.stats is not None:
@@ -424,7 +424,7 @@ class CentralController:
                     ),
                 )
             except Exception:  # noqa: BLE001
-                _LOGGER.debug("stats observe failed", exc_info=True)
+                _LOGGER.exception("stats observe failed")
 
         # Schedule / occupancy → preset (listeners do the heavy lifting;
         # tick is a safety net if entities changed while we were offline).
@@ -433,21 +433,21 @@ class CentralController:
                 self.schedule.bind_zones(self.zones)
                 self.schedule.apply(force=False)
             except Exception:  # noqa: BLE001
-                _LOGGER.debug("schedule tick failed", exc_info=True)
+                _LOGGER.exception("schedule tick failed")
         if self.occupancy is not None:
             try:
                 self.occupancy.bind_zones(self.zones)
                 self.occupancy.set_schedule(self.schedule)
                 self.occupancy.apply(force=False)
             except Exception:  # noqa: BLE001
-                _LOGGER.debug("occupancy tick failed", exc_info=True)
+                _LOGGER.exception("occupancy tick failed")
         outdoor_raw = self.outdoor_temp()
         # Wind trim: bounded infiltration correction on what the curve (and
         # load-based helpers) see. Raw outdoor stays for display/logging.
         try:
             self.windtrim.refresh()
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("wind trim refresh failed", exc_info=True)
+            _LOGGER.exception("wind trim refresh failed")
         outdoor = self.windtrim.effective(outdoor_raw)
         self.wind_trim_c = self.windtrim.trim_c
         demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]

@@ -319,6 +319,39 @@ def test_options_flow_preserves_zones():
     flow.hass.config_entries.async_reload.assert_awaited_once()
 
 
+def test_options_flow_folds_preset_temps():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.home_climate_control.config_flow import (
+        HomeClimateControlOptionsFlow,
+    )
+    from custom_components.home_climate_control.const import CONF_PRESET_TEMPS
+
+    flow = HomeClimateControlOptionsFlow()
+    entry = MagicMock()
+    entry.options = {
+        "min_flow_temp": 30,
+        "max_flow_temp": 80,
+        "zones": [{"name": "Living"}],
+    }
+    flow.config_entry = entry
+    flow.hass = MagicMock()
+    flow.hass.config_entries.async_reload = AsyncMock()
+    res = asyncio.run(flow.async_step_init({
+        "min_flow_temp": 30,
+        "max_flow_temp": 80,
+        "preset_comfort": 22.5,
+        "preset_eco": 18,
+        "preset_away": 15,
+        "preset_boost": 24,
+    }))
+    assert "preset_comfort" not in res["data"]
+    assert res["data"][CONF_PRESET_TEMPS]["comfort"] == 22.5
+    assert res["data"][CONF_PRESET_TEMPS]["eco"] == 18.0
+    assert res["data"]["zones"] == [{"name": "Living"}]
+
+
 def test_config_flow_hcs_reaches_zone_step():
     """Regression: hcs step must call async_step_zone (not the missing zones)."""
     import asyncio

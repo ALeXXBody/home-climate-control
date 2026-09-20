@@ -123,6 +123,7 @@ def test_edit_save_reload_read_roundtrip():
             self.name = cfg[CONF_ZONE_NAME]
             self.entity_id = f"climate.{cfg[CONF_ZONE_NAME].lower()}"
             self.trv_entity = (cfg.get(CONF_ZONE_TRV_CLIMATES) or [None])[0]
+            self.trv_entities = list(cfg.get(CONF_ZONE_TRV_CLIMATES) or [])
             self.temp_sensor_entity = cfg.get("temp_sensor")
             self.floor = cfg.get(CONF_ZONE_FLOOR, 0)
             self.heater_control = cfg.get("heat_control", "smart")
@@ -164,6 +165,7 @@ def test_edit_save_reload_read_roundtrip():
         f"status temp wrong: {office['temp_sensor']}"
     assert office["floor"] == 1, \
         f"status floor wrong: {office['floor']}"
+    assert office["trv_climates"] == ["climate.office_trv"]
     assert "lux_sensor" in office
     assert "co2_sensor" in office
     assert "trv_position_entity" in office
