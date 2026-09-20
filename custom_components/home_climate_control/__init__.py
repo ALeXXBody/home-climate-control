@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from .zones_backup import ZonesBackup
 from .const import (
     BACKEND_DEMO,
     BACKEND_HCS,
@@ -26,6 +27,7 @@ from .const import (
     CONF_SCHEDULE_OFF_PRESET,
     CONF_SCHEDULE_ON_PRESET,
     CONF_ZONES,
+    CONF_ZONE_NAME,
     PRESET_AWAY,
     PRESET_COMFORT,
     PRESET_ECO,
@@ -82,6 +84,23 @@ def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
         )
 
     raise ValueError(f"Unknown backend type: {backend_type!r}")
+
+
+def _dedupe_zones(zones: list) -> list:
+    """Keep ONE entry per room name (last wins — the most recently saved).
+
+    The 2026-09 remove+re-add recovery created duplicate zone entries in
+    options; every platform reload then created two entities with the same
+    unique_id and HA silently ignored the second one — which was the one
+    carrying the user's saved TRV/temp/floor. Deduplicating on every read
+    (and repairing options on setup) makes the whole class impossible.
+    """
+    by_name: dict[str, dict] = {}
+    for z in zones or []:
+        name = (z or {}).get(CONF_ZONE_NAME)
+        if name:
+            by_name[name] = z
+    return list(by_name.values())
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -201,9 +220,48 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     controller.stats = stats
     controller.schedule = schedule
     controller.occupancy = occupancy
+    # Deduplicate + repair: duplicates in options make HA ignore the
+    # user's saved config on every reload (the "rooms have empty data"
+    # incident). Last-wins keeps the most recently saved entry per room.
+    raw_zones = opts.get(CONF_ZONES, [])
+    zones = _dedupe_zones(raw_zones)
+    if len(zones) != len(raw_zones):
+        _LOGGER.warning(
+            "Zone config had %d duplicate entries — repaired to %d rooms "
+            "(the duplicate copies were masking your saved devices/floor)",
+            len(raw_zones) - len(zones), len(zones),
+        )
+        # Repair options so the fix survives the next restart
+        try:
+            hass.config_entries.async_update_entry(
+                entry, options={**opts, CONF_ZONES: zones}
+            )
+            opts = entry.options
+        except Exception:  # noqa: BLE001 - repair is best-effort
+            pass
+
+    # Zones backup: if options have no rooms but a backup exists,
+    # auto-restore from the last known-good copy.
+    if not zones:
+        backup = ZonesBackup(hass)
+        saved = await backup.async_load()
+        if saved:
+            zones = _dedupe_zones(saved)
+            _LOGGER.warning(
+                "Zone config was empty — restored %d rooms from backup",
+                len(zones),
+            )
+            try:
+                hass.config_entries.async_update_entry(
+                    entry, options={**opts, CONF_ZONES: zones}
+                )
+                opts = entry.options
+            except Exception:  # noqa: BLE001
+                pass
+
     hass.data[DOMAIN][entry.entry_id] = {
         "controller": controller,
-        "zones_cfg": opts.get(CONF_ZONES, []),
+        "zones_cfg": zones,
         "backend": backend,
         "backend_type": entry.data.get(CONF_BACKEND, BACKEND_HCS),
         "node_id": entry.data.get(CONF_NODE_ID, ""),

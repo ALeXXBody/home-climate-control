@@ -11,6 +11,8 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
+from .zones_backup import ZonesBackup
+from . import _dedupe_zones
 from .const import (
     CONF_OCCUPANCY_AWAY_PRESET,
     CONF_OCCUPANCY_ENABLED,
@@ -978,7 +980,7 @@ async def ws_rename_zone(
         return
 
     controller = hass.data[DOMAIN][entry.entry_id]["controller"]
-    zones_cfg = list(entry.options.get(CONF_ZONES, []))
+    zones_cfg = _dedupe_zones(entry.options.get(CONF_ZONES, []))
     new_zones = []
     for z in zones_cfg:
         if z.get(CONF_ZONE_NAME) != msg["zone"]:
@@ -1125,19 +1127,22 @@ async def ws_add_zone(
     """Create a room from the panel; the options reload adds its entity."""
     # Any configured entry owns the room list (single-install typical).
     entry = None
-    existing: list[str | None] = []
     for entry_id, data in (hass.data.get(DOMAIN) or {}).items():
         if isinstance(data, dict) and "controller" in data:
             entry = hass.config_entries.async_get_entry(entry_id)
             if entry is not None:
-                existing = [
-                    getattr(z, "name", None)
-                    for z in getattr(data["controller"], "zones", [])
-                ]
                 break
     if entry is None:
         connection.send_error(msg["id"], "not_found", "No configured system found")
         return
+
+    # Validate against OPTIONS (the source of truth), not the controller's
+    # in-memory list — the controller can be empty when the platform has
+    # crashed, which used to make every add pass and create duplicates.
+    existing = [
+        z.get(CONF_ZONE_NAME)
+        for z in _dedupe_zones(entry.options.get(CONF_ZONES, []))
+    ]
 
     try:
         zone = build_zone_config(
@@ -1158,11 +1163,11 @@ async def ws_add_zone(
         connection.send_error(msg["id"], "invalid_zone", str(err))
         return
 
-    zones_cfg = list(entry.options.get(CONF_ZONES, []))
+    zones_cfg = _dedupe_zones(entry.options.get(CONF_ZONES, []))
     zones_cfg.append(zone)
-    hass.config_entries.async_update_entry(
-        entry, options={**entry.options, CONF_ZONES: zones_cfg}
-    )
+    new_options = {**entry.options, CONF_ZONES: zones_cfg}
+    hass.config_entries.async_update_entry(entry, options=new_options)
+    ZonesBackup(hass).save(zones_cfg, hass)
     await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
 
@@ -1185,7 +1190,7 @@ async def ws_remove_zone(
     if entry is None:
         connection.send_error(msg["id"], "not_found", "Unknown zone")
         return
-    zones_cfg = list(entry.options.get(CONF_ZONES, []))
+    zones_cfg = _dedupe_zones(entry.options.get(CONF_ZONES, []))
     new_zones = [z for z in zones_cfg if z.get(CONF_ZONE_NAME) != msg["zone"]]
     if len(new_zones) == len(zones_cfg):
         connection.send_error(msg["id"], "not_found", "Unknown zone")
