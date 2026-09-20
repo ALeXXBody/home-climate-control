@@ -179,6 +179,25 @@ async def test_central_uses_worst_zone_pid():
 
 
 @pytest.mark.asyncio
+async def test_stats_observe_gets_numeric_demand():
+    """demand_level is a method — passing the unbound method into max() TypeErrors."""
+    hass = MagicMock()
+    backend = FakeBackend()
+    ctrl = CentralController(
+        hass, backend, curve_coeff=1.0, design_outdoor=-10, min_flow=25, max_flow=75
+    )
+    ctrl.zones = [
+        FakeZone("a", wants=True, demand=0.3),
+        FakeZone("b", wants=True, demand=0.7),
+    ]
+    stats = MagicMock()
+    ctrl.stats = stats
+    await ctrl.async_control_step()
+    stats.observe.assert_called()
+    assert stats.observe.call_args.kwargs["latest_max_demand"] == pytest.approx(0.7)
+
+
+@pytest.mark.asyncio
 async def test_demo_backend_heats_when_ch_on():
     from home_climate_control.boiler.demo import DemoBoilerBackend
 
@@ -291,10 +310,13 @@ def test_options_flow_preserves_zones():
         "zones": zones,
     }
     flow.config_entry = entry
+    flow.hass = MagicMock()
+    flow.hass.config_entries.async_reload = AsyncMock()
 
     res = asyncio.run(flow.async_step_init({"min_flow_temp": 35}))
     assert res["data"]["zones"] == zones
     assert res["data"]["min_flow_temp"] == 35
+    flow.hass.config_entries.async_reload.assert_awaited_once()
 
 
 def test_config_flow_hcs_reaches_zone_step():

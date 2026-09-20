@@ -18,6 +18,12 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
+
+def _as_unix(now) -> float:
+    """Control loop passes monotonic float; unit tests pass datetime."""
+    ts = getattr(now, "timestamp", None)
+    return ts() if callable(ts) else float(now)
+
 from .boiler.base import BoilerBackend
 from .calibrate import RoomCalibrator
 from .const import (
@@ -413,7 +419,7 @@ class CentralController:
                     ch_on=self._ch_on,
                     flow_setpoint=self.flow_setpoint,
                     latest_max_demand=(
-                        max((z.demand_level for z in self.zones), default=None)
+                        max((z.demand_level() for z in self.zones), default=None)
                         if self.zones else None
                     ),
                 )
@@ -785,7 +791,7 @@ class CentralController:
         if rep.get("state") != "oversupplied" or cap is None:
             return
         last = getattr(z, "_cap_last_ts", None)
-        if last is not None and (now.timestamp() - last) < BALANCE_AUTOCAP_INTERVAL_S:
+        if last is not None and (_as_unix(now) - last) < BALANCE_AUTOCAP_INTERVAL_S:
             return
         try:
             st = self.hass.states.get(ent)
@@ -800,7 +806,7 @@ class CentralController:
                 {"entity_id": ent, "value": max(float(cap), BALANCE_AUTOCAP_MIN_PCT)},
                 blocking=False,
             )
-            z._cap_last_ts = now.timestamp()
+            z._cap_last_ts = _as_unix(now)
             # flush the auto-cap cooldown + balance history to storage so a
             # reload right after doesn't lose either
             try:
@@ -872,11 +878,11 @@ class CentralController:
         desired = round(max(floor, self.max_flow - FLOWCAP_STEP_C), 1)
         if desired >= self.max_flow - 0.5:
             self._flowcap_suggestion = None  # already at floor
-            self._flowcap_last_ts = now.timestamp()
+            self._flowcap_last_ts = _as_unix(now)
             return
         if self.auto_master and self.auto_flowcap:
             last = self._flowcap_last_ts
-            if last is None or (now.timestamp() - last) >= FLOWCAP_INTERVAL_S:
+            if last is None or (_as_unix(now) - last) >= FLOWCAP_INTERVAL_S:
                 if self._system_healthy_for_auto():
                     _LOGGER.info(
                         "Auto-Optimize flow cap: trim max %.1f → %.1f °C "
@@ -885,7 +891,7 @@ class CentralController:
                         FLOWCAP_WINDOW_SAMPLES,
                     )
                     self.max_flow = desired
-                    self._flowcap_last_ts = now.timestamp()
+                    self._flowcap_last_ts = _as_unix(now)
                     self._flowcap_res.clear()
                 self._flowcap_suggestion = None
         else:

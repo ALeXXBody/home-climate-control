@@ -541,7 +541,11 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                 ):
                     if key not in user_input or not user_input.get(key):
                         options.pop(key, None)
-                return self.async_create_entry(title="", data=options)
+                result = self.async_create_entry(title="", data=options)
+                await self.hass.config_entries.async_reload(
+                    self.config_entry.entry_id
+                )
+                return result
         return self.async_show_form(
             step_id="init",
             data_schema=self._options_schema(),

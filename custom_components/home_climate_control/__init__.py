@@ -119,9 +119,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Ensure the config entry has a stable unique_id so MQTT rediscovery of
     # the same (or any) HCS board is treated as already configured.
-    # Guarded: never fight over a unique_id another entry already owns —
-    # async_update_entry fires the update listener (reload), and a refused
-    # duplicate would loop setup/reload forever.
+    # Guarded: never fight over a unique_id another entry already owns.
     node = (entry.data.get(CONF_NODE_ID) or "").strip()
     backend_type = entry.data.get(CONF_BACKEND, BACKEND_HCS)
     if backend_type == BACKEND_HCS and node:
@@ -283,12 +281,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(
         entry, ["climate", "sensor", "update"]
     )
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    # No add_update_listener. WS handlers (add/rename/remove/set_options)
+    # already await async_reload after async_update_entry so the panel gets
+    # post-reload status. A listener would fire a second nested reload on
+    # the same save — climate platform unload mid-collect, empty rooms.
+    # OptionsFlow reloads itself after saving. Bool-only WS patches hot-apply
+    # without any reload (a listener would have undone that).
     return True
-
-
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> None:

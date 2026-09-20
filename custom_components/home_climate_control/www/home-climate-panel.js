@@ -1268,7 +1268,6 @@ class HomeClimatePanel extends HTMLElement {
         return `<div id="hcc-diag-wrap">
           <p class="sub" style="margin-top:0">Engineering telemetry — safe to ignore, fun to watch.</p>
           ${this._settingsLiveHtml(sys)}
-          ${this._storedZonesHtml()}
         </div>`;
       default: // home
         return `<div id="hcc-live">${this._homeHtml(sys)}</div>`;
@@ -1342,7 +1341,7 @@ class HomeClimatePanel extends HTMLElement {
       }
       chart = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;background:#10151c;border-radius:10px">
         <text x="${PAD}" y="${PAD - 12}" fill="#8ab" font-size="11">gas kWh / day vs outdoor °C — slope ${tr.slope != null ? tr.slope : "?"} kWh/°C (per day, ${tr.points} points)</text>
-        ${line}${dots.join("")}
+        ${line}${dots}
       </svg>`;
     }
     const rowsHtml = (d.rows || []).slice().reverse().slice(0, 21).map(r => `
@@ -2213,27 +2212,6 @@ class HomeClimatePanel extends HTMLElement {
 
   /* Diagnostics tab body (read-only engineering telemetry).
      Swapped in place by _applyStatus. */
-  _storedZonesHtml() {
-    const zones = this._status?.debug_stored_zones;
-    if (!Array.isArray(zones) || !zones.length) return "";
-    const rows = zones.map(z => `
-      <tr><td>${this._esc(z.name || "?")}</td>
-      <td>${this._esc((z.trv_climates || []).join(", ") || "—")}</td>
-      <td>${this._esc(z.temp_sensor || "—")}</td>
-      <td>${this._esc(z.humidity_sensor || "—")}</td>
-      <td>${z.floor ?? 0}</td></tr>`).join("");
-    return `
-      <div class="card" style="margin-top:10px">
-        <h3>Stored zone configs (options)</h3>
-        <p class="sub">What's actually saved in the config entry — if these
-        differ from the room cards, the entity layer is stale (reload needed).</p>
-        <table style="width:100%;font-size:.8rem;border-collapse:collapse">
-          <tr style="opacity:.6;text-align:left"><th>Room</th><th>TRV</th><th>Temp</th><th>Humidity</th><th>Floor</th></tr>
-          ${rows}
-        </table>
-      </div>`;
-  }
-
   _setupChecklistHtml(sys) {
     const items = sys.setup;
     if (!Array.isArray(items) || !items.length) return "";
@@ -3097,9 +3075,7 @@ class HomeClimatePanel extends HTMLElement {
         break;
       }
       case "occupancy": {
-        patch.occupancy_trackers = Array.isArray(this._occDraft)
-          ? [...this._occDraft]
-          : (o.occupancy_trackers || []);
+        patch.occupancy_trackers = this._occDraftArray();
         const away = this._soptSel("so-occ-away", false);
         if (away !== undefined) patch.occupancy_away_preset = away;
         const home = this._soptSel("so-occ-home", false);

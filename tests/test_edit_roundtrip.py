@@ -164,6 +164,9 @@ def test_edit_save_reload_read_roundtrip():
         f"status temp wrong: {office['temp_sensor']}"
     assert office["floor"] == 1, \
         f"status floor wrong: {office['floor']}"
+    assert "lux_sensor" in office
+    assert "co2_sensor" in office
+    assert "trv_position_entity" in office
     print("READ: PASS — status shows TRV, temp, floor=1 after reload")
     print("FULL ROUNDTRIP: PASS — server path is correct")
 

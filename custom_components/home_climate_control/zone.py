@@ -134,8 +134,6 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._humidity_sensor = zone_cfg.get(CONF_ZONE_HUMIDITY_SENSOR) or None
         self._humidity_pct: float | None = None
         self._humidity_from_trv: bool = False
-        self._humidity_sensor = zone_cfg.get(CONF_ZONE_HUMIDITY_SENSOR) or None
-        self._humidity_pct: float | None = None
         self._trv_position_entity = (
             zone_cfg.get(CONF_ZONE_TRV_POSITION) or None
         )

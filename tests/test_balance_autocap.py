@@ -127,6 +127,7 @@ def test_autocap_blocked_while_failsafe_active():
         fs = MagicMock(); fs.native_value = failsafe
         c.hass.data = {DOMAIN: {"e1": {"failsafe_sensor": fs}}}
         z = _zone()
+        asyncio.run(c._async_maybe_autocap(z, NOW))
         assert c.hass.services.async_call.await_count == 0, failsafe
 
 
@@ -238,6 +239,27 @@ def test_flowcap_respects_floor_margin():
             t += timedelta(seconds=60)
     floor = 25.0 + 10.0
     assert c.max_flow >= floor
+
+
+def test_autocap_accepts_monotonic_float():
+    """Control loop passes time.monotonic(), not datetime."""
+    c = _controller(True, current_val=40)
+    z = _zone()
+    asyncio.run(c._async_maybe_autocap(z, 12345.0))
+    assert c.hass.services.async_call.await_count == 1
+
+
+def test_flowcap_accepts_monotonic_float():
+    c = _flowcap_controller(master_on=True)
+    c.backend.connected = True
+    c.backend.ot_valid = True
+    c._ch_on = True
+    c._condense_active = True
+    t = 1000.0
+    for _ in range(FLOWCAP_WINDOW_SAMPLES):
+        c._maybe_flowcap_tick(58.0, t)
+        t += 60.0
+    assert c.max_flow == 75.0 - FLOWCAP_STEP_C
 
 
 def test_flowcap_blocked_when_ot_invalid():

@@ -266,6 +266,11 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         else False
                     ),
                     "valve_pct": getattr(zone, "_valve_pct", None),
+                    "lux_sensor": getattr(zone, "_lux_sensor", None),
+                    "co2_sensor": getattr(zone, "_co2_sensor", None),
+                    "trv_position_entity": getattr(
+                        zone, "_trv_position_entity", None
+                    ),
                     "balance": (
                         zone.balance.report()
                         if getattr(zone, "balance", None) is not None
@@ -324,21 +329,11 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
     mgr = get_firmware_manager(hass)
     devices = mgr.list_devices() if mgr else []
 
-    # Raw options zones — shows what's actually STORED vs what entities show.
-    # This is the diagnostic key for "my edits don't save": if this shows the
-    # right TRV/temp/floor but the zone cards show empty, the entity layer
-    # is stale; if this ALSO shows empty, the write path is broken.
-    debug_stored_zones = None
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        debug_stored_zones = _dedupe_zones(entry.options.get(CONF_ZONES, []))
-        break
-
     return {
         "domain": DOMAIN,
         "version": _integration_version(),
         "systems": systems,
         "devices": devices,
-        "debug_stored_zones": debug_stored_zones,
         "firmware_catalog": mgr.catalog if mgr else [],
         "support_url": "https://buymeacoffee.com/alexxbody",
         "docs": {
