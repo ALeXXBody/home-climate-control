@@ -218,7 +218,9 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                     ),
                     "trv": getattr(zone, "trv_entity", None),
                     "humidity": getattr(zone, "current_humidity", None),
-                    "humidity_sensor": getattr(zone, "humidity_sensor_entity", None),
+                    "humidity_sensor": (
+                        getattr(zone, "_humidity_sensor", None)
+                    ),
                     "temp_sensor": getattr(zone, "temp_sensor_entity", None),
                     "temp_source": (
                         (getattr(zone, "extra_state_attributes", {}) or {}).get(
