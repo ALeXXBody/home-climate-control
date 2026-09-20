@@ -1268,6 +1268,7 @@ class HomeClimatePanel extends HTMLElement {
         return `<div id="hcc-diag-wrap">
           <p class="sub" style="margin-top:0">Engineering telemetry — safe to ignore, fun to watch.</p>
           ${this._settingsLiveHtml(sys)}
+          ${this._storedZonesHtml()}
         </div>`;
       default: // home
         return `<div id="hcc-live">${this._homeHtml(sys)}</div>`;
@@ -2212,6 +2213,27 @@ class HomeClimatePanel extends HTMLElement {
 
   /* Diagnostics tab body (read-only engineering telemetry).
      Swapped in place by _applyStatus. */
+  _storedZonesHtml() {
+    const zones = this._status?.debug_stored_zones;
+    if (!Array.isArray(zones) || !zones.length) return "";
+    const rows = zones.map(z => `
+      <tr><td>${this._esc(z.name || "?")}</td>
+      <td>${this._esc((z.trv_climates || []).join(", ") || "—")}</td>
+      <td>${this._esc(z.temp_sensor || "—")}</td>
+      <td>${this._esc(z.humidity_sensor || "—")}</td>
+      <td>${z.floor ?? 0}</td></tr>`).join("");
+    return `
+      <div class="card" style="margin-top:10px">
+        <h3>Stored zone configs (options)</h3>
+        <p class="sub">What's actually saved in the config entry — if these
+        differ from the room cards, the entity layer is stale (reload needed).</p>
+        <table style="width:100%;font-size:.8rem;border-collapse:collapse">
+          <tr style="opacity:.6;text-align:left"><th>Room</th><th>TRV</th><th>Temp</th><th>Humidity</th><th>Floor</th></tr>
+          ${rows}
+        </table>
+      </div>`;
+  }
+
   _setupChecklistHtml(sys) {
     const items = sys.setup;
     if (!Array.isArray(items) || !items.length) return "";

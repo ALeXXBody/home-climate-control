@@ -324,11 +324,21 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
     mgr = get_firmware_manager(hass)
     devices = mgr.list_devices() if mgr else []
 
+    # Raw options zones — shows what's actually STORED vs what entities show.
+    # This is the diagnostic key for "my edits don't save": if this shows the
+    # right TRV/temp/floor but the zone cards show empty, the entity layer
+    # is stale; if this ALSO shows empty, the write path is broken.
+    debug_stored_zones = None
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        debug_stored_zones = _dedupe_zones(entry.options.get(CONF_ZONES, []))
+        break
+
     return {
         "domain": DOMAIN,
         "version": _integration_version(),
         "systems": systems,
         "devices": devices,
+        "debug_stored_zones": debug_stored_zones,
         "firmware_catalog": mgr.catalog if mgr else [],
         "support_url": "https://buymeacoffee.com/alexxbody",
         "docs": {
@@ -506,12 +516,28 @@ async def ws_calibrate_zone(
 
 
 def _zone_entry_and_names(hass: HomeAssistant, zone_name: str):
-    """Find the config entry owning *zone_name*; returns (entry, names) or (None, [])."""
+    """Find the config entry owning *zone_name*; returns (entry, names) or (None, []).
+
+    Looks in OPTIONS first (the source of truth — survives crashes), then
+    in the controller's in-memory list as a fallback for rooms that exist
+    as entities but not yet in options (edge case during setup).
+    """
+    # Primary: OPTIONS — always current, never stale
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        zone_names = [
+            z.get(CONF_ZONE_NAME)
+            for z in _dedupe_zones(entry.options.get(CONF_ZONES, []))
+        ]
+        if zone_name in zone_names:
+            return entry, zone_names
+    # Fallback: controller entities (for rename of a room whose entity
+    # exists but whose options entry was just added in this same tick)
     for entry_id, data in (hass.data.get(DOMAIN) or {}).items():
         if not isinstance(data, dict) or "controller" not in data:
             continue
         names = [
-            getattr(z, "name", None) for z in getattr(data["controller"], "zones", [])
+            getattr(z, "name", None)
+            for z in getattr(data["controller"], "zones", [])
         ]
         if zone_name in names:
             entry = hass.config_entries.async_get_entry(entry_id)
@@ -1096,6 +1122,21 @@ async def ws_rename_zone(
     # Migrate learned history before the reload swaps the entity out.
     if new_name:
         controller.rename_zone_learning(msg["zone"], new_name)
+    _LOGGER.info(
+        "rename_zone %r → trv=%r temp=%r hum=%r floor=%r ctrl=%r (%d rooms)",
+        msg["zone"],
+        next((z.get("trv_climates") for z in new_zones
+              if z.get(CONF_ZONE_NAME) == (new_name or msg["zone"])), None),
+        next((z.get("temp_sensor") for z in new_zones
+              if z.get(CONF_ZONE_NAME) == (new_name or msg["zone"])), None),
+        next((z.get("humidity_sensor") for z in new_zones
+              if z.get(CONF_ZONE_NAME) == (new_name or msg["zone"])), None),
+        next((z.get("floor") for z in new_zones
+              if z.get(CONF_ZONE_NAME) == (new_name or msg["zone"])), None),
+        next((z.get("heat_control") for z in new_zones
+              if z.get(CONF_ZONE_NAME) == (new_name or msg["zone"])), None),
+        len(new_zones),
+    )
     hass.config_entries.async_update_entry(entry, options=new_options)
     await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
