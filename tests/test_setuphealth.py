@@ -93,3 +93,18 @@ def test_manual_rooms_excluded_from_learning_checks():
     # preheat/setbacks checks pass with only manual rooms
     assert next(i for i in items if i["id"] == "preheat")["level"] == "ready"
     assert next(i for i in items if i["id"] == "setbacks")["level"] == "ready"
+
+
+def test_manual_room_needs_no_valve_entity():
+    rooms = [_room(name="Hallway", heat_control="manual", valve_entity=None)]
+    items = analyze([], _opts(rated_heat_input_kw=24.0), rooms)
+    balancing = [i for i in items if i["id"] == "balancing"]
+    assert balancing == []  # manual rooms are excluded outright
+
+
+def test_smart_room_without_valve_still_flagged():
+    rooms = [_room(name="Study", heat_control="smart")]
+    items = analyze([], _opts(rated_heat_input_kw=24.0), rooms)
+    ids = {i["id"]: i["level"] for i in items}
+    # smart room, no candidates in HA → improvable ("does not report valve position")
+    assert ids["balancing"] == "improvable"

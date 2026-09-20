@@ -128,9 +128,15 @@ def analyze(entity_ids, opts, rooms) -> list[dict]:
         })
 
     # ── TRV valve position (balancing) ──────────────────────────────────
+    # Manual rooms have a dumb TRV by definition — no valve-position entity
+    # to assign, so asking for one is noise (report bug Sept 2026).
     no_valve = [r for r in rooms
-                if r.get("has_trv") and not r.get("valve_entity")]
-    if rooms and not no_valve:
+                if r.get("has_trv") and r.get("heat_control") != "manual"
+                and not r.get("valve_entity")]
+    smart_rooms = [
+        r for r in rooms if r.get("has_trv") and r.get("heat_control") != "manual"
+    ]
+    if smart_rooms and not no_valve:
         items.append({
             "id": "balancing",
             "level": READY,

@@ -58,11 +58,21 @@ from .firmware_manager import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTEGRATION_VERSION = "1.7.13"
+# Single source of truth = manifest.json. A hardcoded copy here drifted from
+# the real version and the panel footer kept showing a stale number.
+try:
+    import json as _json
+
+    from pathlib import Path as _Path
+
+    INTEGRATION_VERSION = (
+        _json.loads((_Path(__file__).parent / "manifest.json").read_text())
+    ).get("version", "1.0.0")
+except Exception:  # noqa: BLE001 - version display only, never break setup
+    INTEGRATION_VERSION = "1.0.0"
 
 
 def _integration_version() -> str:
-    """Return the integration version without blocking filesystem I/O."""
     return INTEGRATION_VERSION
 
 
