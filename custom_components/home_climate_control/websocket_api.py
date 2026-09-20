@@ -514,6 +514,7 @@ _OPTION_RANGES: dict[str, tuple[float, float]] = {
 _OPTION_BOOLS = (
     "auto_master",
     "balance_autocap",
+    "auto_flowcap",
     "autotune_curve",
     "learn_setbacks",
     "wind_compensation",
@@ -572,6 +573,7 @@ def _options_view(opts: dict) -> dict:
     view["gas_price_per_kwh"] = opts.get("gas_price_per_kwh")
     view["balance_autocap"] = opts.get("balance_autocap", False)
     view["auto_master"] = opts.get("auto_master", False)
+    view["auto_flowcap"] = opts.get("auto_flowcap", False)
     view["preset_temps"] = {
         **DEFAULT_PRESET_TEMPS,
         **(opts.get(CONF_PRESET_TEMPS) or {}),

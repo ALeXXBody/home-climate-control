@@ -151,3 +151,102 @@ def test_autocap_runs_when_healthy():
     z = _zone()
     asyncio.run(c._async_maybe_autocap(z, NOW))
     assert c.hass.services.async_call.await_count == 1
+
+
+# ── Auto-flow-cap (condensing trim) ───────────────────────────────────────
+from datetime import timedelta
+from custom_components.home_climate_control.const import (
+    FLOWCAP_SHARE,
+    FLOWCAP_STEP_C,
+    FLOWCAP_WINDOW_SAMPLES,
+)
+
+
+def _flowcap_controller(master_on):
+    return CentralController(
+        MagicMock(), MagicMock(), curve_coeff=1.0, design_outdoor=-10.0,
+        min_flow=25, max_flow=75, auto_master=master_on, auto_flowcap=master_on,
+    )
+
+
+def test_flowcap_trims_when_window_satisfied():
+    c = _flowcap_controller(master_on=True)
+    c.backend.connected = True
+    c.backend.ot_valid = True
+    c._ch_on = True
+    c._condense_active = True
+    ret = 58.0
+    t = NOW
+    for _ in range(FLOWCAP_WINDOW_SAMPLES):
+        c._maybe_flowcap_tick(ret, t)
+        t += timedelta(seconds=60)
+    assert c.max_flow == 75.0 - FLOWCAP_STEP_C
+    assert c._flowcap_last_ts is not None
+
+
+def test_flowcap_suggestion_only_when_master_off():
+    c = _flowcap_controller(master_on=False)
+    c.auto_flowcap = False  # per-feature flag also off without the gate
+    c._ch_on = True
+    c._condense_active = True
+    ret = 58.0
+    t = NOW
+    for _ in range(FLOWCAP_WINDOW_SAMPLES):
+        c._maybe_flowcap_tick(ret, t)
+        t += timedelta(seconds=60)
+    assert c.max_flow == 75.0
+    assert c._flowcap_suggestion is not None
+    assert "suggested_max" in c._flowcap_suggestion
+
+
+def test_flowcap_window_mixed_does_not_trim():
+    c = _flowcap_controller(master_on=True)
+    c.backend.connected = True
+    c.backend.ot_valid = True
+    c._ch_on = True
+    c._condense_active = True
+    ret = 58.0
+    t = NOW
+    for i in range(FLOWCAP_WINDOW_SAMPLES):
+        if i % 4 == 0:  # only 75% share, below the 85% threshold
+            c._condense_active = False
+        c._maybe_flowcap_tick(ret, t)
+        t += timedelta(seconds=60)
+    assert c.max_flow == 75.0
+    assert c._flowcap_suggestion is None
+
+
+def test_flowcap_respects_floor_margin():
+    c = _flowcap_controller(master_on=True)
+    c.backend.connected = True
+    c.backend.ot_valid = True
+    c.min_flow = 25
+    c.max_flow = 38  # first trim 38→36, second 36→35 (floor), then stop
+    c._ch_on = True
+    c._condense_active = True
+    ret = 58.0
+    t = NOW
+    for _ in range(FLOWCAP_WINDOW_SAMPLES):
+        c._maybe_flowcap_tick(ret, t)
+        t += timedelta(seconds=60)
+    assert c.max_flow == 38.0 - FLOWCAP_STEP_C
+    # more ticks -> clamp at floor, never below min+margin
+    for _ in range(3):
+        c._flowcap_last_ts = None
+        for _ in range(FLOWCAP_WINDOW_SAMPLES):
+            c._maybe_flowcap_tick(ret, t)
+            t += timedelta(seconds=60)
+    floor = 25.0 + 10.0
+    assert c.max_flow >= floor
+
+
+def test_flowcap_blocked_when_ot_invalid():
+    c = _flowcap_controller(master_on=True)
+    c._ch_on = True
+    c._condense_active = True
+    c.backend.ot_valid = False
+    t = NOW
+    for _ in range(FLOWCAP_WINDOW_SAMPLES):
+        c._maybe_flowcap_tick(58.0, t)
+        t += timedelta(seconds=60)
+    assert c.max_flow == 75.0

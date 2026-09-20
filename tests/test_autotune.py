@@ -133,7 +133,7 @@ def test_controller_feeds_autotune_and_applies_learning():
 
     c = CentralController(
         hass, backend, curve_coeff=1.2, design_outdoor=-10.0,
-        min_flow=25.0, max_flow=75.0, autotune=tuner,
+        min_flow=25.0, max_flow=75.0, autotune=tuner, auto_master=True,
     )
     c.zones = [Z()]
 

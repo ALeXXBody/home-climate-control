@@ -78,6 +78,19 @@ CONF_AUTO_OPTIMIZE = "auto_master"
 # the backend link is down, OpenTherm lost, or the HCS failsafe entity
 # reports HOLD/ON. What is "healthy" lives here so tests can drive it.
 FAILSAFE_BLOCK_STATES = ("ON", "HOLD")
+
+# Auto-flow-cap (condensing trim): reduce the central max flow setpoint
+# when the boiler's return water is persistently hot despite condensing
+# pull-down — the physical signature of "system max temp is too high for
+# the building". Write behind auto_master + per-feature flag; RAM-only
+# (a reload restores the configured max; HA log shows every move).
+CONF_AUTO_FLOWCAP = "auto_flowcap"
+FLOWCAP_RETURN_HIGH_C = 55.0      # natural-gas condensing band ceiling
+FLOWCAP_WINDOW_SAMPLES = 90       # 90 ticks ≈ 90 min of burner data
+FLOWCAP_SHARE = 0.85              # ≥85% of window must be hot + low deficit
+FLOWCAP_STEP_C = 2.0              # trim size per approved move
+FLOWCAP_FLOOR_MARGIN_C = 10.0     # never trim below min_flow + this
+FLOWCAP_INTERVAL_S = 3 * 3600     # cooldown between moves
 DEFAULT_PRESET_TEMPS = {
     PRESET_COMFORT: 21.0,
     PRESET_ECO: 19.0,

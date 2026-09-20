@@ -31,6 +31,11 @@ from .const import (
     DUTY_CYCLE_MIN_OFF_SECONDS,
     DUTY_CYCLE_MIN_ON_SECONDS,
     FAILSAFE_BLOCK_STATES,
+    FLOWCAP_INTERVAL_S,
+    FLOWCAP_SHARE,
+    FLOWCAP_FLOOR_MARGIN_C,
+    FLOWCAP_STEP_C,
+    FLOWCAP_WINDOW_SAMPLES,
     OUTDOOR_STALE_AFTER_SECONDS,
 )
 from .condense import as_dict_snapshot as condense_snapshot, condense_pull
@@ -65,6 +70,7 @@ class CentralController:
         preset_temps: dict | None = None,
         balance_autocap: bool = False,
         auto_master: bool = False,
+        auto_flowcap: bool = False,
     ) -> None:
         self.hass = hass
         self.backend = backend
@@ -120,8 +126,14 @@ class CentralController:
         self.balance_autocap = bool(balance_autocap)
         # Auto-Optimize master gate: verified healthy-writes-first-off.
         # Everything analysis-only runs regardless; the *writers* (currently
-        # the balance auto-cap) also require this flag.
+        # the balance auto-cap and the flow-cap trim) also require this flag.
         self.auto_master = bool(auto_master)
+        # Auto-flow-cap: condensing trim of self.max_flow (RAM-only; logs
+        # recover the history, the option keeps the configured max).
+        self.auto_flowcap = bool(auto_flowcap)
+        self._flowcap_res: deque[bool] = deque(maxlen=FLOWCAP_WINDOW_SAMPLES)
+        self._flowcap_last_ts: float | None = None
+        self._flowcap_suggestion: dict | None = None
 
         from .windtrim import WindTrimmer
 
@@ -524,6 +536,9 @@ class CentralController:
 
             # Auto-tune: feed aggregate comfort error, maybe learn a better
             # curve coefficient (gas mission: no chronic cold, no overshoot).
+            # The *write* sits behind the Auto-Optimize master gate; with the
+            # gate off the learner stays in observe mode and only records the
+            # suggestion it would have applied.
             if self.autotune is not None:
                 errs = []
                 for z in demanding:
@@ -534,9 +549,12 @@ class CentralController:
                         errs.append(z.effective_setpoint() - cur)
                 if errs:
                     self.autotune.observe(sum(errs) / len(errs), True)
-                    learned = self.autotune.step()
-                    if learned is not None and learned != self.curve_coeff:
-                        self.curve_coeff = learned
+                    if self.auto_master and getattr(self.autotune, "enabled", False):
+                        learned = self.autotune.step()
+                        if learned is not None and learned != self.curve_coeff:
+                            self.curve_coeff = learned
+                    else:
+                        self.autotune.step(probe=True)
                 else:
                     self.autotune.observe(None, False)
 
@@ -595,6 +613,11 @@ class CentralController:
                 )
                 z.balance.sample(valve, below)
                 await self._async_maybe_autocap(z, now)
+
+        # Auto-flow-cap feed: sample the hot-return signal each tick
+        # (True only when the condensing pull was actually active), and
+        # trim max_flow when a whole window agrees — behind the gate.
+        self._maybe_flowcap_tick(be_ret, now)
 
         # Training-data log: one compact snapshot per control tick (60 s).
         if self.datalogger is not None:
@@ -789,6 +812,63 @@ class CentralController:
             pass
         return True
 
+    # ── Auto-flow-cap (condensing trim) ─────────────────────────────────
+
+    def _maybe_flowcap_tick(self, ret, now) -> None:
+        """Sample the hot-return signal and maybe trim self.max_flow.
+
+        The hot-return signal is sampled where condense_pull already runs,
+        so this writer never issues a conflicting second opinion. Rule: over
+        the last FLOWCAP_WINDOW_SAMPLES burner-ticks, ≥ FLOWCAP_SHARE were
+        "return hot while the condensing pull was active" — the persistent
+        signature of a too-high hardware max. With the master gate on +
+        auto_flowcap + system healthy, trim FLOWCAP_STEP_C off max_flow,
+        never below min_flow + FLOWCAP_FLOOR_MARGIN_C, ≥ FLOWCAP_INTERVAL_S
+        between moves. With the gate off the same rule yields a
+        suggestion, exposed via diagnostics("flow_cap").
+
+        RAM-only by design: a reload restores the configured max; every move
+        goes to the HA log.
+        """
+        if self._ch_on and ret is not None:
+            # Fresh this tick: condense_pull ran in the demand branch.
+            self._flowcap_res.append(self._condense_active)
+        else:
+            self._flowcap_res.clear()
+
+        n = len(self._flowcap_res)
+        if n < FLOWCAP_WINDOW_SAMPLES:
+            self._flowcap_suggestion = None
+            return
+        share = sum(self._flowcap_res) / n
+        if share < FLOWCAP_SHARE:
+            self._flowcap_suggestion = None
+            return
+        floor = self.min_flow + FLOWCAP_FLOOR_MARGIN_C
+        desired = round(max(floor, self.max_flow - FLOWCAP_STEP_C), 1)
+        if desired >= self.max_flow - 0.5:
+            self._flowcap_suggestion = None  # already at floor
+            self._flowcap_last_ts = now.timestamp()
+            return
+        if self.auto_master and self.auto_flowcap:
+            last = self._flowcap_last_ts
+            if last is None or (now.timestamp() - last) >= FLOWCAP_INTERVAL_S:
+                if self._system_healthy_for_auto():
+                    _LOGGER.info(
+                        "Auto-Optimize flow cap: trim max %.1f → %.1f °C "
+                        "(hot return in %.0f%% of a %d-tick window)",
+                        self.max_flow, desired, share * 100,
+                        FLOWCAP_WINDOW_SAMPLES,
+                    )
+                    self.max_flow = desired
+                    self._flowcap_last_ts = now.timestamp()
+                    self._flowcap_res.clear()
+                self._flowcap_suggestion = None
+        else:
+            self._flowcap_suggestion = {
+                "suggested_max": desired, "share": round(share, 2),
+            }
+
     def diagnostics(self) -> dict:
         data = {
             "flow_setpoint": self.flow_setpoint,
@@ -801,6 +881,15 @@ class CentralController:
         }
         if self.autotune is not None:
             data["autotune"] = self.autotune.as_dict()
+        if self._flowcap_suggestion:
+            data["flow_cap"] = {
+                "suggestion": True,
+                "suggested_max": self._flowcap_suggestion["suggested_max"],
+                "current_max": self.max_flow,
+                "share": self._flowcap_suggestion["share"],
+            }
+        else:
+            data["flow_cap"] = {"suggestion": False}
         if self.setbacks is not None:
             data["setbacks"] = self.setbacks.as_dict()
         if self.deadtime is not None:

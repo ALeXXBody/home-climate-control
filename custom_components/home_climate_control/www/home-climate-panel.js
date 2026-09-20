@@ -2041,6 +2041,8 @@ class HomeClimatePanel extends HTMLElement {
         <div style="${o.auto_master ? "" : "opacity:.45"}">
         ${ck("balance_autocap", "Auto-balance TRVs (opening-degree cap)", o.balance_autocap)}
         <p class="sub">When a room stays oversupplied (valve sliver-open, target reached), writes the suggested opening-degree cap to its TRV number entity. At most one adjustment per room per hour; never below 15%; skipped while the backend link is down, OpenTherm is invalid, or failsafe is active. History: HA log.</p>
+        ${ck("auto_flowcap", "Auto-cap max flow (condensing trim)", o.auto_flowcap)}
+        <p class="sub">Trims the max flow setpoint 2 °C when the return water stays hot for a whole 90-tick window with condensing pull active (signature of an oversized hardware max). Cooldown 3 h between moves; never below min flow + 10. Each move shows in the HA log; reload restores the configured max so permanent changes stay manual.</p>
         </div>
       </div>
             <div class="card">

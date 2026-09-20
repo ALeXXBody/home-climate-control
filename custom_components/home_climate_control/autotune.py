@@ -137,18 +137,25 @@ class CurveAutoTuner:
         self._last_sample_mono = now
         self.mean_error = mean_error_c
 
-    def step(self, now: float | None = None) -> float | None:
-        """Maybe adjust the coefficient. Returns new coeff or None."""
+    def step(self, now: float | None = None, *, probe: bool = False) -> float | None:
+        """Maybe adjust the coefficient. Returns new coeff or None.
+
+        probe=True computes what *would* be applied without mutating state —
+        used when the Auto-Optimize master gate is off, so the panel can show
+        "suggestion only" while the learner stays in observe mode.
+        """
         if not self.enabled:
             return None
         now = time.monotonic() if now is None else now
         if now < self._next_eval_mono or now < self._cooldown_until_mono:
             return None
-        self._next_eval_mono = now + EVALUATE_EVERY_S
+        if not probe:
+            self._next_eval_mono = now + EVALUATE_EVERY_S
 
         err = self._ema
         if abs(err) < DEADBAND_C:
-            self.last_action = "comfort ok - holding"
+            if not probe:
+                self.last_action = "comfort ok - holding"
             return None
 
         direction = 1.0 if err > 0 else -1.0  # cold -> more heat capability
@@ -160,7 +167,16 @@ class CurveAutoTuner:
             self.last_action = "at limit - holding"
             return None
 
-        self.coeff = round(new_coeff, 3)
+        suggestion = round(new_coeff, 3)
+        if probe:
+            self.last_action = (
+                f"suggest {'raise' if direction > 0 else 'lower'} to "
+                f"{suggestion:.2f} (rooms {'cold' if direction > 0 else 'hot'} "
+                f"by {abs(err):.2f} C) — suggestion only"
+            )
+            return suggestion
+
+        self.coeff = suggestion
         self.adjustments += 1
         self._cooldown_until_mono = now + COOLDOWN_AFTER_MOVE_S
         self.last_action = (
