@@ -1658,12 +1658,18 @@ class HomeClimatePanel extends HTMLElement {
       .filter((id) => /^(sensor|number)\./.test(id)
         && /valve|position/i.test(id + " " + (hass[id]?.attributes?.friendly_name || "")))
       .sort((a, b) => friendly(a).localeCompare(friendly(b)));
+    const humSensors = Object.keys(hass)
+      .filter((id) => id.startsWith("sensor.")
+        && (hass[id]?.attributes?.device_class === "humidity"
+            || /humid/i.test(id + " " + (hass[id]?.attributes?.friendly_name || ""))))
+      .sort((a, b) => friendly(a).localeCompare(friendly(b)));
     const curTrv = isEdit ? (z.trv || "") : "";
     const curSensor = isEdit ? (z.temp_sensor || "") : "";
     const curWindows = isEdit ? (z.window_sensors || []).join(", ") : "";
     const curLux = isEdit ? (z.lux_sensor || "") : "";
     const curCo2 = isEdit ? (z.co2_sensor || "") : "";
     const curValve = isEdit ? (z.trv_position_entity || "") : "";
+    const curHumidity = isEdit ? (z.humidity_sensor || "") : "";
     const curRadKw = isEdit && z.radiator_kw != null ? z.radiator_kw : "";
     const curName = isEdit ? (z.name || "") : "";
     const curControl = isEdit ? (z.heat_control || "smart") : "smart";
@@ -1689,6 +1695,9 @@ class HomeClimatePanel extends HTMLElement {
         <div class="row"><label>Temp sensor<br><span style="font-weight:400">(optional)</span></label>
           <input id="${prefix}-sensor" list="${prefix}-sensors" value="${this._esc(curSensor)}" placeholder="sensor… (else TRV's own)" style="flex:1">
           <datalist id="${prefix}-sensors">${tempSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
+        <div class="row"><label>Humidity sensor<br><span style="font-weight:400">(optional)</span></label>
+          <input id="${prefix}-humidity" list="${prefix}-hums" value="${this._esc(curHumidity)}" placeholder="sensor.… % (else TRV's own)" style="flex:1">
+          <datalist id="${prefix}-hums">${humSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div class="row"><label>Window/door<br><span style="font-weight:400">(optional, comma-sep)</span></label>
           <input id="${prefix}-window" list="${prefix}-windows" value="${this._esc(curWindows)}" placeholder="binary_sensor.…" style="flex:1">
           <datalist id="${prefix}-windows">${windowSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
@@ -1726,7 +1735,7 @@ class HomeClimatePanel extends HTMLElement {
               <div class="z-info">
                 <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
                 <div class="zone-meta">
-                  ${this._fmt(z.current_temperature)}°C${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
+                  ${this._fmt(z.current_temperature)}°C${z.humidity != null ? ` · ${Math.round(z.humidity)}%RH` : ""}${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
                   ${!manual ? ` · demand ${Math.round((z.demand_level || 0) * 100)}%` : ""}
                   ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
                   ${!manual && z.preheat ? ' · <span class="badge heat" title="Optimal-start catch-up using dead-time + warm rate">pre-heat</span>' : ""}
@@ -2748,6 +2757,7 @@ class HomeClimatePanel extends HTMLElement {
       const floor = parseInt(root.getElementById("nr-floor")?.value || "0", 10);
       const trv = root.getElementById("nr-trv")?.value?.trim();
       const temp_sensor = root.getElementById("nr-sensor")?.value?.trim();
+      const humidity_sensor = root.getElementById("nr-humidity")?.value?.trim();
       const window_sensors = (root.getElementById("nr-window")?.value || "")
         .split(",").map((x) => x.trim()).filter(Boolean);
       if (!name) { this._error = "Room name is required"; this._render(); return; }
@@ -2760,6 +2770,7 @@ class HomeClimatePanel extends HTMLElement {
         name, heat_control, floor,
         trv_climates: trv ? [trv] : [],
         temp_sensor: temp_sensor || undefined,
+        humidity_sensor: humidity_sensor || undefined,
         window_sensors,
         lux_sensor: lux || undefined,
         co2_sensor: co2 || undefined,
@@ -2786,6 +2797,7 @@ class HomeClimatePanel extends HTMLElement {
       const floor = parseInt(root.getElementById("er-floor")?.value || "0", 10);
       const trv = root.getElementById("er-trv")?.value?.trim();
       const temp_sensor = root.getElementById("er-sensor")?.value?.trim();
+      const humidity_sensor = root.getElementById("er-humidity")?.value?.trim();
       const window_sensors = (root.getElementById("er-window")?.value || "")
         .split(",").map((x) => x.trim()).filter(Boolean);
       this._editingZone = null;
@@ -2797,6 +2809,7 @@ class HomeClimatePanel extends HTMLElement {
         zone: zoneName, heat_control, floor,
         trv_climates: trv ? [trv] : [],
         temp_sensor: temp_sensor || null,
+        humidity_sensor: humidity_sensor || null,
         window_sensors,
         lux_sensor: elux,
         co2_sensor: eco2,

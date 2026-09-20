@@ -146,6 +146,7 @@ CONF_OCCUPANCY_HOME_PRESET = "occupancy_home_preset"
 CONF_ZONES = "zones"  # options key (legacy name; UI says "Rooms")
 CONF_ZONE_NAME = "name"
 CONF_ZONE_TEMP_SENSOR = "temp_sensor"  # optional external wall sensor
+CONF_ZONE_HUMIDITY_SENSOR = "humidity_sensor"  # optional RH % (sensor.*)
 CONF_ZONE_WINDOW_SENSORS = "window_sensors"
 CONF_ZONE_TRV_CLIMATES = "trv_climates"  # one or more climate entities (TRV)
 CONF_ZONE_FLOOR = "floor"  # int: 0 = ground floor, 1 = first floor, ...

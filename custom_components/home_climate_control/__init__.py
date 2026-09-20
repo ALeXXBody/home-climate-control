@@ -243,6 +243,11 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
     # Tier 3/4 per-room sensor maps
     lux_map = {z._lux_sensor: z for z in zones if getattr(z, "_lux_sensor", None)}
     co2_map = {z._co2_sensor: z for z in zones if getattr(z, "_co2_sensor", None)}
+    hum_map = {
+        z._humidity_sensor: z
+        for z in zones
+        if getattr(z, "_humidity_sensor", None)
+    }
     valve_map = {
         z._trv_position_entity: z
         for z in zones
@@ -263,6 +268,7 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
     watched = (
         list(temp_map.keys()) + list(trv_map.keys()) + window_entities
         + list(lux_map.keys()) + list(co2_map.keys()) + list(valve_map.keys())
+        + list(hum_map.keys())
     )
     if not watched:
         return
@@ -293,6 +299,9 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
                 co2_map[entity_id].on_co2_update(float(new.state))
             except (TypeError, ValueError):
                 pass
+            return
+        if entity_id in hum_map:
+            hum_map[entity_id].on_humidity_update(float(new.state))
             return
         if entity_id in valve_map:
             try:

@@ -28,6 +28,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_ZONE_CO2_SENSOR,
+    CONF_ZONE_HUMIDITY_SENSOR,
     CONF_ZONE_LUX_SENSOR,
     CONF_ZONE_RADIATOR_KW,
     CONF_ZONE_TRV_POSITION,
@@ -130,6 +131,11 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # ── Tier 3/4 per-room extras ────────────────────────────────────
         self._lux_sensor = zone_cfg.get(CONF_ZONE_LUX_SENSOR) or None
         self._co2_sensor = zone_cfg.get(CONF_ZONE_CO2_SENSOR) or None
+        self._humidity_sensor = zone_cfg.get(CONF_ZONE_HUMIDITY_SENSOR) or None
+        self._humidity_pct: float | None = None
+        self._humidity_from_trv: bool = False
+        self._humidity_sensor = zone_cfg.get(CONF_ZONE_HUMIDITY_SENSOR) or None
+        self._humidity_pct: float | None = None
         self._trv_position_entity = (
             zone_cfg.get(CONF_ZONE_TRV_POSITION) or None
         )
@@ -212,6 +218,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     pass
         else:
             self._refresh_temp_from_trv()
+        # Seed humidity from the configured sensor or the TRV itself.
+        self._refresh_humidity()
         # Restore the user's last target across entry reloads. Zone cfgs only
         # carry the creation-time setpoint, so without this ANY options
         # update / reload silently reset rooms to DEFAULT_ZONE_SETPOINT.
@@ -321,6 +329,11 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             "dead_time_s": round(dead, 0) if dead is not None else None,
             "lead_time_s": round(lead, 0) if lead is not None else None,
             "warm_rate_cph": self._warm_rate_cph(),
+            "humidity": self._humidity_pct,
+            "humidity_source": (
+                "external" if (self._humidity_sensor and self._humidity_pct is not None)
+                else ("trv" if self._humidity_pct is not None else None)
+            ),
         }
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -652,9 +665,11 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
 
     @callback
     def on_trv_update(self) -> None:
-        """TRV state changed — refresh temp if we use TRV as sensor."""
+        """TRV state changed — refresh temp/humidity if we use the TRV."""
         if not self._temp_sensor:
             self._refresh_temp_from_trv()
+        if not self._humidity_sensor:
+            self._refresh_humidity()
         self._safe_write_ha_state()
         # setup-time safety lives in _trv_state(): it no-ops while hass is
         # None, so wire_zone_sensors() can call this before entities attach.
@@ -697,6 +712,62 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if temp is not None:
             self._current_temp = temp
             self._temp_from_trv = True
+
+    def _trv_humidity(self) -> float | None:
+        st = self._trv_state()
+        if st is None:
+            return None
+        raw = st.attributes.get("current_humidity")
+        if raw is None:
+            return None
+        try:
+            pct = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if not 0.0 <= pct <= 100.0:
+            return None
+        return pct
+
+    def _refresh_humidity(self) -> None:
+        """External RH if configured; otherwise the TRV's own sensor."""
+        if self._humidity_sensor and self.hass is not None:
+            st = self.hass.states.get(self._humidity_sensor)
+            if st is not None and st.state not in ("unknown", "unavailable"):
+                try:
+                    pct = float(st.state)
+                except (TypeError, ValueError):
+                    pct = None
+                if pct is not None and 0.0 <= pct <= 100.0:
+                    self._humidity_pct = pct
+                    self._humidity_from_trv = False
+                    return
+        elif not self._humidity_sensor:
+            th = self._trv_humidity()
+            if th is not None:
+                self._humidity_pct = th
+                self._humidity_from_trv = True
+
+    @callback
+    def on_humidity_update(self, pct: float | None) -> None:
+        """External humidity sensor reading (RH %)."""
+        if pct is None:
+            return
+        try:
+            v = float(pct)
+        except (TypeError, ValueError):
+            return
+        if not 0.0 <= v <= 100.0:
+            return
+        self._humidity_pct = v
+        self._humidity_from_trv = False
+        self._safe_write_ha_state()
+
+    @property
+    def current_humidity(self) -> float | None:
+        return self._humidity_pct
+
+    def humidity_sensor_entity(self) -> str | None:
+        return self._humidity_sensor
 
     def _trv_state(self):
         # During platform setup wire_zone_sensors() can call us before the

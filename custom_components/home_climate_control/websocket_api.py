@@ -26,6 +26,7 @@ from .const import (
     CONF_WIND_MAX_DELTA,
     CONF_ZONE_CO2_SENSOR,
     CONF_ZONE_FLOOR,
+    CONF_ZONE_HUMIDITY_SENSOR,
     CONF_ZONE_HEAT_CONTROL,
     CONF_ZONE_LUX_SENSOR,
     CONF_ZONE_RADIATOR_KW,
@@ -216,6 +217,8 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         getattr(zone, "window_sensor_entities", []) or []
                     ),
                     "trv": getattr(zone, "trv_entity", None),
+                    "humidity": getattr(zone, "current_humidity", None),
+                    "humidity_sensor": getattr(zone, "humidity_sensor_entity", None),
                     "temp_sensor": getattr(zone, "temp_sensor_entity", None),
                     "temp_source": (
                         (getattr(zone, "extra_state_attributes", {}) or {}).get(
@@ -807,6 +810,7 @@ def build_zone_config(
     floor: int = 0,
     trv_climates: list[str] | None = None,
     temp_sensor: str | None = None,
+    humidity_sensor: str | None = None,
     window_sensors: list[str] | None = None,
     lux_sensor: str | None = None,
     co2_sensor: str | None = None,
@@ -834,6 +838,9 @@ def build_zone_config(
     sensor = (temp_sensor or "").strip() or None
     if sensor and not sensor.startswith("sensor."):
         raise ValueError(f"'{sensor}' is not a sensor entity")
+    hum = (humidity_sensor or "").strip() or None
+    if hum and not hum.startswith("sensor."):
+        raise ValueError(f"'{humidity_sensor}' is not a sensor entity")
     windows = [w.strip() for w in (window_sensors or []) if w and w.strip()]
     lux = (lux_sensor or "").strip() or None
     if lux and not lux.startswith("sensor."):
@@ -860,6 +867,8 @@ def build_zone_config(
         CONF_ZONE_HEAT_CONTROL: heat_control,
         "setpoint": DEFAULT_ZONE_SETPOINT,
     }
+    if hum:
+        cfg[CONF_ZONE_HUMIDITY_SENSOR] = hum
     if lux:
         cfg[CONF_ZONE_LUX_SENSOR] = lux
     if co2:
@@ -908,6 +917,7 @@ def validate_zone_update(
         vol.Optional("heat_control"): vol.In(HEAT_CONTROLS),
         vol.Optional("trv_climates"): [str],
         vol.Optional("temp_sensor"): vol.Any(str, None),
+        vol.Optional("humidity_sensor"): vol.Any(str, None),
         vol.Optional("window_sensors"): [str],
         vol.Optional("lux_sensor"): vol.Any(str, None),
         vol.Optional("co2_sensor"): vol.Any(str, None),
@@ -941,9 +951,11 @@ async def ws_rename_zone(
     co2_sensor = msg.get("co2_sensor")
     trv_position_entity = msg.get("trv_position_entity")
     radiator_kw = msg.get("radiator_kw")
+    humidity_sensor = msg.get("humidity_sensor")
     device_fields = (
         trv_climates is not None
         or "temp_sensor" in msg
+        or "humidity_sensor" in msg
         or window_sensors is not None
         or "lux_sensor" in msg
         or "co2_sensor" in msg
@@ -995,6 +1007,17 @@ async def ws_rename_zone(
                 z[CONF_ZONE_TEMP_SENSOR] = sensor
             else:
                 z.pop(CONF_ZONE_TEMP_SENSOR, None)
+        if "humidity_sensor" in msg:
+            humv = (humidity_sensor or "").strip() or None
+            if humv and not humv.startswith("sensor."):
+                connection.send_error(
+                    msg["id"], "invalid_zone", f"'{humidity_sensor}' is not a sensor entity"
+                )
+                return
+            if humv:
+                z[CONF_ZONE_HUMIDITY_SENSOR] = humv
+            else:
+                z.pop(CONF_ZONE_HUMIDITY_SENSOR, None)
         if window_sensors is not None:
             z[CONF_ZONE_WINDOW_SENSORS] = [
                 w.strip() for w in window_sensors if w and w.strip()
@@ -1070,6 +1093,7 @@ async def ws_rename_zone(
         vol.Optional("floor", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=FLOOR_MAX)),
         vol.Optional("trv_climates", default=[]): [str],
         vol.Optional("temp_sensor"): str,
+        vol.Optional("humidity_sensor"): str,
         vol.Optional("window_sensors", default=[]): [str],
         vol.Optional("lux_sensor"): str,
         vol.Optional("co2_sensor"): str,
@@ -1108,6 +1132,7 @@ async def ws_add_zone(
             floor=msg["floor"],
             trv_climates=msg["trv_climates"],
             temp_sensor=msg.get("temp_sensor"),
+            humidity_sensor=msg.get("humidity_sensor"),
             window_sensors=msg["window_sensors"],
             lux_sensor=msg.get("lux_sensor"),
             co2_sensor=msg.get("co2_sensor"),
