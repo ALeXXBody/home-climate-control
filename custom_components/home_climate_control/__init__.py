@@ -294,6 +294,9 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
     for entity_id, room_list in trv_map.items():
         for zone in room_list:
             if not zone.temp_sensor_entity and hasattr(zone, "on_trv_update"):
+                # ZoneClimateEntity.on_trv_update is safe pre-attach (the
+                # TRV state readout no-ops while hass is None); called here
+                # to seed the room temperature before the first render.
                 zone.on_trv_update()
 
     for entity_id in window_entities:

@@ -633,6 +633,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._refresh_temp_from_trv()
         if self.hass is not None:
             self.async_write_ha_state()
+        # setup-time safety lives in _trv_state(): it no-ops while hass is
+        # None, so wire_zone_sensors() can call this before entities attach.
 
     # ── Tier 3/4 sensor feeds ────────────────────────────────────────────
     @callback
@@ -677,7 +679,11 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._temp_from_trv = True
 
     def _trv_state(self):
-        if not self._trv_entity:
+        # During platform setup wire_zone_sensors() can call us before the
+        # entity is attached to hass — the classic crash is 'NoneType' object
+        # has no attribute 'states', which aborts the whole climate platform
+        # and unregisters every room (people see "all rooms disappeared").
+        if not self._trv_entity or self.hass is None:
             return None
         return self.hass.states.get(self._trv_entity)
 
