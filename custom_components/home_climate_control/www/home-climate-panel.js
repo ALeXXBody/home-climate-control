@@ -2035,9 +2035,13 @@ class HomeClimatePanel extends HTMLElement {
         <div class="settings-save">${saveBtn("gas")}</div>
       </div>
       <div class="card">
-        <h3>TRV balancing</h3>
-        ${ck("balance_autocap", "Auto-apply opening-degree cap", o.balance_autocap)}
-        <p class="sub">When a room stays oversupplied (valve sliver-open, target reached), writes the suggested opening-degree cap directly to its TRV number entity. At most one adjustment per room per hour; never below 15%.</p>
+        <h3>Auto-Optimize</h3>
+        ${ck("auto_master", "Allow automatic adjustments", o.auto_master)}
+        <p class="sub">Master gate: when OFF, everything below stays suggestion-only and the Rooms page still shows what HCC would change. OFF by default.</p>
+        <div style="${o.auto_master ? "" : "opacity:.45"}">
+        ${ck("balance_autocap", "Auto-balance TRVs (opening-degree cap)", o.balance_autocap)}
+        <p class="sub">When a room stays oversupplied (valve sliver-open, target reached), writes the suggested opening-degree cap to its TRV number entity. At most one adjustment per room per hour; never below 15%; skipped while the backend link is down, OpenTherm is invalid, or failsafe is active. History: HA log.</p>
+        </div>
       </div>
             <div class="card">
         <h3>Preset temperatures (°C)</h3>

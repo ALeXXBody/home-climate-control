@@ -27,8 +27,10 @@ from .const import (
     CURVE_RING_POINTS,
     DEFAULT_BOILER_MIN_MODULATION,
     DEFAULT_MAX_FLOW_TEMP,
+    DOMAIN,
     DUTY_CYCLE_MIN_OFF_SECONDS,
     DUTY_CYCLE_MIN_ON_SECONDS,
+    FAILSAFE_BLOCK_STATES,
     OUTDOOR_STALE_AFTER_SECONDS,
 )
 from .condense import as_dict_snapshot as condense_snapshot, condense_pull
@@ -62,6 +64,7 @@ class CentralController:
         wind_max_delta: float = 3.0,
         preset_temps: dict | None = None,
         balance_autocap: bool = False,
+        auto_master: bool = False,
     ) -> None:
         self.hass = hass
         self.backend = backend
@@ -115,6 +118,10 @@ class CentralController:
             **(preset_temps or {}),
         }
         self.balance_autocap = bool(balance_autocap)
+        # Auto-Optimize master gate: verified healthy-writes-first-off.
+        # Everything analysis-only runs regardless; the *writers* (currently
+        # the balance auto-cap) also require this flag.
+        self.auto_master = bool(auto_master)
 
         from .windtrim import WindTrimmer
 
@@ -720,8 +727,14 @@ class CentralController:
         Guards: `number.` entity assigned, oversupplied verdict with a
         suggestion, current opening above the suggestion, and at most one
         adjustment per hour per room. Never opens a valve up.
+
+        Additional Auto-Optimize guardrails: the master gate must be on, and
+        the system must be healthy — backend connected, OpenTherm valid, and
+        the HCS failsafe entity not in HOLD/ON. When unhealthy, adjust nothing.
         """
-        if not self.balance_autocap:
+        if not (self.auto_master and self.balance_autocap):
+            return
+        if not self._system_healthy_for_auto():
             return
         ent = getattr(z, "_trv_position_entity", None)
         if not ent or not str(ent).startswith("number."):
@@ -753,6 +766,28 @@ class CentralController:
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("balance auto-cap write failed", exc_info=True)
+
+    def _system_healthy_for_auto(self) -> bool:
+        """True when automatic writes are safe: backend link up, OpenTherm
+        valid, failsafe not in HOLD/ON. Callers treat False as 'do nothing'.
+        """
+        be = self.backend
+        if getattr(be, "connected", None) is False:
+            return False
+        if getattr(be, "ot_valid", None) is False:
+            return False
+        # Failsafe state lives on the per-entry FailsafeSensor entity; the
+        # controller reaches it through the data registry (entry id unknown
+        # here, so scan the DOMAIN buckets — normally exactly one).
+        try:
+            for data in (self.hass.data.get(DOMAIN) or {}).values():
+                fs = data.get("failsafe_sensor") if isinstance(data, dict) else None
+                cur = getattr(fs, "native_value", None)
+                if cur in FAILSAFE_BLOCK_STATES:
+                    return False
+        except (AttributeError, TypeError):
+            pass
+        return True
 
     def diagnostics(self) -> dict:
         data = {

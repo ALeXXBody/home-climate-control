@@ -35,10 +35,11 @@ def _state(v):
     return s
 
 
-def _controller(balance_autocap, current_val):
+def _controller(balance_autocap, current_val, auto_master=True):
     c = CentralController(
         MagicMock(), MagicMock(), curve_coeff=1.0, design_outdoor=-10.0,
         min_flow=25, max_flow=75, balance_autocap=balance_autocap,
+        auto_master=auto_master,
     )
     c.hass = MagicMock()
     c.hass.states.get = lambda ent: _state(current_val) if ent.startswith("number.") else None
@@ -91,3 +92,62 @@ def test_autocap_not_oversupplied_is_noop():
     z = _zone(valve=50)
     asyncio.run(c._async_maybe_autocap(z, NOW))
     assert c.hass.services.async_call.await_count == 0
+
+
+# ── Auto-Optimize master gate + health guardrails ──────────────────────────
+from custom_components.home_climate_control.const import DOMAIN
+
+
+def test_autocap_blocked_by_master_gate_off():
+    c = _controller(True, current_val=40, auto_master=False)
+    z = _zone()
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 0
+
+
+def test_autocap_blocked_when_backend_down():
+    c = _controller(True, current_val=40)
+    c.backend.connected = False
+    z = _zone()
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 0
+
+
+def test_autocap_blocked_when_ot_invalid():
+    c = _controller(True, current_val=40)
+    c.backend.ot_valid = False
+    z = _zone()
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 0
+
+
+def test_autocap_blocked_while_failsafe_active():
+    for failsafe in ("ON", "HOLD"):
+        c = _controller(True, current_val=40)
+        fs = MagicMock(); fs.native_value = failsafe
+        c.hass.data = {DOMAIN: {"e1": {"failsafe_sensor": fs}}}
+        z = _zone()
+        assert c.hass.services.async_call.await_count == 0, failsafe
+
+
+def test_autocap_blocked_when_failsafe_data_unavailable(tmp_path=None):
+    c = _controller(True, current_val=40)
+    class _BadData(dict):
+        def get(self, k):
+            raise AttributeError("boom")
+    c.hass.data = _BadData()
+    z = _zone()
+    # Unreadable failsafe state must not brick the write path: treat as
+    # healthy (logged), write proceeds.
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 1
+
+
+def test_autocap_runs_when_healthy():
+    c = _controller(True, current_val=40)
+    c.backend.connected = True
+    c.backend.ot_valid = True
+    c.hass.data = {DOMAIN: {}}
+    z = _zone()
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 1

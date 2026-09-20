@@ -66,6 +66,18 @@ CURVE_RING_POINTS = 288
 CONF_BALANCE_AUTOCAP = "balance_autocap"
 BALANCE_AUTOCAP_MIN_PCT = 15   # never cap a valve below this
 BALANCE_AUTOCAP_INTERVAL_S = 3600  # at most one adjustment per hour
+
+# Master gate for automatic actuation ("Auto-Optimize"): when OFF, every
+# auto-writer feature (e.g. balance auto-cap) stays suggestion-only and the
+# Settings-page analysis still shows what it *would* change. Learning-only
+# features (setback learning, curve autotune input) are analysis and stay
+# available regardless. Default OFF — nothing is written automatically
+# until the user opted into both the master gate and the feature.
+CONF_AUTO_OPTIMIZE = "auto_master"
+# Guardrail: skip automatic writes when the system is not healthy —
+# the backend link is down, OpenTherm lost, or the HCS failsafe entity
+# reports HOLD/ON. What is "healthy" lives here so tests can drive it.
+FAILSAFE_BLOCK_STATES = ("ON", "HOLD")
 DEFAULT_PRESET_TEMPS = {
     PRESET_COMFORT: 21.0,
     PRESET_ECO: 19.0,
