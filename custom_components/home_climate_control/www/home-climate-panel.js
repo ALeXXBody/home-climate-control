@@ -1707,6 +1707,14 @@ class HomeClimatePanel extends HTMLElement {
   _saveAddRoomForm() {
     const r = this.shadowRoot;
     const prefix = this._editingZone ? "er" : "nr";
+    // Only capture when the form is actually in the DOM. The Edit/Add click
+    // sets _editingZone/_addingRoom BEFORE the form renders, so the previous
+    // DOM is still the room list — reading it produces an all-empty draft
+    // that _restoreAddRoomForm would overwrite on top of a correct prefill,
+    // blanking the user's saved TRV/temp/floor/humidity on every edit open.
+    if (!r.getElementById(prefix + "-floor") || !r.getElementById(prefix + "-trv")) {
+      return null;
+    }
     return {
       prefix,
       name: r.getElementById(prefix + "-name")?.value || "",

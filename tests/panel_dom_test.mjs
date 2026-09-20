@@ -450,6 +450,44 @@ await new Promise((r) => setTimeout(r, 5));
 check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
   "otlog: console node rebuilt by telemetry swap");
 
+// ── Gate: opening the Edit form must PREFILL (never blank) saved devices ──
+// Regression for the _saveAddRoomForm/_restoreAddRoomForm draft bug: the
+// Edit click sets _editingZone BEFORE the form renders, so a naive capture
+// reads the (formless) room list as an all-empty draft and _restoreAddRoomForm
+// overwrites the correct prefill — user's TRV/temp/floor/humidity vanished
+// from the edit page on every open, and a save then wiped them for real.
+{
+  const saved = el._status.systems[0].zones;
+  el._status.systems[0].zones = [{
+    name: "Office", entity_id: "climate.office", heat_control: "smart", floor: 1,
+    trv: "climate.office_trv", trv_climates: ["climate.office_trv"],
+    temp_sensor: "sensor.office_sensor_temperature",
+    humidity_sensor: "sensor.office_sensor_humidity",
+    window_sensors: [], lux_sensor: null, co2_sensor: null,
+    trv_position_entity: null, radiator_kw: null,
+    current_temperature: null, target_temperature: null, hvac_mode: "heat",
+    hvac_action: "heating", preset_mode: "none", demand_level: 0,
+    window_open: false, preheat: false, temp_source: "external",
+  }];
+  el._tab = "rooms";
+  el._render();
+  const eb = el.shadowRoot.querySelector('[data-zone-action="edit"]');
+  if (eb) eb.dispatchEvent(new w.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const gv = (id) => el.shadowRoot.getElementById(id)?.value || "";
+  check(gv("er-trv") === "climate.office_trv",
+    "edit form TRV not prefilled — draft bug blanked it (got: " + gv("er-trv") + ")");
+  check(gv("er-sensor") === "sensor.office_sensor_temperature",
+    "edit form temp prefill lost (got: " + gv("er-sensor") + ")");
+  check(gv("er-humidity") === "sensor.office_sensor_humidity",
+    "edit form humidity prefill lost (got: " + gv("er-humidity") + ")");
+  check(gv("er-floor") === "1",
+    "edit form floor prefill lost (got: " + gv("er-floor") + ")");
+  el._editingZone = null;
+  el._status.systems[0].zones = saved;
+  el._render();
+}
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);
