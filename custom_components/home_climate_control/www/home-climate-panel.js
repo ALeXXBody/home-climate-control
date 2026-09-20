@@ -1316,9 +1316,16 @@ class HomeClimatePanel extends HTMLElement {
     const trend = d.trend || {};
     const fmt = (v, unit = "", d = 1) =>
       v == null ? "—" : `${v}${unit}`;
-    // Per-day heat demand, averaged (a straight 30-day sum hides daily shape)
+    // Heat demand as an AVERAGE PERCENTAGE of full aggregate demand.
+    // Raw storage is Σ total_demand × seconds (0–1 per demanding zone);
+    // ÷864 s/°×100 → 100% = every room at full demand all day.
     const hd30 = rows.slice(-30);
-    const hdAvg = hd30.length ? sm.heat_degmin_30d / hd30.length : 0;
+    const hdToday = (sm.today?.heat_degmin ?? 0) / 864;
+    const hdAvg30 = hd30.length ? sm.heat_degmin_30d / hd30.length / 864 : 0;
+    const hdRows = rows.map(r => ({
+      day: r.day,
+      heat_pct: typeof r.heat_degmin === "number" ? r.heat_degmin / 864 : 0,
+    }));
     // Scatter: gas kWh vs outdoor average temp (least-squares trend line)
     const pts = (d.rows || []).filter(r => r.out_avg != null);
     const W = 640, H = 220, PAD = 36;
@@ -1348,8 +1355,8 @@ class HomeClimatePanel extends HTMLElement {
       </svg>`;
     }
     const heatChart = this._dailyBars({
-      title: `Heat demand · °C·min/day — last ${Math.min(30, rows.length)} days`,
-      rows, key: "heat_degmin", unit: "°C·min", color: "#4fc3f7",
+      title: `Heat demand — avg % of full demand/day · last ${Math.min(30, rows.length)} days`,
+      rows: hdRows, key: "heat_pct", unit: "%", color: "#4fc3f7",
     });
     const gasChart = this._dailyBars({
       title: `Gas · kWh/day — last ${Math.min(30, rows.length)} days`,
@@ -1358,7 +1365,7 @@ class HomeClimatePanel extends HTMLElement {
     const rowsHtml = (d.rows || []).slice().reverse().slice(0, 21).map(r => `
       <tr><td>${r.day}</td><td>${r.gas_kwh}</td>${price ? `<td>${r.cost != null ? r.cost : "—"}</td>` : ""}
       <td>${r.out_avg != null ? r.out_avg : "—"}/ ${r.out_min != null ? r.out_min : "—"}/${r.out_max != null ? r.out_max : "—"}</td>
-      <td>${r.heat_degmin}</td><td>${r.burner_h}</td><td>${r.flow_avg != null ? r.flow_avg : "—"}</td></tr>`).join("");
+      <td>${typeof r.heat_degmin === "number" ? (r.heat_degmin / 864).toFixed(1) : "—"}</td><td>${r.burner_h}</td><td>${r.flow_avg != null ? r.flow_avg : "—"}</td></tr>`).join("");
     return `
       <div class="card">
         <div class="row">
@@ -1372,7 +1379,8 @@ class HomeClimatePanel extends HTMLElement {
           <div><small>Today — gas</small><br><b>${sm.today?.gas_kwh ?? "0"} kWh</b>${price && sm.today?.cost != null ? ` (${sm.today.cost})` : ""}</div>
           <div><small>7 days — gas</small><br><b>${sm.gas_kwh_7d} kWh</b>${price && sm.cost_7d != null ? ` (${sm.cost_7d})` : ""}</div>
           <div><small>30 days — gas</small><br><b>${sm.gas_kwh_30d} kWh</b>${price && sm.cost_30d != null ? ` (${sm.cost_30d})` : ""}</div>
-          <div><small>30 days — heat demand (avg/day)</small><br><b>${hdAvg.toFixed(1)} °C·min</b></div>
+          <div><small>Today — heat demand (avg)</small><br><b>${hdToday.toFixed(1)} %</b></div>
+          <div><small>30 days — heat demand (avg/day)</small><br><b>${hdAvg30.toFixed(1)} %</b></div>
           <div><small>30 days — burner</small><br><b>${sm.burner_h_30d} h</b></div>
           <div><small>Days collected</small><br><b>${sm.days}</b></div>
         </div>
@@ -1383,7 +1391,7 @@ class HomeClimatePanel extends HTMLElement {
         ${chart || '<p class="sub">Not enough outdoor/gas data yet — the scatter appears once ≥3 days have both an outdoor average and gas consumption.</p>'}
         <h4 style="margin:14px 0 6px">Recent days</h4>
         <table style="width:100%;font-size:.85rem;border-collapse:collapse">
-          <tr style="opacity:.6;text-align:left"><th>Day</th>${price ? "<th>Cost</th>" : ""}<th>kWh</th><th>Out °C (avg/min/max)</th><th>Heat demand (°C·min)</th><th>Burner h</th><th>Flow °C</th></tr>
+          <tr style="opacity:.6;text-align:left"><th>Day</th>${price ? "<th>Cost</th>" : ""}<th>kWh</th><th>Out °C (avg/min/max)</th><th>Heat demand (avg %)</th><th>Burner h</th><th>Flow °C</th></tr>
           ${rowsHtml}
         </table>
       </div>`;
