@@ -83,6 +83,7 @@ class CentralController:
         self.outdoor_stale_s = float(outdoor_stale_s)
         self.setbacks = None
         self.gas = None
+        self.stats = None
         self.deadtime = None
         self.insulation = None
         self.datalogger = None
@@ -401,6 +402,23 @@ class CentralController:
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("gas feed failed", exc_info=True)
+
+        # Long-lived statistics: daily gas / heat-demand / outdoor buckets.
+        if self.stats is not None:
+            try:
+                self.stats.observe(
+                    outdoor=self.outdoor_temp(),
+                    total_demand=self.total_demand,
+                    burner_on=bool(getattr(self.backend, "flame_on", False) or False),
+                    ch_on=self._ch_on,
+                    flow_setpoint=self.flow_setpoint,
+                    latest_max_demand=(
+                        max((z.demand_level for z in self.zones), default=None)
+                        if self.zones else None
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("stats observe failed", exc_info=True)
 
         # Schedule / occupancy → preset (listeners do the heavy lifting;
         # tick is a safety net if entities changed while we were offline).

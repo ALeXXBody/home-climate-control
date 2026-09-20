@@ -93,6 +93,8 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_add_zone)
     websocket_api.async_register_command(hass, ws_rename_zone)
     websocket_api.async_register_command(hass, ws_remove_zone)
+    websocket_api.async_register_command(hass, ws_get_stats)
+    websocket_api.async_register_command(hass, ws_reset_stats)
     websocket_api.async_register_command(hass, ws_set_failsafe)
     websocket_api.async_register_command(hass, ws_get_boiler_catalog)
     websocket_api.async_register_command(hass, ws_set_boiler_info)
@@ -1186,6 +1188,53 @@ async def ws_remove_zone(
     hass.config_entries.async_update_entry(entry, options=new_options)
     await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+
+
+def _stats_controller(hass: HomeAssistant):
+    for data in (hass.data.get(DOMAIN) or {}).values():
+        if isinstance(data, dict) and getattr(data.get("controller"), "stats", None):
+            return data["controller"].stats
+    return None
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/get_stats",
+    }
+)
+@websocket_api.async_response
+async def ws_get_stats(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Daily gas / heat-demand / outdoor buckets + 30-day trend."""
+    stats = _stats_controller(hass)
+    if stats is None:
+        connection.send_result(msg["id"], {"available": False})
+        return
+    connection.send_result(msg["id"], {"available": True, **stats.as_dict()})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/reset_stats",
+    }
+)
+@websocket_api.async_response
+async def ws_reset_stats(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Panel Reset button: clears all day buckets and the gas meter."""
+    stats = _stats_controller(hass)
+    if stats is None:
+        connection.send_error(msg["id"], "not_found", "Statistics unavailable")
+        return
+    stats.reset()
+    connection.send_result(msg["id"], {"ok": True, **stats.as_dict()})
 
 
 @websocket_api.require_admin

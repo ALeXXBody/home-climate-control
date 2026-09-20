@@ -92,6 +92,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .insulation import InsulationScorer
     from .datalogger import TrainingDataLogger
     from .gasmeter import GasMeter
+    from .stats import HccStats
     from .panel import async_register_panel
     from .websocket_api import async_setup_websocket
 
@@ -137,6 +138,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         price_per_kwh=opts.get("gas_price_per_kwh"),
     )
     await gas.async_load()
+
+    # Long-lived statistics (gas / heat demand vs outdoor temperature),
+    # persistent across restarts + updates; wiped by the panel Reset button
+    # (which also zeroes the gas meter so "since reset" stays coherent).
+    stats = HccStats(hass, gas_meter=gas,
+                     price_per_kwh=opts.get("gas_price_per_kwh"))
+    await stats.async_load()
     controller = CentralController(
         hass,
         backend,
@@ -190,6 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     controller.insulation = insulation
     controller.datalogger = datalogger
     controller.gas = gas
+    controller.stats = stats
     controller.schedule = schedule
     controller.occupancy = occupancy
     hass.data[DOMAIN][entry.entry_id] = {
@@ -348,7 +357,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Final training-log flush so buffered rows survive the unload.
         dl = getattr(controller, "datalogger", None)
         if dl is not None:
-            await dl.async_stop()
+            await stats.async_unload()
+        await dl.async_stop()
 
         bi = stored.get("boiler_info")
         if bi is not None:

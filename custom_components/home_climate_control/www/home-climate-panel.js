@@ -66,7 +66,13 @@ class HomeClimatePanel extends HTMLElement {
       if (tab) {
         this._tab = tab.getAttribute("data-tab");
         if (this._tab !== "settings") this._soptMsg = null;
+        if (this._tab === "stats") this._fetchStats();
         this._render();
+        return;
+      }
+      if (t.closest('[data-action="stats-reset"]')) {
+        if (!confirm("Reset all statistics?\nClears every day bucket and zeroes the gas meter totals.")) return;
+        this._resetStats();
         return;
       }
       if (t.closest('[data-action="refresh"]')) {
@@ -1119,6 +1125,7 @@ class HomeClimatePanel extends HTMLElement {
         <nav class="tabs">
           ${this._tabBtn("home", "Home")}
           ${this._tabBtn("rooms", "Rooms")}
+          ${this._tabBtn("stats", "Statistics")}
           ${this._tabBtn("devices", "Devices")}
           ${this._tabBtn("settings", "Settings")}
           ${this._tabBtn("diagnostics", "Diagnostics")}
@@ -1255,6 +1262,8 @@ class HomeClimatePanel extends HTMLElement {
           <div id="hcc-fw-wrap">${this._fwCardHtml()}</div>`;
       case "settings":
         return `${this._soptMsg ? `<div class="card" style="border-color:#3a7">${this._esc(this._soptMsg)}</div>` : ""}${this._settingsHtml(sys)}`;
+      case "stats":
+        return `<div id="hcc-stats-wrap">${this._statsHtml(this._statsData)}</div>`;
       case "diagnostics":
         return `<div id="hcc-diag-wrap">
           <p class="sub" style="margin-top:0">Engineering telemetry — safe to ignore, fun to watch.</p>
@@ -1263,6 +1272,106 @@ class HomeClimatePanel extends HTMLElement {
       default: // home
         return `<div id="hcc-live">${this._homeHtml(sys)}</div>`;
     }
+  }
+
+  async _fetchStats() {
+    if (this._statsLoading) return;
+    this._statsLoading = true;
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/get_stats",
+      });
+      this._statsData = res;
+      this._error = null;
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._statsLoading = false;
+    this._render();
+  }
+
+  async _resetStats() {
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/reset_stats",
+      });
+      this._statsData = res;
+      this._error = null;
+    } catch (err) {
+      this._error = err?.message || String(err);
+    }
+    this._render();
+  }
+
+  _statsHtml(d) {
+    if (this._tab !== "stats") return "";
+    if (!d || !d.available) {
+      return `<div class="card"><h3>Statistics</h3>
+        <p class="sub">No statistics yet — data appears after a control loop
+        has run with the HCC controller active.</p></div>`;
+    }
+    const sm = d.summary || {};
+    const price = sm.price_per_kwh != null;
+    const rows = d.rows || [];
+    const trend = d.trend || {};
+    const fmt = (v, unit = "", d = 1) =>
+      v == null ? "—" : `${v}${unit}`;
+    // Scatter: gas kWh vs outdoor average temp (least-squares trend line)
+    const pts = (d.rows || []).filter(r => r.out_avg != null);
+    const W = 640, H = 220, PAD = 36;
+    let chart = "";
+    if (pts.length >= 3) {
+      const xs = pts.map(p => p.out_avg);
+      const ys = pts.map(p => p.gas_kwh);
+      const x0 = Math.max(30, Math.floor(Math.min(...xs) - 2));
+      const x1 = Math.ceil(Math.max(...xs) + 2);
+      const y1 = Math.max(...ys) * 1.15 + 0.5;
+      const sx = (v) => PAD + ((v - x0) / Math.max(0.1, x1 - x0)) * (W - PAD * 2);
+      const sy = (v) => H - PAD / 2 - (v / Math.max(0.1, y1)) * (H - PAD * 2);
+      const dots = pts.map(p =>
+        `<circle cx="${sx(p.out_avg).toFixed(1)}" cy="${sy(p.gas_kwh).toFixed(1)}" r="3">` +
+        `<title>${p.day}: ${p.gas_kwh} kWh @ ${p.out_avg}°C</title></circle>`).join("");
+      // trend line from the least-squares fit (server-computed)
+      let line = "";
+      const tr = d.trend || {};
+      if (tr.slope != null) {
+        const yA = sy(tr.intercept + tr.slope * x0);
+        const yB = sy(tr.intercept + tr.slope * x1);
+        line = `<line x1="${sx(x0).toFixed(1)}" y1="${yA.toFixed(1)}" x2="${sx(x1).toFixed(1)}" y2="${yB.toFixed(1)}" stroke="#ef9a9a" stroke-dasharray="5 4"/>`;
+      }
+      chart = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;background:#10151c;border-radius:10px">
+        <text x="${PAD}" y="${PAD - 12}" fill="#8ab" font-size="11">gas kWh / day vs outdoor °C — slope ${tr.slope != null ? tr.slope : "?"} kWh/°C (per day, ${tr.points} points)</text>
+        ${line}${dots.join("")}
+      </svg>`;
+    }
+    const rowsHtml = (d.rows || []).slice().reverse().slice(0, 21).map(r => `
+      <tr><td>${r.day}</td><td>${r.gas_kwh}</td>${price ? `<td>${r.cost != null ? r.cost : "—"}</td>` : ""}
+      <td>${r.out_avg != null ? r.out_avg : "—"}/ ${r.out_min != null ? r.out_min : "—"}/${r.out_max != null ? r.out_max : "—"}</td>
+      <td>${r.heat_degmin}</td><td>${r.burner_h}</td><td>${r.flow_avg != null ? r.flow_avg : "—"}</td></tr>`).join("");
+    return `
+      <div class="card">
+        <div class="row">
+          <h3 style="margin:0">Statistics</h3>
+          <span style="margin-left:auto">
+            <button type="button" class="ghost" data-action="stats-reset">Reset statistics</button>
+          </span>
+        </div>
+        <p class="sub">Persisted locally (survives HA restarts and integration updates). Reset clears all history and zeroes the gas meter.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px">
+          <div><small>Today — gas</small><br><b>${sm.today?.gas_kwh ?? "0"} kWh</b>${price && sm.today?.cost != null ? ` (${sm.today.cost})` : ""}</div>
+          <div><small>7 days — gas</small><br><b>${sm.gas_kwh_7d} kWh</b>${price && sm.cost_7d != null ? ` (${sm.cost_7d})` : ""}</div>
+          <div><small>30 days — gas</small><br><b>${sm.gas_kwh_30d} kWh</b>${price && sm.cost_30d != null ? ` (${sm.cost_30d})` : ""}</div>
+          <div><small>30 days — heat demand</small><br><b>${sm.heat_degmin_30d} °C·min</b></div>
+          <div><small>30 days — burner</small><br><b>${sm.burner_h_30d} h</b></div>
+          <div><small>Days collected</small><br><b>${sm.days}</b></div>
+        </div>
+        ${chart || '<p class="sub">Not enough outdoor/gas data yet — the scatter appears once ≥3 days have both an outdoor average and gas consumption.</p>'}
+        <h4 style="margin:14px 0 6px">Recent days</h4>
+        <table style="width:100%;font-size:.85rem;border-collapse:collapse">
+          <tr style="opacity:.6;text-align:left"><th>Day</th>${price ? "<th>Cost</th>" : ""}<th>kWh</th><th>Out °C (avg/min/max)</th><th>Heat demand (°C·min)</th><th>Burner h</th><th>Flow °C</th></tr>
+          ${rowsHtml}
+        </table>
+      </div>`;
   }
 
   _overviewHtml(sys) {
