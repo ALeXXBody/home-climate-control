@@ -56,6 +56,11 @@ _LOGGER = logging.getLogger(__name__)
 class CentralController:
     """Coordinates zones and drives the boiler backend."""
 
+    # Minimum spacing between CH re-asserts (mismatch path) and the periodic
+    # heartbeat cadence while CH is commanded on (both monotonic seconds).
+    CH_REASSERT_MIN_S = 180.0
+    CH_HEARTBEAT_S = 300.0
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -150,6 +155,11 @@ class CentralController:
 
         self._unsub_loop = None
         self._ch_on: bool = False
+        # Self-healing CH tracking: commands are non-retained, so a board
+        # reboot (OTA, crash, MQTT resume) silently loses our last CH
+        # state while this controller keeps believing it is applied.
+        self._ch_mismatch = 0
+        self._last_ch_cmd = 0.0
 
     async def async_start(self) -> None:
         await self.backend.async_start()
@@ -466,10 +476,14 @@ class CentralController:
         # adaptive rest window on top of duty-cycle / thermostat demand.
         desired_ch = duty_want
         ch_state, _reason = self.cycleguard.decide(desired_ch, self._ch_on, now)
+        sent_now = False
         if ch_state != self._ch_on:
             await self.backend.async_set_ch_enabled(ch_state)
             self.cycleguard.record(ch_state, now)
             self._ch_on = ch_state
+            self._last_ch_cmd = now
+            self._ch_mismatch = 0
+            sent_now = True
             if ch_state:
                 why = _reason if _reason != "start" else duty_reason
                 _LOGGER.info("CH on (%s)", why)
@@ -496,6 +510,41 @@ class CentralController:
                 _LOGGER.info("CH off (%s)", why)
                 if self.deadtime is not None:
                     self.deadtime.disarm_all()
+
+        # Reconcile commanded CH state against the boiler's own CH-active
+        # telemetry (plant ground truth). Two consecutive disagreeing ticks
+        # ⇒ re-deliver the command; additionally re-assert the commanded
+        # state every few minutes as a cheap heartbeat. This heals the
+        # lost-CH-after-board-reboot desync (heating demand with a cold
+        # boiler) without touching CycleGuard's burn/rest bookkeeping.
+        board_ch = getattr(self.backend, "ch_active", None)
+        # Skip counting on the tick that just sent something: the plant
+        # legitimately lags the command, so its stale state is not evidence.
+        if not sent_now:
+            if isinstance(board_ch, bool) and board_ch != self._ch_on:
+                self._ch_mismatch += 1
+            else:
+                self._ch_mismatch = 0
+        mismatch_fire = (
+            self._ch_mismatch >= 2
+            and now - self._last_ch_cmd >= self.CH_REASSERT_MIN_S
+        )
+        heartbeat_fire = (
+            self._ch_on and now - self._last_ch_cmd >= self.CH_HEARTBEAT_S
+        )
+        if mismatch_fire or heartbeat_fire:
+            if mismatch_fire:
+                _LOGGER.info(
+                    "Re-asserting CH %s — boiler reports ch_active=%s"
+                    " (command lost after reboot/reconnect?)",
+                    "on" if self._ch_on else "off",
+                    board_ch,
+                )
+            else:
+                _LOGGER.debug("CH heartbeat re-assert (%s)", self._ch_on)
+            await self.backend.async_set_ch_enabled(self._ch_on)
+            self._last_ch_cmd = now
+            self._ch_mismatch = 0
 
         self.total_demand = raw_demand
         self.estimated_gas_percent = min(100.0, raw_demand * 100.0)
