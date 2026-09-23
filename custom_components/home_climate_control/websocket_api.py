@@ -217,7 +217,10 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                     "hvac_mode": str(getattr(zone, "hvac_mode", "off")),
                     "hvac_action": str(getattr(zone, "hvac_action", "off")),
                     "preset_mode": getattr(zone, "preset_mode", "none"),
-                    "demand_level": getattr(zone, "demand_level", lambda: 0)(),
+                    # Read the cached demand rather than recomputing it: calling
+                    # demand_level() here would run wants_heat()/_update_preheat()
+                    # on every panel poll and mutate preheat state between ticks.
+                    "demand_level": getattr(zone, "_demand", 0.0),
                     "window_open": getattr(zone, "paused", lambda: False)(),
                     "floor": getattr(zone, "floor", 0),
                     "heat_control": getattr(zone, "heater_control", "smart"),

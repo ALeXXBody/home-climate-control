@@ -600,6 +600,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     heating_allowed=not self._preheat_active,
                 )
             except Exception:  # noqa: BLE001
+                _LOGGER.debug("setback observe failed", exc_info=True)
                 pass
         # Bootstrap calibration: feed the active session, finish it when the
         # target gain is reached (restore + injection happen in the task).
@@ -614,6 +615,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             try:
                 result = calibrator.observe(self._zone_name(), _t.time(), temperature)
             except Exception:  # noqa: BLE001
+                _LOGGER.debug("calibration observe failed", exc_info=True)
                 result = None
             if result is not None and self.hass is not None:
                 self.hass.async_create_task(
@@ -632,6 +634,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             try:
                 estimator.observe(self._zone_name(), _t.time(), temperature)
             except Exception:  # noqa: BLE001
+                _LOGGER.debug("deadtime observe failed", exc_info=True)
                 pass
         # Insulation score: samples inside genuine cool-down stretches
         # (setback phases) yield a weather-normalized loss factor per room.
@@ -657,6 +660,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     cooling=learner.in_cooling(self._zone_name()),
                 )
             except Exception:  # noqa: BLE001
+                _LOGGER.debug("insulation observe failed", exc_info=True)
                 pass
         # Slope-based window detection (rooms without contact sensors):
         # a fast temperature drop trips the same pause a door sensor would.
@@ -666,6 +670,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             try:
                 now_open = self._slope_detector.observe(_t.time(), temperature)
             except Exception:  # noqa: BLE001
+                _LOGGER.debug("window-slope detect failed", exc_info=True)
                 now_open = self._window_open
             if now_open != self._window_open:
                 self._window_open = now_open
