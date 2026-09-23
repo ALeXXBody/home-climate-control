@@ -194,3 +194,10 @@ def test_unload_flushes_stats_without_nameerror():
         assert asyncio.run(run(ctrl_bare)) is True  # no stats → no crash
     except NameError as err:
         raise AssertionError(f"unload crashed: {err}")
+
+
+def test_corrupt_store_does_not_crash():
+    s = _mk()
+    s._store.data = ["not", "a", "dict"]
+    asyncio.run(s.async_load())
+    assert s.days == {}

@@ -90,11 +90,19 @@ class GasMeter:
             data = await self._store.async_load() or {}
         except Exception:  # noqa: BLE001
             data = {}
-        self.total_kwh = float(data.get("total_kwh", 0.0))
-        self.days = {
-            str(k): float(v)
-            for k, v in (data.get("days") or {}).items()
-        }
+        if not isinstance(data, dict):
+            _LOGGER.warning("GasMeter store corrupt (non-object); ignoring")
+            return
+        try:
+            self.total_kwh = float(data.get("total_kwh", 0.0))
+            self.days = {
+                str(k): float(v)
+                for k, v in (data.get("days") or {}).items()
+            }
+        except (TypeError, ValueError, AttributeError):
+            _LOGGER.warning("GasMeter store malformed; ignoring")
+            self.total_kwh = 0.0
+            self.days = {}
         if self.total_kwh or self.days:
             _LOGGER.info(
                 "GasMeter restored %.1f kWh total (%d days)",
@@ -237,6 +245,10 @@ class GasMeter:
         if kwh > 0:
             self.total_kwh += kwh
             day = datetime.fromtimestamp(t).strftime("%Y-%m-%d")
+            if day not in self.days and len(self.days) >= KEEP_DAYS:
+                # RAM mirror of the stored KEEP_DAYS window (the Store payload
+                # is sliced, but the live dict was never pruned).
+                self.days = dict(sorted(self.days.items())[-(KEEP_DAYS - 1):])
             self.days[day] = self.days.get(day, 0.0) + kwh
             self._persist()
         return kwh

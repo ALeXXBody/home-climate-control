@@ -396,9 +396,13 @@ async def ws_get_status(
     {
         vol.Required("type"): f"{DOMAIN}/set_zone",
         vol.Required("entity_id"): str,
-        vol.Optional("temperature"): vol.Coerce(float),
-        vol.Optional("hvac_mode"): str,
-        vol.Optional("preset_mode"): str,
+        vol.Optional("temperature"): vol.All(
+            vol.Coerce(float), vol.Range(min=5, max=35)
+        ),
+        vol.Optional("hvac_mode"): vol.In(
+            ("off", "heat", "heat_cool", "cool", "dry", "fan_only", "auto")
+        ),
+        vol.Optional("preset_mode"): vol.In(list(ZONE_PRESETS) + ["none"]),
     }
 )
 @websocket_api.require_admin
@@ -711,10 +715,9 @@ def _hot_apply_bools(hass: HomeAssistant, entry, options: dict) -> None:
     setbacks = getattr(controller, "setbacks", None)
     if setbacks is not None and hasattr(setbacks, "enabled"):
         setbacks.enabled = bool(options.get("learn_setbacks", True))
-    if hasattr(controller, "duty_cycle_enabled"):
-        controller.duty_cycle_enabled = bool(
-            options.get("duty_cycle_enabled", True)
-        )
+    dutycycle = getattr(controller, "dutycycle", None)
+    if dutycycle is not None and hasattr(dutycycle, "enabled"):
+        dutycycle.enabled = bool(options.get("duty_cycle_enabled", True))
 
 
 # Home Assistant's websocket_command decorator expects the raw schema

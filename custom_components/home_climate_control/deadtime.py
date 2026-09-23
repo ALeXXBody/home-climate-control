@@ -72,7 +72,12 @@ class DeadTimeEstimator:
             data = await self._store.async_load() or {}
         except Exception:  # noqa: BLE001
             data = {}
+        if not isinstance(data, dict):
+            _LOGGER.warning("Dead-time store corrupt (non-object); ignoring")
+            return
         for name, r in data.items():
+            if not isinstance(r, dict):
+                continue
             v = r.get("seconds")
             if isinstance(v, (int, float)):
                 self.estimates[name] = float(v)

@@ -88,7 +88,12 @@ class InsulationScorer:
             data = await self._store.async_load() or {}
         except Exception:  # noqa: BLE001
             data = {}
+        if not isinstance(data, dict):
+            _LOGGER.warning("Insulation store corrupt (non-object); ignoring")
+            return
         for name, r in data.items():
+            if not isinstance(r, dict):
+                continue
             v = r.get("k")
             if isinstance(v, (int, float)):
                 st = self._room(name)

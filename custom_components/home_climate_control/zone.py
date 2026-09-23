@@ -113,8 +113,18 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         )
 
         start = zone_cfg.get("demo_start_temp")
-        self._current_temp: float | None = float(start) if start is not None else None
-        self._target_temp: float = float(zone_cfg.get("setpoint", DEFAULT_ZONE_SETPOINT))
+        try:
+            self._current_temp: float | None = (
+                float(start) if start is not None else None
+            )
+        except (TypeError, ValueError):
+            self._current_temp = None
+        try:
+            self._target_temp: float = float(
+                zone_cfg.get("setpoint", DEFAULT_ZONE_SETPOINT)
+            )
+        except (TypeError, ValueError):
+            self._target_temp = float(DEFAULT_ZONE_SETPOINT)
         self._preset: str = "none"
         # "schedule" = last change came from timetable; "user" = sticky
         # until the schedule entity itself advances to a new window.
@@ -339,7 +349,14 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         if ATTR_TEMPERATURE in kwargs:
-            self._target_temp = float(kwargs[ATTR_TEMPERATURE])
+            try:
+                v = float(kwargs[ATTR_TEMPERATURE])
+            except (TypeError, ValueError):
+                v = None
+            if v is not None:
+                self._target_temp = min(
+                    self._attr_max_temp, max(self._attr_min_temp, v)
+                )
             await self._push_setpoint_to_trv()
         self._safe_write_ha_state()
 

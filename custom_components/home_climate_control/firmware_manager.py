@@ -931,6 +931,8 @@ class FirmwareManager:
             if (now - seen).total_seconds() > self.DEVICE_TTL:
                 _LOGGER.debug("pruning stale device %s", node)
                 del self.devices[node]
+                # An in-flight OTA attempt must not outlive its device.
+                self._ota_rt.pop(node, None)
 
     @callback
     def _on_discovery(self, msg) -> None:

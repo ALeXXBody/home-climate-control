@@ -256,6 +256,12 @@ class ProbeManager:
         # seed from current snapshot
         self._on_snapshot()
 
+    def stop(self) -> None:
+        """Remove the snapshot listener (called on entry unload)."""
+        rem = getattr(self.backend, "remove_sensors_listener", None)
+        if callable(rem):
+            rem(self._on_snapshot)
+
     @callback
     def _on_snapshot(self) -> None:
         snap = getattr(self.backend, "sensors_snapshot", lambda: [])()

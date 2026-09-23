@@ -450,6 +450,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if gas is not None and hasattr(gas, "async_flush"):
             await gas.async_flush()
 
+        pm = stored.get("probe_manager")
+        if pm is not None and hasattr(pm, "stop"):
+            pm.stop()
+
         bi = stored.get("boiler_info")
         if bi is not None:
             await bi.async_unload()

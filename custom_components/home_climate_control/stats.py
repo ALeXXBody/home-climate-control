@@ -54,9 +54,16 @@ class HccStats:
             data = await self._store.async_load() or {}
         except Exception:  # noqa: BLE001 - storage never blocks setup
             data = {}
-        self.days = {
-            str(k): dict(v) for k, v in (data.get("days") or {}).items()
-        }
+        if not isinstance(data, dict):
+            _LOGGER.warning("Statistics store corrupt (non-object); ignoring")
+            return
+        try:
+            self.days = {
+                str(k): dict(v) for k, v in (data.get("days") or {}).items()
+            }
+        except (TypeError, ValueError, AttributeError):
+            _LOGGER.warning("Statistics store malformed; ignoring")
+            self.days = {}
         if self.days:
             _LOGGER.info("Statistics restored: %d day buckets", len(self.days))
 

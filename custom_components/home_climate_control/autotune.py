@@ -90,11 +90,17 @@ class CurveAutoTuner:
             data = await self._store.async_load() or {}
         except Exception:  # noqa: BLE001
             data = {}
+        if not isinstance(data, dict):
+            _LOGGER.warning("Auto-tune store corrupt (non-object); ignoring")
+            return
         saved = data.get("coeff")
         if isinstance(saved, (int, float)):
             self.coeff = min(self.coeff_max, max(self.coeff_min, float(saved)))
             _LOGGER.info("Auto-tune restored curve coefficient %.3f", self.coeff)
-        self.adjustments = int(data.get("adjustments", 0) or 0)
+        try:
+            self.adjustments = int(data.get("adjustments", 0) or 0)
+        except (TypeError, ValueError):
+            self.adjustments = 0
 
     def _persist(self) -> None:
         if self._store is None:

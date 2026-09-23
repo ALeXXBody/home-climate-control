@@ -190,3 +190,15 @@ def test_set_options_auto_master_hot_applies():
     assert controller.auto_master is True
     assert controller.balance_autocap is True
     hass.config_entries.async_reload.assert_not_called()
+
+
+def test_set_options_duty_cycle_hot_applies():
+    hass, entry = _make_hass()
+    controller = hass.data[DOMAIN]["e1"]["controller"]
+    controller.dutycycle = MagicMock(enabled=False)
+    conn = MagicMock()
+    asyncio.run(websocket_api.ws_set_options(
+        hass, conn, {"id": 15, "duty_cycle_enabled": True}))
+    # The toggle must reach the actual DutyCycler, not a nonexistent attr.
+    assert controller.dutycycle.enabled is True
+    hass.config_entries.async_reload.assert_not_called()

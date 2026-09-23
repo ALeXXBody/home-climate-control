@@ -76,11 +76,19 @@ class SetbackLearner:
             data = await self._store.async_load() or {}
         except Exception:  # noqa: BLE001
             data = {}
+        if not isinstance(data, dict):
+            _LOGGER.warning("Setback store corrupt (non-object); ignoring")
+            return
         for name, r in data.items():
+            if not isinstance(r, dict):
+                continue
             st = _RoomState()
-            st.cool_ema = r.get("cool_ema")
-            st.warm_ema = r.get("warm_ema")
-            st.cycles = int(r.get("cycles", 0))
+            try:
+                st.cool_ema = r.get("cool_ema")
+                st.warm_ema = r.get("warm_ema")
+                st.cycles = int(r.get("cycles", 0))
+            except (TypeError, ValueError):
+                continue
             self.rooms[name] = st
         if data:
             _LOGGER.info("Setback learner restored %d room(s)", len(data))

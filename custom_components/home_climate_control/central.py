@@ -166,6 +166,9 @@ class CentralController:
         self._tick_running = False
 
     async def async_start(self) -> None:
+        if self._unsub_loop is not None:
+            _LOGGER.debug("Central controller already started — ignoring restart")
+            return
         await self.backend.async_start()
         if self.schedule is not None:
             try:
@@ -439,11 +442,16 @@ class CentralController:
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("gas feed failed")
 
+        # Outdoor temperature is needed by stats, the weather-compensated flow
+        # target and the training row — read it once per tick (it sets the
+        # diagnostic outdoor_source; repeated reads re-run backend/HA lookups).
+        outdoor_raw = self.outdoor_temp()
+
         # Long-lived statistics: daily gas / heat-demand / outdoor buckets.
         if self.stats is not None:
             try:
                 self.stats.observe(
-                    outdoor=self.outdoor_temp(),
+                    outdoor=outdoor_raw,
                     total_demand=self.total_demand,
                     burner_on=bool(getattr(self.backend, "flame_on", False) or False),
                     ch_on=self._ch_on,
@@ -471,7 +479,6 @@ class CentralController:
                 self.occupancy.apply(force=False)
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("occupancy tick failed")
-        outdoor_raw = self.outdoor_temp()
         # Wind trim: bounded infiltration correction on what the curve (and
         # load-based helpers) see. Raw outdoor stays for display/logging.
         try:

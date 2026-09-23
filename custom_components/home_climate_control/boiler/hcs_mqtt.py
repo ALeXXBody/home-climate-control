@@ -384,3 +384,9 @@ class HcsMqttBackend(BoilerBackend):
     def add_sensors_listener(self, cb) -> None:
         if cb not in self._sensors_listeners:
             self._sensors_listeners.append(cb)
+
+    def remove_sensors_listener(self, cb) -> None:
+        try:
+            self._sensors_listeners.remove(cb)
+        except ValueError:
+            pass
