@@ -487,8 +487,22 @@ class CentralController:
             _LOGGER.exception("wind trim refresh failed")
         outdoor = self.windtrim.effective(outdoor_raw)
         self.wind_trim_c = self.windtrim.trim_c
-        demanding = [z for z in self.zones if z.wants_heat() and not z.paused()]
-        raw_demand = sum(z.demand_level() for z in demanding) if demanding else 0.0
+        # Per-tick zone snapshot: wants_heat / demand / effective setpoint /
+        # current temperature are recomputed repeatedly in the flow path below
+        # (each redundant call re-runs _update_preheat and the setback learner).
+        # Compute once and reuse for this tick's demand/flow work.
+        snap = {}
+        for z in self.zones:
+            if z.wants_heat() and not z.paused():
+                cur = (
+                    getattr(z, "current_temperature", None)
+                    or getattr(z, "_current_temp", None)
+                )
+                snap[z] = (True, z.demand_level(), z.effective_setpoint(), cur)
+            else:
+                snap[z] = (False, 0.0, None, None)
+        demanding = [z for z in self.zones if snap[z][0]]
+        raw_demand = sum(snap[z][1] for z in demanding) if demanding else 0.0
 
         # Low-load duty cycle: when aggregate demand would need less than the
         # boiler's min modulation, PWM CH with long on/off slices instead of
@@ -521,10 +535,7 @@ class CentralController:
 
                     temps = {}
                     for z in demanding:
-                        t = (
-                            getattr(z, "current_temperature", None)
-                            or getattr(z, "_current_temp", None)
-                        )
+                        t = snap[z][3]
                         if t is not None:
                             temps[z.name] = t
                     self.deadtime.arm(
@@ -593,7 +604,7 @@ class CentralController:
             # target. (If demand vanished mid-min-on-floor we deliberately
             # keep the previous setpoint: the burner finishes its short
             # minimum burn at low fire while TRVs throttle.)
-            max_setpoint = max(z.effective_setpoint() for z in demanding)
+            max_setpoint = max(snap[z][2] for z in demanding)
             if outdoor is None:
                 # No outdoor data at all: a dead sensor must not silently run
                 # the curve at design outdoor (-10 °C → full load) all day.
@@ -634,12 +645,9 @@ class CentralController:
             # flow so the boiler can stay in condensing mode (comfort first).
             worst_def = None
             for z in demanding:
-                cur = (
-                    getattr(z, "current_temperature", None)
-                    or getattr(z, "_current_temp", None)
-                )
+                cur = snap[z][3]
                 if cur is not None:
-                    d = z.effective_setpoint() - cur
+                    d = snap[z][2] - cur
                     worst_def = d if worst_def is None else max(worst_def, d)
             ret = getattr(self.backend, "return_temp", None)
             target_flow, pull = condense_pull(
@@ -664,11 +672,9 @@ class CentralController:
             if self.autotune is not None:
                 errs = []
                 for z in demanding:
-                    cur = getattr(z, "current_temperature", None)
-                    if cur is None:
-                        cur = getattr(z, "_current_temp", None)
+                    cur = snap[z][3]
                     if cur is not None:
-                        errs.append(z.effective_setpoint() - cur)
+                        errs.append(snap[z][2] - cur)
                 if errs:
                     self.autotune.observe(sum(errs) / len(errs), True)
                     if self.auto_master and getattr(self.autotune, "enabled", False):

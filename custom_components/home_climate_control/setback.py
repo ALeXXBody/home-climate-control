@@ -27,6 +27,8 @@ from typing import Any
 
 from homeassistant.helpers.storage import Store
 
+from ._store import schedule_store_save
+
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_KEY = "home_climate_control_setbacks"
@@ -105,24 +107,7 @@ class SetbackLearner:
             for name, st in self.rooms.items()
             if st.cool_ema is not None or st.warm_ema is not None or st.cycles
         }
-
-        async def _save() -> None:
-            try:
-                await self._store.async_save(payload)
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("setback persist failed", exc_info=True)
-
-        if self.hass is not None and hasattr(self.hass, "async_create_task"):
-            self.hass.async_create_task(_save())
-        else:
-            import asyncio
-
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                asyncio.run(_save())
-            else:
-                asyncio.ensure_future(_save())
+        schedule_store_save(self.hass, self._store, payload, "setback", _LOGGER)
 
     # -------------------------------------------------------------- learning
     @staticmethod
