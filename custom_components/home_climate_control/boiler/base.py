@@ -28,8 +28,11 @@ class BoilerBackend(ABC):
         """Enable/disable central heating."""
 
     @abstractmethod
-    async def async_set_flow_setpoint(self, temp: float) -> None:
-        """Command the control setpoint (TSet), clamped by config limits."""
+    async def async_set_flow_setpoint(self, temp: float, *, force: bool = False) -> None:
+        """Command the control setpoint (TSet), clamped by config limits.
+
+        ``force`` re-publishes even when the value is unchanged (used by the
+        self-heal heartbeat after a board reboot/reconnect)."""
 
     @abstractmethod
     async def async_set_max_modulation(self, percent: float) -> None:

@@ -66,7 +66,7 @@ class DemoBoilerBackend(BoilerBackend):
             self._ch_active = False
             self._modulation = 0.0
 
-    async def async_set_flow_setpoint(self, temp: float) -> None:
+    async def async_set_flow_setpoint(self, temp: float, *, force: bool = False) -> None:
         temp = max(self._min_flow, min(self._max_flow, temp))
         temp = round(temp * 2) / 2.0
         self._commanded_setpoint = temp

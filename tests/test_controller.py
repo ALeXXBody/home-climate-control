@@ -29,7 +29,7 @@ class FakeBackend(BoilerBackend):
     async def async_set_ch_enabled(self, enabled: bool) -> None:
         self.ch_enabled = enabled
 
-    async def async_set_flow_setpoint(self, temp: float) -> None:
+    async def async_set_flow_setpoint(self, temp: float, *, force: bool = False) -> None:
         self.flow = temp
 
     async def async_set_max_modulation(self, percent: float) -> None:

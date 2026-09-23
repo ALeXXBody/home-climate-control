@@ -50,6 +50,7 @@
     },
     "error": {
       "node_required": "Enter the HCS gateway node id (shown on the device web UI).",
+      "invalid_node_id": "Node id may only contain letters, digits, dots, dashes and underscores.",
       "trv_required": "Select a TRV climate entity for this room."
     }
   },

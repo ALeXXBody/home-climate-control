@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import logging
 import re
 import time
@@ -10,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
@@ -222,6 +224,27 @@ _NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 def valid_node_id(node_id: Any) -> bool:
     """True when node_id is safe to embed in MQTT topics."""
     return isinstance(node_id, str) and bool(_NODE_ID_RE.match(node_id))
+
+
+def _safe_device_host(value: Any) -> bool:
+    """True when a discovery-supplied host (bare IP or URL) is a private,
+    non-loopback, non-link-local address. Untrusted MQTT discovery must
+    never steer server-side HTTP at loopback/link-local/external hosts."""
+    if not isinstance(value, str):
+        return False
+    host = value.strip()
+    if not host:
+        return False
+    if "://" in host:
+        try:
+            host = urlparse(host).hostname or ""
+        except ValueError:
+            return False
+    try:
+        a = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return a.is_private and not a.is_loopback and not a.is_link_local
 
 
 @dataclass
@@ -933,19 +956,24 @@ class FirmwareManager:
             _LOGGER.debug("ignoring announcement from removed board %s", node)
             return
         ip = data.get("ip") or ""
+        if not _safe_device_host(ip):
+            ip = ""
         dev = self.devices.get(node) or HcsDevice(node_id=node)
         dev.name = data.get("name") or dev.name or node
         dev.board = data.get("board") or dev.board
         dev.version = data.get("version") or dev.version
         dev.ip = ip or dev.ip
-        dev.ota_http = data.get("ota_http") or (
-            f"http://{ip}/update" if ip else dev.ota_http
+        dev.ota_http = (
+            data.get("ota_http") if _safe_device_host(data.get("ota_http"))
+            else (f"http://{ip}/update" if ip else dev.ota_http)
         )
-        dev.api_status = data.get("api_status") or (
-            f"http://{ip}/api/status" if ip else dev.api_status
+        dev.api_status = (
+            data.get("api_status") if _safe_device_host(data.get("api_status"))
+            else (f"http://{ip}/api/status" if ip else dev.api_status)
         )
-        dev.api_ota = data.get("api_ota") or (
-            f"http://{ip}/api/ota" if ip else dev.api_ota
+        dev.api_ota = (
+            data.get("api_ota") if _safe_device_host(data.get("api_ota"))
+            else (f"http://{ip}/api/ota" if ip else dev.api_ota)
         )
         dev.online = not dev.seen_lwt_offline
         dev.last_seen = datetime.now(timezone.utc).isoformat()
@@ -1347,7 +1375,12 @@ class FirmwareManager:
         import asyncio
 
         dev = self.devices.get(node_id)
-        if not dev or not dev.ip:
+        if (
+            not valid_node_id(node_id)
+            or not dev
+            or not dev.ip
+            or not _safe_device_host(dev.ip)
+        ):
             return {"ok": False, "error": "unknown or unreachable device"}
         url = f"http://{dev.ip}/api/otlog" + ("?clear=1" if clear else "")
         try:

@@ -24,6 +24,7 @@ class PlantBackend:
         self.board_ch_active: bool | None = False   # plant ground truth
         self.commands: list[bool] = []
         self.flow = None
+        self.flow_calls: list[tuple] = []
         self._outdoor = 5.0
 
     async def async_start(self) -> None: ...
@@ -33,8 +34,9 @@ class PlantBackend:
         self.ch_enabled = enabled
         self.commands.append(enabled)
 
-    async def async_set_flow_setpoint(self, temp: float) -> None:
+    async def async_set_flow_setpoint(self, temp: float, *, force: bool = False) -> None:
         self.flow = temp
+        self.flow_calls.append((temp, force))
 
     async def async_set_max_modulation(self, percent: float) -> None: ...
 
@@ -169,3 +171,24 @@ async def test_no_telemetry_never_fires_mismatch(clock):
         plant.board_ch_active = None
     # Only the 300 s heartbeats, never a mismatch storm.
     assert plant.commands == [True, True]
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_reasserts_flow_setpoint_with_force(clock):
+    plant = PlantBackend()
+    ctrl = CentralController(
+        MagicMock(), plant, curve_coeff=1.2, design_outdoor=-10,
+        min_flow=25, max_flow=75,
+    )
+    ctrl.zones = [FakeZone("living", wants=True, setpoint=20.0, demand=0.6)]
+
+    await ctrl.async_control_step()
+    assert plant.commands == [True]
+    assert plant.flow is not None
+    assert plant.flow_calls[-1][1] is False       # normal publish, no force
+
+    clock.t += 350.0                              # past CH_HEARTBEAT_S
+    await ctrl.async_control_step()
+    assert plant.commands == [True, True]
+    # The heartbeat must also force the flow setpoint back through.
+    assert any(f[1] is True for f in plant.flow_calls)

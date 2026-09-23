@@ -543,6 +543,13 @@ class CentralController:
             else:
                 _LOGGER.debug("CH heartbeat re-assert (%s)", self._ch_on)
             await self.backend.async_set_ch_enabled(self._ch_on)
+            # The board also loses the flow setpoint on reboot (commands are
+            # non-retained); the HA-side dedup cache stays warm and would
+            # otherwise suppress the re-send. Force it through with the CH.
+            if self._ch_on and self.flow_setpoint is not None:
+                await self.backend.async_set_flow_setpoint(
+                    self.flow_setpoint, force=True
+                )
             self._last_ch_cmd = now
             self._ch_mismatch = 0
 

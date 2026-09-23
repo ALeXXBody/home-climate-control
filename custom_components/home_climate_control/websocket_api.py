@@ -397,6 +397,7 @@ async def ws_get_status(
         vol.Optional("preset_mode"): str,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_set_zone(
     hass: HomeAssistant,
@@ -689,6 +690,7 @@ _SET_OPTIONS_SCHEMA = {
             | set(_OPTION_ENTITY_SINGLE)
             | set(_OPTION_ENTITY_MULTI)
             | set(_OPTION_PRESETS)
+            | set(_OPTION_DICTS)
         )
     },
 }
@@ -1005,7 +1007,14 @@ async def ws_rename_zone(
         connection.send_error(msg["id"], "invalid_name", err)
         return
 
-    controller = hass.data[DOMAIN][entry.entry_id]["controller"]
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    controller = data.get("controller") if isinstance(data, dict) else None
+    if controller is None:
+        connection.send_error(
+            msg["id"], "not_loaded",
+            "Zone platform not loaded — reload the integration and retry"
+        )
+        return
     zones_cfg = _dedupe_zones(entry.options.get(CONF_ZONES, []))
     new_zones = []
     for z in zones_cfg:
@@ -1625,6 +1634,7 @@ async def ws_set_github_token(
     connection.send_result(msg["id"], {"ok": True})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/get_ot_log",

@@ -273,7 +273,7 @@ class HcsMqttBackend(BoilerBackend):
     async def async_set_ch_enabled(self, enabled: bool) -> None:
         await self._publish_cmd("ch_enable", "on" if enabled else "off")
 
-    async def async_set_flow_setpoint(self, temp: float) -> None:
+    async def async_set_flow_setpoint(self, temp: float, *, force: bool = False) -> None:
         temp = max(self._min_flow, min(self._max_flow, temp))
         temp = round(temp * 2) / 2.0
         st = self._state()
@@ -282,7 +282,7 @@ class HcsMqttBackend(BoilerBackend):
             st = self._nodes.setdefault(
                 self._preferred, _NodeState(self._preferred)
             )
-        if temp == st.commanded_setpoint:
+        if temp == st.commanded_setpoint and not force:
             return
         await self._publish_cmd("flow_setpoint", f"{temp:.1f}")
         st.commanded_setpoint = temp

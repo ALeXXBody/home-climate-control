@@ -9,7 +9,46 @@ from custom_components.home_climate_control.firmware_manager import (
     DEFAULT_CATALOG,
     HcsDevice,
     catalog_item,
+    valid_node_id,
+    _safe_device_host,
 )
+
+
+@pytest.mark.parametrize(
+    "node_id, expected",
+    [
+        ("hcs-1c6920ce9104", True),
+        ("board_1.2-3", True),
+        ("hcs/#", False),
+        ("a/b", False),
+        ("node+extra", False),
+        ("", False),
+        ("space here", False),
+    ],
+)
+def test_valid_node_id(node_id: str, expected: bool) -> None:
+    assert valid_node_id(node_id) is expected
+
+
+@pytest.mark.parametrize(
+    "host, expected",
+    [
+        ("192.168.50.225", True),
+        ("10.0.0.5", True),
+        ("172.16.0.2", True),
+        ("http://192.168.50.225/api/status", True),
+        ("127.0.0.1", False),
+        ("169.254.169.254", False),
+        ("8.8.8.8", False),
+        ("http://169.254.169.254/latest", False),
+        ("::1", False),
+        ("", False),
+        ("not-an-ip", False),
+    ],
+)
+def test_safe_device_host(host: str, expected: bool) -> None:
+    assert _safe_device_host(host) is expected
+
 
 
 def test_catalog_covers_all_boards() -> None:

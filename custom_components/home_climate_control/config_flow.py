@@ -79,6 +79,13 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @staticmethod
+    def _valid_node_id(node: str) -> bool:
+        """Node ids must be safe to embed in MQTT topics (no / + #)."""
+        from .firmware_manager import valid_node_id
+
+        return valid_node_id(node)
+
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
         self._zones: list[dict[str, Any]] = []
@@ -209,6 +216,8 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             node = (user_input.get(CONF_NODE_ID) or "").strip()
             if not node:
                 errors["base"] = "node_required"
+            elif not self._valid_node_id(node):
+                errors[CONF_NODE_ID] = "invalid_node_id"
             else:
                 await self.async_set_unique_id(f"hcs_{node}")
                 self._abort_if_unique_id_configured()
