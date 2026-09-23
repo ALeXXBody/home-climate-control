@@ -11,6 +11,7 @@ Control loop (every CONTROL_LOOP_SECONDS):
 from __future__ import annotations
 
 import logging
+import math
 import time as _time_mod
 from collections import deque
 from datetime import timedelta
@@ -42,6 +43,7 @@ from .const import (
     FLOWCAP_FLOOR_MARGIN_C,
     FLOWCAP_STEP_C,
     FLOWCAP_WINDOW_SAMPLES,
+    NO_OUTDOOR_FALLBACK_C,
     OUTDOOR_STALE_AFTER_SECONDS,
 )
 from .condense import as_dict_snapshot as condense_snapshot, condense_pull
@@ -160,6 +162,7 @@ class CentralController:
         # state while this controller keeps believing it is applied.
         self._ch_mismatch = 0
         self._last_ch_cmd = 0.0
+        self._warned_no_outdoor = False
 
     async def async_start(self) -> None:
         await self.backend.async_start()
@@ -221,9 +224,10 @@ class CentralController:
         if self.outdoor_sensor.startswith("weather."):
             raw = st.attributes.get("temperature", raw)
         try:
-            return float(raw)
+            v = float(raw)
         except (TypeError, ValueError):
             return None
+        return v if math.isfinite(v) else None
 
     def outdoor_temp(self) -> float | None:
         """Boiler outdoor first; HA sensor when missing/stale; else None.
@@ -567,9 +571,24 @@ class CentralController:
             # keep the previous setpoint: the burner finishes its short
             # minimum burn at low fire while TRVs throttle.)
             max_setpoint = max(z.effective_setpoint() for z in demanding)
+            if outdoor is None:
+                # No outdoor data at all: a dead sensor must not silently run
+                # the curve at design outdoor (-10 °C → full load) all day.
+                # Fall back to a mild estimate and warn once.
+                if not self._warned_no_outdoor:
+                    _LOGGER.warning(
+                        "No outdoor temperature available (boiler and HA "
+                        "sensor both missing/stale) — using %.1f °C fallback; "
+                        "flow will be approximate until a source returns",
+                        NO_OUTDOOR_FALLBACK_C,
+                    )
+                    self._warned_no_outdoor = True
+                outdoor = NO_OUTDOOR_FALLBACK_C
+            else:
+                self._warned_no_outdoor = False
             base_flow = flow_for_outdoor(
                 max_setpoint,
-                outdoor if outdoor is not None else self.design_outdoor,
+                outdoor,
                 self.curve_coeff,
                 self.min_flow,
                 self.max_flow,

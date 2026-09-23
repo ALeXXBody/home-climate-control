@@ -395,6 +395,30 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
                         break
                 z.on_sensor_update(None, any_open)
 
+    # Seed current states once. Change events miss a window left open across
+    # an HA restart, so a room would otherwise heat with the window open
+    # until the contact sensor next toggles (which a steadily-open one won't).
+    for z in zones:
+        any_open = any(
+            (hass.states.get(sid) is not None and hass.states.get(sid).state == "on")
+            for sid in z.window_sensor_entities
+        )
+        z.on_sensor_update(None, any_open)
+        for sensor, hook in (
+            (getattr(z, "_lux_sensor", None), getattr(z, "on_lux_update", None)),
+            (getattr(z, "_co2_sensor", None), getattr(z, "on_co2_update", None)),
+            (getattr(z, "_trv_position_entity", None), getattr(z, "on_valve_update", None)),
+        ):
+            if not sensor or not callable(hook):
+                continue
+            st = hass.states.get(sensor)
+            if st is None or st.state in ("unknown", "unavailable"):
+                continue
+            try:
+                hook(float(st.state))
+            except (TypeError, ValueError):
+                pass
+
     entry.async_on_unload(async_track_state_change_event(hass, watched, _on_state))
 
 

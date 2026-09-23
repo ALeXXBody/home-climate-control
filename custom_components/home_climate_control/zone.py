@@ -12,6 +12,7 @@ in the room (and temperature source when no wall sensor is present).
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -210,8 +211,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             st = self.hass.states.get(self._temp_sensor)
             if st is not None and st.state not in ("unknown", "unavailable"):
                 try:
-                    self._current_temp = float(st.state)
-                    self._temp_from_trv = False
+                    v = float(st.state)
+                    if math.isfinite(v):
+                        self._current_temp = v
+                        self._temp_from_trv = False
                 except (TypeError, ValueError):
                     pass
         else:
@@ -448,8 +451,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         """Active preset = ABSOLUTE target temperature (user-editable).
 
         No preset ("none") → the room heats at its own target. Away/eco:
-        the preset temperature caps the target, while the per-room learned
-        deepening may push it further down (never up). The Tier 3 solar
+        the preset temperature is the DEEPEST the room may drop, while the
+        per-room learned offset raises the target for slow rooms (a leaky
+        hall that recovers slowly gets a shallower setback so it can catch
+        up in time — it never drops below the preset). The Tier 3 solar
         trim applies in every state.
         """
         solar = getattr(self, "solar", None)
@@ -469,7 +474,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     fallback=fallback,
                     dead_time_s=self._dead_time_s(),
                 )
-                target = min(preset_t, self.comfort_setpoint() + learned)
+                target = max(preset_t, self.comfort_setpoint() + learned)
             # Optimal-start catch-up: drive to the comfort target instead.
             if self._preheat_active:
                 return self.comfort_setpoint()
@@ -648,6 +653,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             if now_open != self._window_open:
                 self._window_open = now_open
                 if now_open:
+                    self._invalidate_deadtime()
                     _LOGGER.info(
                         "%s: heat paused (suspected open window/door)",
                         self._attr_name,
@@ -658,8 +664,21 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                         self._attr_name,
                     )
         if window_open is not None:
+            was_open = self._window_open
             self._window_open = window_open
+            if window_open and not was_open:
+                self._invalidate_deadtime()
         self._safe_write_ha_state()
+
+    def _invalidate_deadtime(self) -> None:
+        """Window just opened: a running dead-time stopwatch now measures
+        open-air physics, not the heating system — discard it."""
+        estimator = getattr(self.coordinator, "deadtime", None)
+        if estimator is not None:
+            try:
+                estimator.invalidate(self._zone_name())
+            except Exception:  # noqa: BLE001
+                pass
 
     @callback
     def on_trv_update(self) -> None:
@@ -784,9 +803,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if raw is None:
             return None
         try:
-            return float(raw)
+            v = float(raw)
         except (TypeError, ValueError):
             return None
+        return v if math.isfinite(v) else None
 
     def _trv_requests_heat(self) -> bool:
         st = self._trv_state()
@@ -799,6 +819,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         cur = self._trv_current_temp()
         try:
             target = float(st.attributes.get("temperature"))
+            if not math.isfinite(target):
+                target = None
         except (TypeError, ValueError):
             target = None
         if cur is not None and target is not None:

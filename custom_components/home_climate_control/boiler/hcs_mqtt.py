@@ -29,10 +29,13 @@ DEFAULT_PREFIX = "hcs"
 
 
 def _f(payload: str | None) -> float | None:
+    import math
+
     try:
-        return float(payload)
+        v = float(payload)
     except (TypeError, ValueError):
         return None
+    return v if math.isfinite(v) else None
 
 
 def _onoff(payload: str) -> bool:

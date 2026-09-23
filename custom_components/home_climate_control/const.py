@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.15.7"
+INTEGRATION_VERSION = "1.15.8"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
@@ -109,6 +109,9 @@ WINDOW_OPEN_PAUSE_MINUTES = 30
 
 # --- Outdoor temperature staleness ------------------------------------------
 OUTDOOR_STALE_AFTER_SECONDS = 1800
+# Curve fallback when NO outdoor source is available (dead boiler + no HA
+# sensor): a mild estimate instead of design-outdoor (-10 °C → full load).
+NO_OUTDOOR_FALLBACK_C = 0.0
 
 # --- Control loop ------------------------------------------------------------
 CONTROL_LOOP_SECONDS = 60

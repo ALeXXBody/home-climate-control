@@ -65,6 +65,14 @@ _MEMBER_ALIASES = {
     11: "Remeha / De Dietrich",
 }
 
+# Composite manufacturer names (a single MemberID spans several makes).
+# models_for_make() expands these into the union of their constituents so
+# the model dropdown is not empty for those two MemberIDs.
+_COMPOSITE_MAKES: dict[str, list[str]] = {
+    "Remeha / De Dietrich": ["Remeha", "De Dietrich"],
+    "Immergas / Sime / Baxi": ["Immergas", "Sime", "Baxi"],
+}
+
 
 def make_for_member(member_id: int | None) -> str | None:
     """Manufacturer display name for a slave MemberID, or None."""
@@ -76,6 +84,11 @@ def make_for_member(member_id: int | None) -> str | None:
 def models_for_make(make: str | None) -> list[str]:
     if not make:
         return []
+    if make in _COMPOSITE_MAKES:
+        models: list[str] = []
+        for part in _COMPOSITE_MAKES[make]:
+            models.extend(BOILER_CATALOG.get(part, []))
+        return models
     return BOILER_CATALOG.get(make, [])
 
 

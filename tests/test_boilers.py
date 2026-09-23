@@ -31,6 +31,14 @@ def test_models_lookup():
     assert models_for_make("Nope") == []
 
 
+def test_composite_makes_expand_to_models():
+    # A composite MemberID (11, 27) must still populate the model dropdown.
+    assert models_for_make("Remeha / De Dietrich")
+    assert "Avanta CW5" in models_for_make("Remeha / De Dietrich")
+    assert models_for_make("Immergas / Sime / Baxi")
+    assert "Victrix Omnia" in models_for_make("Immergas / Sime / Baxi")
+
+
 def test_catalog_payload_shape():
     p = catalog_payload()
     assert isinstance(p["makes"], list) and p["makes"]

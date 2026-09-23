@@ -141,8 +141,9 @@ def test_zone_effective_setpoint_uses_learned_offset():
     room._current_temp = 19.0
 
     room._preset = "away"
-    # Away is an absolute preset (default 16 °C). The learned depth may
-    # deepen below it, never above it.
+    # Away is an absolute preset (default 16 °C) — the deepest the room may
+    # drop. The learned depth raises the target for slow rooms, never below
+    # the preset.
     assert room.effective_setpoint() == pytest.approx(16.0)  # immature
 
     t = 0.0
@@ -150,7 +151,45 @@ def test_zone_effective_setpoint_uses_learned_offset():
         t = run_cycle(coord.setbacks, "Study", t + 3600.0, -1.2, 6.0)
 
     learned = coord.setbacks.offset_for("Study", -5.0)
-    assert room.effective_setpoint() == pytest.approx(min(16.0, 21.0 + learned))
+    assert room.effective_setpoint() == pytest.approx(max(16.0, 21.0 + learned))
+
+
+def test_slow_room_gets_shallower_setback():
+    """A leaky room that recovers slowly raises the away target so it can
+    catch up in time, instead of freezing at the deep preset."""
+    from unittest.mock import MagicMock
+
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    hass = MagicMock()
+    coord = MagicMock()
+    coord.curve_coeff = 1.2
+    coord.flow_setpoint = None
+    coord.setbacks = learner()
+
+    room = ZoneClimateEntity(
+        hass, coord, MagicMock(entry_id="e1"),
+        {"name": "Hall", "trv_climates": [], "temp_sensor": None,
+         "window_sensors": []},
+    )
+    room.name = "Hall"
+    room.async_write_ha_state = MagicMock()
+    room._hvac_mode = __import__(
+        "homeassistant.components.climate", fromlist=["HVACMode"]
+    ).HVACMode.HEAT
+    room._target_temp = 21.0
+    room._current_temp = 19.0
+    room._preset = "away"
+
+    # Slow recovery (1.0 °C/h) → shallow learned depth ≈ -1 °C.
+    t = 0.0
+    for _ in range(MIN_CYCLES):
+        t = run_cycle(coord.setbacks, "Hall", t + 3600.0, -1.2, 1.0)
+
+    learned = coord.setbacks.offset_for("Hall", -5.0)
+    assert learned >= -1.6                     # shallow
+    assert room.effective_setpoint() == pytest.approx(max(16.0, 21.0 + learned))
+    assert room.effective_setpoint() > 16.0    # warmer than the deep preset
 
 
 def test_window_open_freezes_learning():
