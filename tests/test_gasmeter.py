@@ -152,6 +152,29 @@ def test_persistence_roundtrip():
     assert b.days[d] == pytest.approx(a.days[d], rel=1e-4)
 
 
+def test_async_flush_persists_immediately():
+    import asyncio
+
+    class FakeStore:
+        def __init__(self):
+            self.saved = None
+
+        async def async_load(self):
+            return self.saved
+
+        async def async_save(self, d):
+            self.saved = d
+
+    a = meter(rated_power_kw=24.0)
+    a._store = FakeStore()
+    a.total_kwh = 12.5
+    a.days = {"2026-09-20": 3.25}
+    asyncio.run(a.async_flush())
+    assert a._store.saved is not None
+    assert a._store.saved["total_kwh"] == pytest.approx(12.5, rel=1e-4)
+    assert a._store.saved["days"]["2026-09-20"] == pytest.approx(3.25, rel=1e-4)
+
+
 def test_diagnostics_shape_and_cost():
     from datetime import datetime
 

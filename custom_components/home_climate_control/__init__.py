@@ -420,6 +420,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         dl = getattr(controller, "datalogger", None)
         if dl is not None:
             await dl.async_stop()
+        # Flush the gas meter too — its Store write is throttle-delayed, so
+        # without this up to ~5 min of integration is lost on every reload.
+        gas = getattr(controller, "gas", None)
+        if gas is not None and hasattr(gas, "async_flush"):
+            await gas.async_flush()
 
         bi = stored.get("boiler_info")
         if bi is not None:

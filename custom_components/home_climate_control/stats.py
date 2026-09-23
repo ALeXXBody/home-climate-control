@@ -146,6 +146,13 @@ class HccStats:
             meter.total_kwh = 0.0
             meter._last_t = None
             meter.last_rate_kw = None
+            # Persist the zeroed meter too — otherwise the old totals are
+            # restored from the meter Store on the next HA restart and the
+            # "since reset" gas figures come back while stats stay empty.
+            try:
+                meter._persist(force=True)
+            except Exception:  # noqa: BLE001
+                pass
         if self.hass is not None:
             self.hass.async_create_task(self.async_save())
 

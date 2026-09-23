@@ -775,6 +775,9 @@ class FirmwareManager:
                 age = now - rt.get("started_at", now)
                 last_msg = rt.get("msg_at")
                 if last_msg is None and age > self.OTA_ACK_TIMEOUT_S:
+                    if rt.get("verify_scheduled"):
+                        continue
+                    rt["verify_scheduled"] = True
                     self.hass.async_create_task(
                         self._async_verify_before_fail(
                             node,
@@ -788,6 +791,9 @@ class FirmwareManager:
                     and not rt.get("went_offline")
                     and dev.online
                 ):
+                    if rt.get("verify_scheduled"):
+                        continue
+                    rt["verify_scheduled"] = True
                     self.hass.async_create_task(
                         self._async_verify_before_fail(
                             node, "update stalled (no progress for 2 min)"

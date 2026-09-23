@@ -847,7 +847,10 @@ class CentralController:
         if rep.get("state") != "oversupplied" or cap is None:
             return
         last = getattr(z, "_cap_last_ts", None)
-        if last is not None and (_as_unix(now) - last) < BALANCE_AUTOCAP_INTERVAL_S:
+        # Persisted cooldown must use wall-clock time (not the monotonic tick
+        # clock) — a monotonic value survives a restart as a huge number and
+        # the negative delta would disable auto-cap for days.
+        if last is not None and (_time_mod.time() - last) < BALANCE_AUTOCAP_INTERVAL_S:
             return
         try:
             st = self.hass.states.get(ent)
@@ -862,7 +865,7 @@ class CentralController:
                 {"entity_id": ent, "value": max(float(cap), BALANCE_AUTOCAP_MIN_PCT)},
                 blocking=False,
             )
-            z._cap_last_ts = _as_unix(now)
+            z._cap_last_ts = _time_mod.time()
             # flush the auto-cap cooldown + balance history to storage so a
             # reload right after doesn't lose either
             try:

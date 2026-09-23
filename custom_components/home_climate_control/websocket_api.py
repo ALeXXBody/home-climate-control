@@ -547,6 +547,34 @@ def _zone_entry_and_names(hass: HomeAssistant, zone_name: str):
     return None, []
 
 
+async def _migrate_balance_store(hass: HomeAssistant, entry, old: str, new: str) -> None:
+    """Carry a room's valve-balance history + auto-cap cooldown across a rename.
+
+    The per-room balance Store is keyed by the room's unique_id (which embeds
+    the name), so a rename would otherwise orphan two hours of valve samples
+    and the auto-cap cooldown. Copy old → new and best-effort remove the old.
+    """
+    from homeassistant.helpers.storage import Store
+
+    old_key = f"{entry.entry_id}_room_{old}_balance"
+    new_key = f"{entry.entry_id}_room_{new}_balance"
+    try:
+        old_store = Store(hass, 1, old_key)
+        data = await old_store.async_load()
+    except Exception:  # noqa: BLE001
+        return
+    if not isinstance(data, dict) or not data:
+        return
+    try:
+        new_store = Store(hass, 1, new_key)
+        await new_store.async_save(data)
+        remove = getattr(old_store, "async_remove", None)
+        if callable(remove):
+            await remove()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("balance-store rename migration failed", exc_info=True)
+
+
 # ── Editable integration options from the app Settings tab ────────────────
 # Whitelist: only these keys may be written via home_climate_control/set_options.
 # Numbers are (min, max) ranges; entity fields enforce domain prefixes;
@@ -656,7 +684,18 @@ def _hot_apply_bools(hass: HomeAssistant, entry, options: dict) -> None:
     controller.auto_flowcap = bool(options.get("auto_flowcap", False))
     occupancy = getattr(controller, "occupancy", None)
     if occupancy is not None and hasattr(occupancy, "enabled"):
+        was_enabled = bool(occupancy.enabled)
         occupancy.enabled = bool(options.get("occupancy_enabled", False))
+        # Toggling occupancy on via the bool-only hot path must actually
+        # install the state-change subscription — it was created disabled at
+        # setup and async_start early-returned, so occupancy stayed inert.
+        if (
+            occupancy.enabled
+            and not was_enabled
+            and getattr(occupancy, "_unsub", None) is None
+        ):
+            occupancy.bind_zones(getattr(controller, "zones", []) or [])
+            occupancy.async_start()
     wind = getattr(controller, "windtrim", None)
     if wind is not None and hasattr(wind, "enabled"):
         wind.enabled = bool(
@@ -1131,6 +1170,7 @@ async def ws_rename_zone(
     # Migrate learned history before the reload swaps the entity out.
     if new_name:
         controller.rename_zone_learning(msg["zone"], new_name)
+        await _migrate_balance_store(hass, entry, msg["zone"], new_name)
     _LOGGER.info(
         "rename_zone %r → trv=%r temp=%r hum=%r floor=%r ctrl=%r (%d rooms)",
         msg["zone"],

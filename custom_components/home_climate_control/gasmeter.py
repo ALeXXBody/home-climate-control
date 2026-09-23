@@ -102,6 +102,21 @@ class GasMeter:
                 len(self.days),
             )
 
+    def _payload(self) -> dict[str, Any]:
+        return {
+            "total_kwh": round(self.total_kwh, 4),
+            "days": dict(sorted(self.days.items())[-KEEP_DAYS:]),
+        }
+
+    async def async_flush(self) -> None:
+        """Synchronously persist now (used on unload so buffered gas survives)."""
+        if self._store is None:
+            return
+        try:
+            await self._store.async_save(self._payload())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("gasmeter flush failed", exc_info=True)
+
     def _persist(self, force: bool = False) -> None:
         if self._store is None:
             return
@@ -110,12 +125,7 @@ class GasMeter:
             return
         self._last_persist = now
 
-        payload = {
-            "total_kwh": round(self.total_kwh, 4),
-            "days": dict(
-                sorted(self.days.items())[-KEEP_DAYS:]
-            ),
-        }
+        payload = self._payload()
 
         async def _save() -> None:
             try:
