@@ -236,13 +236,13 @@ class HomeClimateControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_NAME, default=NAME): str,
                 node_field: str,
                 vol.Required(CONF_MIN_FLOW, default=DEFAULT_MIN_FLOW_TEMP): vol.All(
-                    vol.Coerce(float), vol.Range(min=20, max=90)
+                    vol.Coerce(float), vol.Range(min=MIN_FLOW_TEMP_LIMIT, max=MAX_FLOW_TEMP_LIMIT)
                 ),
                 vol.Required(CONF_MAX_FLOW, default=DEFAULT_MAX_FLOW_TEMP): vol.All(
-                    vol.Coerce(float), vol.Range(min=30, max=95)
+                    vol.Coerce(float), vol.Range(min=MIN_FLOW_TEMP_LIMIT, max=MAX_FLOW_TEMP_LIMIT)
                 ),
                 vol.Required(CONF_CURVE, default=DEFAULT_CURVE_COEFF): vol.All(
-                    vol.Coerce(float), vol.Range(min=0.2, max=3.5)
+                    vol.Coerce(float), vol.Range(min=CURVE_COEFF_MIN, max=CURVE_COEFF_MAX)
                 ),
             }
         )

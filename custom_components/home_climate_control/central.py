@@ -163,6 +163,7 @@ class CentralController:
         self._ch_mismatch = 0
         self._last_ch_cmd = 0.0
         self._warned_no_outdoor = False
+        self._tick_running = False
 
     async def async_start(self) -> None:
         await self.backend.async_start()
@@ -402,6 +403,21 @@ class CentralController:
             _LOGGER.exception("Control tick failed")
 
     async def async_control_step(self) -> None:
+        """Run one control pass; skip if the previous pass is still running.
+
+        The 60 s interval and ad-hoc callers (startup, diagnostics) can race;
+        re-entrant passes would double-integrate gas and stampede the backend.
+        """
+        if self._tick_running:
+            _LOGGER.debug("Control tick skipped — previous tick still running")
+            return
+        self._tick_running = True
+        try:
+            await self._async_control_step_locked()
+        finally:
+            self._tick_running = False
+
+    async def _async_control_step_locked(self) -> None:
         import time as _time
 
         now = _time.monotonic()

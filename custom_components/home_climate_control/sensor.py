@@ -184,6 +184,12 @@ class CustomProbeSensor(SensorEntity):
         return self._native
 
     @property
+    def available(self) -> bool:
+        # A probe with no reading yet reports "unavailable" rather than
+        # "unknown" so automations/UI don't mistake it for a live 0 °C.
+        return self._native is not None
+
+    @property
     def extra_state_attributes(self):
         return {"probe_name": self._probe_name, "source": "hcs_1wire"}
 

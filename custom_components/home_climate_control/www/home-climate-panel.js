@@ -1461,35 +1461,6 @@ class HomeClimatePanel extends HTMLElement {
       </svg>`;
   }
 
-  _overviewHtml(sys) {
-    const outdoor = this._fmt(sys.outdoor_temp);
-    const flow = this._fmt(sys.flow_setpoint);
-    const demand = sys.total_demand != null ? Math.round(sys.total_demand * 100) : "—";
-    const ch =
-      sys.boiler?.ch_active || sys.boiler?.flame_on
-        ? `<span class="badge heat">Heating</span>`
-        : `<span class="badge off">Idle</span>`;
-    const flame = sys.boiler?.flame_on
-      ? `<span class="badge heat">Flame</span>`
-      : `<span class="badge off">No flame</span>`;
-    const active = (sys.active_zones || []).join(", ") || "None";
-
-    return `
-      <div class="grid">
-        <div class="card"><h3>Outdoor</h3><div class="metric">${outdoor}<span class="unit">°C</span></div>
-          <div class="sub">${sys.demo ? "Simulated outdoor (demo)" : (sys.boiler?.outdoor_source === "ha" ? "HA fallback sensor" : sys.boiler?.outdoor_source === "boiler_stale" ? "Boiler outdoor (stale)" : "Boiler outdoor sensor")}${sys.boiler?.duty_cycle?.active ? " · duty-cycle" : ""}</div></div>
-        <div class="card"><h3>Flow setpoint</h3><div class="metric">${flow}<span class="unit">°C</span></div>
-          <div class="sub">Weather-compensated target</div></div>
-        <div class="card"><h3>Total demand</h3><div class="metric">${demand}<span class="unit">%</span></div>
-          <div class="sub">Active: ${this._esc(active)}</div></div>
-        <div class="card"><h3>Boiler</h3><div class="metric" style="font-size:1.1rem">${ch} ${flame}</div>
-          <div class="sub">Mod ${this._fmt(sys.boiler?.modulation_level)}% · Return ${this._fmt(sys.boiler?.return_temp)}°C</div></div>
-      </div>
-      ${this._healthHtml(sys)}
-      ${this._zonesHtml(sys, true)}
-    `;
-  }
-
   _healthHtml(sys) {
     const rooms = sys.boiler?.health?.rooms || {};
     const flagged = Object.entries(rooms).filter(([, r]) => r.flag);
@@ -2488,12 +2459,6 @@ class HomeClimatePanel extends HTMLElement {
     return String(c.title || "").replace(/^HCS\s+[\d.]+\s+(GW\s+)?—\s+/, "");
   }
 
-  static _ctlVal(ctl, key, dflt = "—") {
-    const v = ctl?.[key];
-    if (v == null) return dflt;
-    return v;
-  }
-
   /** Replica of the ESP board Control page, driven over MQTT. */
   _boardHtml() {
     const devs = (this._status?.devices || []).filter((d) => d.online);
@@ -3281,21 +3246,6 @@ class HomeClimatePanel extends HTMLElement {
    * Boiler diagnostics banner: reads the HCS device's boiler_diag sensor
    * entity (plain English fault text). Hidden when healthy/unknown.
    */
-  /**
-   * Boiler picture card, top-right of the overview: image + maker/model
-   * caption underneath. Hidden when no boiler info is available.
-   */
-  _boilerPictureHtml(sys) {
-    const bi = sys?.boiler_info;
-    if (!bi || (!bi.make && !bi.detected_make)) return "";
-    const make = bi.make || bi.detected_make || "";
-    const model = bi.model || "";
-    return `<div class="boiler-pic">
-      ${bi.image ? `<img src="${this._esc(bi.image)}" alt="${this._esc(make)}">` : ""}
-      <div class="bp-cap">${this._esc(make)}${model ? `<br>${this._esc(model)}` : ""}</div>
-    </div>`;
-  }
-
   _boilerPillHtml(sys) {
     /* Header pill:
        red   = board MQTT offline / no telemetry (5 min)

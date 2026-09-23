@@ -38,6 +38,8 @@ from .const import (
     CONF_ZONE_TRV_CLIMATES,
     CONF_ZONE_WINDOW_SENSORS,
     CONF_ZONES,
+    CURVE_COEFF_MAX,
+    CURVE_COEFF_MIN,
     DEFAULT_BOILER_MIN_MODULATION,
     DEFAULT_CURVE_COEFF,
     DEFAULT_MAX_FLOW_TEMP,
@@ -48,6 +50,8 @@ from .const import (
     DOMAIN,
     INTEGRATION_VERSION as _PACKAGED_VERSION,
     HEAT_CONTROL_SMART,
+    MAX_FLOW_TEMP_LIMIT,
+    MIN_FLOW_TEMP_LIMIT,
     PRESET_AWAY,
     PRESET_COMFORT,
     PRESET_ECO,
@@ -580,9 +584,9 @@ async def _migrate_balance_store(hass: HomeAssistant, entry, old: str, new: str)
 # Numbers are (min, max) ranges; entity fields enforce domain prefixes;
 # empty string/None on an optional entity field removes it from options.
 _OPTION_RANGES: dict[str, tuple[float, float]] = {
-    "min_flow_temp": (10.0, 90.0),
-    "max_flow_temp": (20.0, 95.0),
-    "curve_coeff": (0.2, 3.0),
+    "min_flow_temp": (MIN_FLOW_TEMP_LIMIT, MAX_FLOW_TEMP_LIMIT),
+    "max_flow_temp": (MIN_FLOW_TEMP_LIMIT, MAX_FLOW_TEMP_LIMIT),
+    "curve_coeff": (CURVE_COEFF_MIN, CURVE_COEFF_MAX),
     "wind_max_delta": (1.0, 6.0),
     "boiler_min_modulation": (5.0, 80.0),
     "rated_heat_input_kw": (0.0, 200.0),
