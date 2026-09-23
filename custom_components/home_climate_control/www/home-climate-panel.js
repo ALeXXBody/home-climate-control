@@ -17,6 +17,7 @@ class HomeClimatePanel extends HTMLElement {
     this._editingZone = null;
     this._busy = {};
     this._poll = null;
+    this._otaFast = null;
     this._selectedBoardId = null;
     this._curveData = null;
     this._curveAt = 0;
@@ -223,6 +224,22 @@ class HomeClimatePanel extends HTMLElement {
     }
   }
 
+  connectedCallback() {
+    // HA reuses the element across dashboard navigation: it disconnects and
+    // reconnects without re-instantiating, but the hass setter only arms the
+    // poll on first attach. Re-arm here so the panel doesn't freeze stale.
+    if (this._hass != null && !this._poll) {
+      this._poll = setInterval(() => this._refresh(), 5000);
+      this._otaFast = setInterval(() => {
+        const active = (this._status?.devices || []).some((d) =>
+          HomeClimatePanel.OTA_ACTIVE.has(d.ota_state)
+        );
+        if (active || this._tab === "devices") this._refresh();
+      }, 2000);
+      this._refresh();
+    }
+  }
+
   _boardDraftFromEvent(ev) {
     const t = ev.target;
     if (t.dataset.draftNode && t.dataset.draftKey) {
@@ -398,7 +415,17 @@ class HomeClimatePanel extends HTMLElement {
     // Per-tab live region
     switch (this._tab) {
       case "rooms": {
-        if (this._addingRoom || this._editingZone) return;
+        if (this._editingZone) {
+          // The edited room may have been renamed/removed by another client
+          // or a reload; a stale _editingZone would otherwise freeze the tab
+          // (the edit form never renders, but live updates stay suppressed).
+          const still = (sys?.zones || []).some(
+            (z) => z.name === this._editingZone
+          );
+          if (!still) this._editingZone = null;
+          else return;
+        }
+        if (this._addingRoom) return;
         const w = root.getElementById("hcc-zones-wrap");
         if (w && !this._focusBlocked(w)) {
           w.innerHTML = this._zonesHtml(sys);
@@ -1134,7 +1161,7 @@ class HomeClimatePanel extends HTMLElement {
         <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
-          <span id="hcc-ver">Home Climate Control${this._status?.version ? ` v${this._status.version}` : ""}</span>
+          <span id="hcc-ver">Home Climate Control${this._status?.version ? ` v${this._esc(this._status.version)}` : ""}</span>
           <a href="https://github.com/ALeXXBody/home-climate-control" target="_blank" rel="noopener">Software</a>
           <a href="https://github.com/ALeXXBody/home-climate-system" target="_blank" rel="noopener">Hardware</a>
           <a href="https://buymeacoffee.com/alexxbody" target="_blank" rel="noopener">Buy me a coffee</a>
@@ -1673,7 +1700,7 @@ class HomeClimatePanel extends HTMLElement {
     const make = bi.make || bi.detected_make || "";
     const model = bi.model || "";
     const imgHtml = (bi && bi.image)
-      ? `<img src="${bi.image}" alt="${this._esc(make)}"><div class="bp-cap">${this._esc(make)}${model ? `<br>${this._esc(model)}` : ""}</div>`
+      ? `<img src="${this._esc(bi.image)}" alt="${this._esc(make)}"><div class="bp-cap">${this._esc(make)}${model ? `<br>${this._esc(model)}` : ""}</div>`
       : `<div class="bp-cap">no boiler info</div>`;
     const ch = b.ch_active || b.flame_on
       ? `<span class="badge heat">Heating</span>`
@@ -1945,7 +1972,7 @@ class HomeClimatePanel extends HTMLElement {
                     ${!manual && dt != null ? `responds ~${dt} min · ` : ""}
                     ${!manual && z.lead_time_s != null && z.lead_time_s > 0 ? `lead ~${Math.round(z.lead_time_s / 60)} min · ` : ""}
                     ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}
-                    temp source: ${z.temp_sensor || (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
+                    temp source: ${z.temp_sensor ? this._esc(z.temp_sensor) : (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
                     ${!manual && z.trv ? `TRV: ${this._esc(z.trv)}<br>` : ""}
                     ${(z.window_sensors || []).length ? `window sensors: ${this._esc((z.window_sensors || []).join(", "))}<br>` : "no window sensors<br>"}
                     ${z.solar_gain ? `<span style="color:#ffd54f">☀️ solar gain</span> · ` : ""}${z.co2_ppm != null ? `CO₂ ${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠ ventilate" : ""} · ` : ""}${z.valve_pct != null ? `valve ${Math.round(z.valve_pct)}% · ` : ""}${z.radiator_kw_est != null ? `radiator ~${z.radiator_kw_est} kW · ` : ""}${z.balance && z.balance.state !== "learning" && z.balance.state !== "ok" ? `<span style="color:#ef9a9a">balance: ${this._esc(z.balance.state)}${z.balance.suggested_cap_pct ? ` — cap ≈ ${z.balance.suggested_cap_pct}%` : ""}</span>` : ""}
@@ -2493,7 +2520,7 @@ class HomeClimatePanel extends HTMLElement {
       <div class="card wide" style="margin-bottom:14px">
         <div class="zone-title">${this._esc(d.name || d.node_id)}
           <span class="badge on">v${this._esc(d.version || "?")}</span>
-          ${fs !== "OFF" ? `<span class="badge heat">failsafe: ${fs}</span>` : ""}
+          ${fs !== "OFF" ? `<span class="badge heat">failsafe: ${this._esc(fs)}</span>` : ""}
         </div>
         <div class="zone-meta">live mirror of the board Control page · changes apply instantly over MQTT</div>
 
@@ -3066,7 +3093,10 @@ class HomeClimatePanel extends HTMLElement {
       return;
     }
     if (action === "apply") {
-      if (input) t = parseFloat(input.value);
+      if (input) {
+        const v = parseFloat(input.value);
+        if (Number.isFinite(v)) t = v; // else keep the guarded default
+      }
       this._setZone(id, { temperature: t });
     }
     if (action === "calibrate") {
@@ -3261,7 +3291,7 @@ class HomeClimatePanel extends HTMLElement {
     const make = bi.make || bi.detected_make || "";
     const model = bi.model || "";
     return `<div class="boiler-pic">
-      ${bi.image ? `<img src="${bi.image}" alt="${this._esc(make)}">` : ""}
+      ${bi.image ? `<img src="${this._esc(bi.image)}" alt="${this._esc(make)}">` : ""}
       <div class="bp-cap">${this._esc(make)}${model ? `<br>${this._esc(model)}` : ""}</div>
     </div>`;
   }

@@ -11,5 +11,5 @@ def test_no_update_listener_that_double_reloads():
 
 
 def test_packaged_version_is_not_the_1_0_0_placeholder():
-    assert INTEGRATION_VERSION == "1.15.8"
+    assert INTEGRATION_VERSION == "1.15.9"
     assert websocket_api.INTEGRATION_VERSION != "1.0.0"

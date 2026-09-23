@@ -488,6 +488,28 @@ check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
   el._render();
 }
 
+// ── Gate: a stale _editingZone must not freeze the Rooms tab ──
+// If the edited room is renamed/removed by another client or a reload, the
+// edit form never renders but live updates stay suppressed forever. The poll
+// now clears the dangling _editingZone and re-renders the room list.
+{
+  el._status.systems[0].zones = [
+    { name: "Office", floor: 0, heat_control: "smart", current_temperature: 18,
+      target_temperature: 20, effective_setpoint: 20, demand_level: 0.4,
+      hvac_action: "heating", window_open: false, trv_climates: [],
+      temp_sensor: null, humidity_sensor: null },
+  ];
+  el._tab = "rooms";
+  el._editingZone = "Ghost";       // edited room vanished
+  el._render();
+  el._applyStatus();
+  check(el._editingZone === null,
+    "stale _editingZone not cleared (got: " + el._editingZone + ")");
+  const wrap2 = el.shadowRoot.getElementById("hcc-zones-wrap");
+  check(!!wrap2 && wrap2.innerHTML.includes("Office"),
+    "rooms wrap not re-rendered after clearing stale edit zone");
+}
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);
