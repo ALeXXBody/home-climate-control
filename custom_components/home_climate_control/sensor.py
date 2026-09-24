@@ -23,9 +23,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _topic_for_node(node_id: str, key: str) -> str:
-    """Prefer the entry's node; fall back to wildcard if unknown."""
-    node = (node_id or "").strip()
-    return f"hcs/{node}/{key}" if node else f"hcs/+/{key}"
+    """Topic for a per-board leaf. Subscribe on the wildcard: the board's node
+    segment may or may not carry the 'hcs-' prefix, and a wrong specific topic
+    silently misses every message. One config entry == one board in practice,
+    so the '+' wildcard is safe and immune to the prefix ambiguity."""
+    return f"hcs/+/{key}"
 
 
 async def async_setup_entry(

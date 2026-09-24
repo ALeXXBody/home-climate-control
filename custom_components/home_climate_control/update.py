@@ -51,6 +51,29 @@ class HcsFirmwareUpdateEntity(UpdateEntity):
         self._attr_unique_id = f"{DOMAIN}_fw_{entry_id}"
         self._in_progress = False
         self._attr_entity_picture = self._brand_icon_url()
+        self._unsub = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        from homeassistant.core import callback
+
+        @callback
+        def _on_devices_changed() -> None:
+            # A board announced (or changed version) — re-read installed/latest
+            # so the entity stops showing "unknown" from before first discovery.
+            self.async_write_ha_state()
+
+        mgr = self._mgr()
+        if mgr is not None and hasattr(mgr, "add_update_listener"):
+            mgr.add_update_listener(_on_devices_changed)
+            self._unsub = lambda: mgr.remove_update_listener(_on_devices_changed)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+        await super().async_will_remove_from_hass()
 
     def _brand_icon_url(self) -> str | None:
         """Origin-relative URL of the bundled brand icon for the Updates card.

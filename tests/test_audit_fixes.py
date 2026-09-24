@@ -100,7 +100,9 @@ def test_hcs_backend_ping_uses_global_topic():
 def test_sensor_topic_scoped_to_node():
     from custom_components.home_climate_control.sensor import _topic_for_node
 
-    assert _topic_for_node("hcs-abc", "failsafe") == "hcs/hcs-abc/failsafe"
+    # Always the '+' wildcard: the board's node segment may carry the "hcs-"
+    # prefix, and a wrong specific topic silently misses every message.
+    assert _topic_for_node("hcs-abc", "failsafe") == "hcs/+/failsafe"
     assert _topic_for_node("", "boiler_diag") == "hcs/+/boiler_diag"
 
 

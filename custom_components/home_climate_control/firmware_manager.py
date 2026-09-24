@@ -300,6 +300,27 @@ class FirmwareManager:
         self._ota_rt: dict[str, dict[str, Any]] = {}
         self._watchdog_task: Any = None
         self._unsub_ota = None
+        # Entities (the firmware update entity) that re-read device versions
+        # when discovery changes them — without this the entity stays frozen
+        # at "unknown" from before the first device announcement.
+        self._update_listeners: list = []
+
+    def add_update_listener(self, cb) -> None:
+        if cb not in self._update_listeners:
+            self._update_listeners.append(cb)
+
+    def remove_update_listener(self, cb) -> None:
+        try:
+            self._update_listeners.remove(cb)
+        except ValueError:
+            pass
+
+    def _notify_update_listeners(self) -> None:
+        for cb in list(self._update_listeners):
+            try:
+                cb()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _in_grace(self) -> bool:
         return time.monotonic() < self._grace_until
@@ -987,6 +1008,7 @@ class FirmwareManager:
         dev.last_seen = datetime.now(timezone.utc).isoformat()
         self.devices[node] = dev
         self._prune_stale()
+        self._notify_update_listeners()
 
         # Graceful-disconnect boards never fire an LWT, so the offline ->
         # online transition that drives _ota_resolve_reboot() never happens;
