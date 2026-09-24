@@ -177,6 +177,14 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._pid_output: float = 0.0
         self._demand: float = 0.0
 
+    def rescale_pid_for_curve(self, curve_coeff: float) -> None:
+        """Re-scale the zone PID gain when auto-tune changes the curve.
+
+        The PID kp is derived from the curve coefficient; without this the
+        flow PID component keeps the stale gain after the base curve moved.
+        """
+        self.pid.kp = PID_KP * max(0.5, min(float(curve_coeff), 2.0))
+
     def _can_write_state(self) -> bool:
         """False until HA has attached this entity (entity_id + platform).
 
@@ -527,6 +535,15 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         )
         if want != self._preheat_active:
             self._preheat_active = want
+            # Push the raised (arm) or restored (disarm) effective setpoint to
+            # the TRV. Without this the boiler fires on the pre-heat demand
+            # while the radiator valve stays shut at the setback temperature —
+            # gas burnt, room not warmed.
+            if self.hass is not None and self._trv_entity:
+                try:
+                    self.hass.async_create_task(self._push_setpoint_to_trv())
+                except Exception:  # noqa: BLE001
+                    pass
             if want:
                 _LOGGER.info(
                     "%s: pre-heat on (deficit %.1f °C, lead ~%.0f min)",

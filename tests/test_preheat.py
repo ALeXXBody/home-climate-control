@@ -171,6 +171,57 @@ def test_zone_preheat_drives_comfort_setpoint():
     assert lead is not None and lead > 3600  # multi-hour catch-up
 
 
+def test_zone_preheat_pushes_setpoint_to_trv():
+    """Regression: pre-heat must push the raised setpoint to the TRV, or the
+    boiler fires while the radiator valve stays shut at the setback temp."""
+    from unittest.mock import MagicMock
+
+    from homeassistant.components.climate import HVACMode
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    class FakeDt:
+        def seconds_for(self, name, fallback=None):
+            return 10 * 60.0
+
+    class FakeSb:
+        def warm_rate_for(self, name):
+            return 2.0
+
+        def offset_for(self, name, fallback, dead_time_s=None):
+            return -3.0
+
+    class Coord:
+        curve_coeff = 1.2
+        flow_setpoint = None
+        deadtime = FakeDt()
+        setbacks = FakeSb()
+
+    z = object.__new__(ZoneClimateEntity)
+    z.hass = MagicMock()
+    z.coordinator = Coord()
+    z._attr_name = "Living"
+    z._current_temp = 16.0
+    z._target_temp = 21.0
+    z._preset = "away"
+    z._hvac_mode = HVACMode.HEAT
+    z._window_open = False
+    z.heater_control = "smart"
+    z._preheat_active = False
+    z._demand = 0.0
+    z._pid_output = 0.0
+    z._trv_entity = "climate.fake_trv"
+    z._trv_climates = []
+    z._temp_sensor = None
+    z._window_sensors = []
+    z.floor = 0
+    z.pid = type("P", (), {"reset": lambda s: None, "update": lambda s, e: 0})()
+
+    assert z.wants_heat() is True
+    assert z._preheat_active is True
+    # The TRV must be told the raised (comfort) setpoint.
+    z.hass.async_create_task.assert_called()
+
+
 def test_zone_no_preheat_when_shallow_setback():
     from homeassistant.components.climate import HVACMode
     from custom_components.home_climate_control.zone import ZoneClimateEntity

@@ -20,8 +20,8 @@ Tier 0 uses this in two places without needing a calendar:
 
 from __future__ import annotations
 
-# Keep in lockstep with setback.RECOVERY_TARGET_H (imported by callers for
-# display); duplicated here so this module stays HA-free / pure-logic.
+# Single source of truth for the recovery window. Defined here (not in
+# setback.py) so this module stays HA-free / pure-logic; setback.py imports it.
 RECOVERY_TARGET_H = 1.0
 MIN_RECOVERY_H = 0.25          # never shrink the window below 15 min of pure rise
 DEFAULT_DEAD_S = 5 * 60.0      # used only when no measurement yet

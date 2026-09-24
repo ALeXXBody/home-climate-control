@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.15.16"
+INTEGRATION_VERSION = "1.15.17"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
@@ -86,7 +86,6 @@ FAILSAFE_BLOCK_STATES = ("ON", "HOLD")
 # the building". Write behind auto_master + per-feature flag; RAM-only
 # (a reload restores the configured max; HA log shows every move).
 CONF_AUTO_FLOWCAP = "auto_flowcap"
-FLOWCAP_RETURN_HIGH_C = 55.0      # natural-gas condensing band ceiling
 FLOWCAP_WINDOW_SAMPLES = 90       # 90 ticks ≈ 90 min of burner data
 FLOWCAP_SHARE = 0.85              # ≥85% of window must be hot + low deficit
 FLOWCAP_STEP_C = 2.0              # trim size per approved move

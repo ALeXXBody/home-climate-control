@@ -18,6 +18,9 @@ from .const import (
     CONF_BACKEND,
     CONF_NODE_ID,
     CONF_OUTDOOR_SENSOR,
+    CONF_AUTO_OPTIMIZE,
+    CONF_AUTO_FLOWCAP,
+    CONF_BALANCE_AUTOCAP,
     CONF_WIND_ENABLED,
     CONF_WIND_ENTITY,
     CONF_WIND_MAX_DELTA,
@@ -397,6 +400,21 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                     CONF_LEARN_SETBACKS,
                     default=opts.get(CONF_LEARN_SETBACKS, True),
                     description="learn_setbacks",
+                ): bool,
+                vol.Required(
+                    CONF_AUTO_OPTIMIZE,
+                    default=opts.get(CONF_AUTO_OPTIMIZE, False),
+                    description="auto_master",
+                ): bool,
+                vol.Required(
+                    CONF_AUTO_FLOWCAP,
+                    default=opts.get(CONF_AUTO_FLOWCAP, False),
+                    description="auto_flowcap",
+                ): bool,
+                vol.Required(
+                    CONF_BALANCE_AUTOCAP,
+                    default=opts.get(CONF_BALANCE_AUTOCAP, False),
+                    description="balance_autocap",
                 ): bool,
                 vol.Optional(
                     CONF_OUTDOOR_SENSOR,

@@ -161,24 +161,6 @@ class DeadTimeEstimator:
     def seconds_for(self, zone: str, fallback: float | None = None) -> float | None:
         return self.estimates.get(zone, fallback)
 
-    def lead_for(
-        self,
-        zone: str,
-        *,
-        warm_cph: float | None,
-        deficit_c: float,
-    ) -> float | None:
-        """Full optimal-start lead (dead-time + recovery) for one room."""
-        from .preheat import lead_seconds
-
-        if deficit_c is None:
-            return None
-        return lead_seconds(
-            dead_s=self.seconds_for(zone),
-            warm_cph=warm_cph,
-            deficit_c=deficit_c,
-        )
-
     def _room(self, zone: str) -> _RoomState:
         return self.rooms.setdefault(zone, _RoomState())
 

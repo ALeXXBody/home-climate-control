@@ -163,6 +163,7 @@ class CentralController:
         self._ch_mismatch = 0
         self._last_ch_cmd = 0.0
         self._warned_no_outdoor = False
+        self._warned_no_return = False
         self._tick_running = False
 
     async def async_start(self) -> None:
@@ -650,6 +651,18 @@ class CentralController:
                     d = snap[z][2] - cur
                     worst_def = d if worst_def is None else max(worst_def, d)
             ret = getattr(self.backend, "return_temp", None)
+            if ret is None and not self._warned_no_return:
+                # Condensing pull-down + auto-flow-cap both need the return
+                # temperature. Without it they silently no-op, so flag it once
+                # so "optimising gas" is never silently off.
+                _LOGGER.warning(
+                    "No boiler return temperature available — condensing "
+                    "pull-down and auto-flow-cap are inactive until the HCS "
+                    "board publishes return_temp"
+                )
+                self._warned_no_return = True
+            elif ret is not None:
+                self._warned_no_return = False
             target_flow, pull = condense_pull(
                 target_flow,
                 ret,
@@ -681,6 +694,10 @@ class CentralController:
                         learned = self.autotune.step()
                         if learned is not None and learned != self.curve_coeff:
                             self.curve_coeff = learned
+                            for z in self.zones:
+                                rescale = getattr(z, "rescale_pid_for_curve", None)
+                                if callable(rescale):
+                                    rescale(learned)
                     else:
                         self.autotune.step(probe=True)
                 else:
