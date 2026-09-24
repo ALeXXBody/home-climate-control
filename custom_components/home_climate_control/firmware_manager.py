@@ -1181,8 +1181,9 @@ class FirmwareManager:
                     stale = hashlib.sha256(data).hexdigest() != want_sha
                 elif want_size is not None:
                     stale = len(data) != want_size
-                else:
-                    stale = False
+                # else: no size/digest metadata → cannot prove freshness, so
+                # re-download. A stale cache (the "board rebooted onto the
+                # same version" bug) was caused by assuming fresh here.
             if not stale:
                 return
             import asyncio
@@ -1339,9 +1340,12 @@ class FirmwareManager:
     async def async_trigger_ota(
         self, node_id: str, url: str, target_version: str | None = None
     ) -> dict[str, Any]:
-        """Tell device to pull firmware from URL (MQTT + HTTP fallback)."""
+        """Tell device to pull firmware from URL over MQTT."""
         if not valid_node_id(node_id):
             return {"ok": False, "error": "invalid node id"}
+        # Refresh the catalog first so the mirror has fresh size/digest
+        # metadata and the version really is the one the user picked.
+        await self.async_refresh_catalog(force=True)
         url = await self._async_ota_url(url)
         self.last_ota_url = url
         dev = self.devices.get(node_id)
@@ -1372,36 +1376,16 @@ class FirmwareManager:
         except Exception:  # noqa: BLE001
             pass
 
-        # 1) MQTT command (device handles hcs/<node>/set/ota_url)
+        # MQTT command (qos 1 so a busy/reconnecting board doesn't miss it).
         topic = f"hcs/{node_id}/set/ota_url"
-        await mqtt.async_publish(self.hass, topic, url, 0, False)
+        await mqtt.async_publish(self.hass, topic, url, 1, False)
         _LOGGER.info("OTA MQTT %s -> %s", node_id, url)
 
-        # 2) HTTP POST fallback
-        http_ok = False
-        http_err = ""
-        if dev.api_ota or dev.ip:
-            api = dev.api_ota or f"http://{dev.ip}/api/ota"
-            session = async_get_clientsession(self.hass)
-            try:
-                async with session.post(
-                    api,
-                    json={"url": url},
-                    timeout=30,
-                ) as resp:
-                    http_ok = resp.status < 300
-                    if not http_ok:
-                        http_err = f"HTTP {resp.status}"
-            except Exception as err:  # noqa: BLE001
-                http_err = str(err)
-                _LOGGER.warning("OTA HTTP to %s failed: %s", api, err)
-
-        dev.last_error = http_err
         return {
             "ok": True,
             "mqtt": True,
-            "http": http_ok,
-            "http_error": http_err or None,
+            "http": False,
+            "http_error": None,
             "node_id": node_id,
             "url": url,
         }

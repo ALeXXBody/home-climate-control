@@ -58,38 +58,19 @@ async def test_trigger_ota_mqtt_topic_payload_nonretained():
         assert payload == url
         qos = kwargs.get("qos", args[3] if len(args) > 3 else None)
         retain = kwargs.get("retain", args[4] if len(args) > 4 else None)
+        assert qos == 1, "ota_url must use qos 1 so a busy board doesn't miss it"
         assert retain is False, "ota_url must NOT be retained"
 
 
 @pytest.mark.asyncio
-async def test_trigger_ota_http_fallback_called():
+async def test_trigger_ota_no_http_fallback():
+    """The HTTP POST fallback was removed: it cannot authenticate to the
+    board's (password-protected) control endpoints and was dead weight."""
     from unittest.mock import MagicMock as M
 
     hass = M()
     session = M()
-    resp = M()
-    resp.status = 200
-
-    class _RespCtx:  # noqa: D401 - async context manager for "async with"
-        async def __aenter__(self):
-            return resp
-
-        async def __aexit__(self, *a):
-            return False
-
-    post_calls = []
-
-    class _PostFn:
-        call_args = None
-        async_count = 0
-        _calls = post_calls
-
-        def __call__(self, *a, **k):
-            post_calls.append((a, k))
-            return _RespCtx()
-
-    session.post = _PostFn()
-
+    session.post = M()
 
     from custom_components.home_climate_control.firmware_manager import (
         FirmwareManager,
@@ -111,9 +92,6 @@ async def test_trigger_ota_http_fallback_called():
             res = await mgr.async_trigger_ota("hcs-t2", url)
 
             assert res["ok"] is True
-            assert res.get("http") is True
-            assert not res.get("http_error")
-            a, kw = post_calls[-1]
-            assert a[0] == "http://192.168.50.153/api/ota"
-            assert kw.get("json") == {"url": url}
-            assert kw.get("timeout") == 30
+            assert res.get("http") is False
+            assert not session.post.called
+            mqtt_mod.async_publish.assert_awaited_once()
