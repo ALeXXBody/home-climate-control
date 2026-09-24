@@ -9,7 +9,7 @@ Home Climate Control is a pair of projects that turn an ordinary gas boiler into
 | **HCC** | A Home Assistant integration (this repo) — the brain. Reads every room's demand, computes the ideal boiler flow temperature, and drives the boiler on/off to burn as little gas as possible. |
 | **HCS** | A tiny ESP32 firmware + OpenTherm adapter — the hands. It talks to the boiler over OpenTherm and to Home Assistant over MQTT. Repo: [ALeXXBody/home-climate-system](https://github.com/ALeXXBody/home-climate-system). |
 
-Unlike a dumb thermostat or a fixed weather-compensation curve, HCC **learns your house**: how fast each room heats and cools, how laggy the radiators are, and how much the boiler should fire — then tunes itself to spend less gas and still hit your comfort times.
+Unlike a basic on/off thermostat, HCC **learns your house**: how fast each room heats and cools, how laggy the radiators are, and how much the boiler should fire — then tunes itself to spend less gas and still hit your comfort times.
 
 ## In 60 seconds
 
@@ -29,4 +29,4 @@ Unlike a dumb thermostat or a fixed weather-compensation curve, HCC **learns you
 
 ---
 
-*Home Climate Control is not just "another PID / Better-Thermostat clone" — the differentiator is the combination of per-room TRV demand, condensing control, duty-cycling, learned setbacks, optimal start and curve auto-tuning, all described in [Gas optimization](Gas-optimization).*
+*The combination of per-room TRV demand, condensing control, duty-cycling, learned setbacks, optimal start and curve auto-tuning is what keeps the house warm while spending less gas — all described in [Gas optimization](Gas-optimization).*
