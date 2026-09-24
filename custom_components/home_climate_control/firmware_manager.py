@@ -1207,6 +1207,31 @@ class FirmwareManager:
             # the only reliable path for pre-TLS (ESP8266) boards.
             _LOGGER.debug("OTA mirror refresh failed", exc_info=True)
 
+    async def _async_refresh_sig(self, url: str, local: Path) -> None:
+        """Mirror the 64-byte ECDSA signature next to the cached image.
+
+        The board fetches ``<image>.sig`` before flashing (ESP32). It is a
+        tiny sibling of the release asset; staleness only ever means "absent".
+        """
+        import asyncio
+
+        try:
+            if local.is_file() and local.stat().st_size == 64:
+                return
+            session = async_get_clientsession(self.hass)
+            async with asyncio.timeout(60):
+                async with session.get(url) as resp:
+                    resp.raise_for_status()
+                    data = await resp.read()
+            if len(data) != 64:
+                raise ValueError(f"signature not 64 bytes ({len(data)}B)")
+            tmp = local.with_name(local.name + ".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(local)
+            _LOGGER.warning("OTA signature mirrored: %s", local.name)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("OTA signature mirror failed", exc_info=True)
+
     async def _async_ota_url(self, url: str) -> str:
         """Serve GitHub release binaries over plain LAN HTTP when possible.
 
@@ -1226,6 +1251,10 @@ class FirmwareManager:
                 url,
             )
             return url  # nothing cached, let the board try GitHub itself
+
+        # Mirror the ECDSA signature too — the board fetches <image>.sig and
+        # refuses to flash (ESP32) without a valid one alongside the image.
+        await self._async_refresh_sig(url + ".sig", local.with_name(local.name + ".sig"))
 
         dev_ip = next(
             (d.ip for d in self.devices.values() if d.online and d.ip), None

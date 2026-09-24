@@ -23,6 +23,7 @@ GH = (
     "https://github.com/ALeXXBody/home-climate-system/releases/download/"
     "v1.1.1/firmware-d1_mini.bin"
 )
+GHS = GH + ".sig"  # ECDSA signature sibling (ESP32 signed OTA)
 
 
 @pytest.fixture()
@@ -44,23 +45,30 @@ def env(tmp_path, monkeypatch):
 
 def _fake_session(payload: bytes, calls: list):
     class _Resp:
+        def __init__(self, body):
+            self._body = body
+
         def raise_for_status(self):
             pass
 
         async def read(self):
-            return payload
+            return self._body
 
     class _CM:
+        def __init__(self, body):
+            self._body = body
+
         async def __aenter__(self):
-            calls.append(GH)
-            return _Resp()
+            return _Resp(self._body)
 
         async def __aexit__(self, *a):
             return False
 
     class _Sess:
         def get(self, url):
-            return _CM()
+            calls.append(url)
+            body = (b"\x00" * 64) if url.endswith(".sig") else payload
+            return _CM(body)
 
     return _Sess()
 
@@ -77,7 +85,7 @@ def test_fresh_cache_not_redownloaded(env, monkeypatch):
     calls = []
     monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"x" * 70000, calls))
     url = asyncio.run(m._async_ota_url(GH))
-    assert calls == []  # no download: cache already fresh
+    assert calls == [GHS]  # only the signature is fetched; the image is fresh
     assert url == "http://192.168.50.20:8123/home_climate_control_static/firmware/firmware-d1_mini.bin"
 
 
@@ -89,7 +97,7 @@ def test_stale_cache_is_refreshed_before_mirroring(env, monkeypatch):
     calls = []
     monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"x" * 70000, calls))
     url = asyncio.run(m._async_ota_url(GH))
-    assert calls == [GH]  # refresh happened
+    assert calls == [GH, GHS]  # image refresh + signature mirror
     assert f.read_bytes() == b"x" * 70000
     assert url.endswith("/home_climate_control_static/firmware/firmware-d1_mini.bin")
 
@@ -142,7 +150,7 @@ def test_same_size_rebuild_still_refreshes(env, monkeypatch):
     calls = []
     monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"x" * 70000, calls))
     asyncio.run(m._async_ota_url(GH))
-    assert calls == [GH]
+    assert calls == [GH, GHS]
     assert f.read_bytes() == b"x" * 70000
 
 
@@ -157,7 +165,7 @@ def test_corrupt_download_rejected_by_sha(env, monkeypatch):
     calls = []
     monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"E" * 70000, calls))
     url = asyncio.run(m._async_ota_url(GH))
-    assert calls == [GH]  # download attempted...
+    assert calls == [GH, GHS]  # download attempted... (image + signature)
     assert f.read_bytes() == b"keep" * 1000  # ...but rejected, cache kept
     assert url.endswith("/firmware/firmware-d1_mini.bin")
 
