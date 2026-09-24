@@ -403,12 +403,12 @@ class HomeClimateControlOptionsFlow(config_entries.OptionsFlow):
                 ): bool,
                 vol.Required(
                     CONF_AUTO_OPTIMIZE,
-                    default=opts.get(CONF_AUTO_OPTIMIZE, False),
+                    default=opts.get(CONF_AUTO_OPTIMIZE, True),
                     description="auto_master",
                 ): bool,
                 vol.Required(
                     CONF_AUTO_FLOWCAP,
-                    default=opts.get(CONF_AUTO_FLOWCAP, False),
+                    default=opts.get(CONF_AUTO_FLOWCAP, True),
                     description="auto_flowcap",
                 ): bool,
                 vol.Required(

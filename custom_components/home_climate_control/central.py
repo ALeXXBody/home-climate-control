@@ -82,8 +82,8 @@ class CentralController:
         wind_max_delta: float = 3.0,
         preset_temps: dict | None = None,
         balance_autocap: bool = False,
-        auto_master: bool = False,
-        auto_flowcap: bool = False,
+        auto_master: bool = True,
+        auto_flowcap: bool = True,
     ) -> None:
         self.hass = hass
         self.backend = backend

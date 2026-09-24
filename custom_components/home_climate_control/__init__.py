@@ -178,8 +178,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         wind_enabled=opts.get(CONF_WIND_ENABLED, bool(opts.get(CONF_WIND_ENTITY))),
         preset_temps=opts.get(CONF_PRESET_TEMPS),
         balance_autocap=opts.get(CONF_BALANCE_AUTOCAP, False),
-        auto_master=opts.get(CONF_AUTO_OPTIMIZE, False),
-        auto_flowcap=opts.get(CONF_AUTO_FLOWCAP, False),
+        auto_master=opts.get(CONF_AUTO_OPTIMIZE, True),
+        auto_flowcap=opts.get(CONF_AUTO_FLOWCAP, True),
         wind_max_delta=opts.get(CONF_WIND_MAX_DELTA, DEFAULT_WIND_MAX_DELTA),
         min_modulation_pct=opts.get(
             "boiler_min_modulation", DEFAULT_BOILER_MIN_MODULATION

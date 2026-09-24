@@ -663,8 +663,8 @@ def _options_view(opts: dict) -> dict:
     )
     view["gas_price_per_kwh"] = opts.get("gas_price_per_kwh")
     view["balance_autocap"] = opts.get("balance_autocap", False)
-    view["auto_master"] = opts.get("auto_master", False)
-    view["auto_flowcap"] = opts.get("auto_flowcap", False)
+    view["auto_master"] = opts.get("auto_master", True)
+    view["auto_flowcap"] = opts.get("auto_flowcap", True)
     view["preset_temps"] = {
         **DEFAULT_PRESET_TEMPS,
         **(opts.get(CONF_PRESET_TEMPS) or {}),
@@ -690,9 +690,9 @@ def _hot_apply_bools(hass: HomeAssistant, entry, options: dict) -> None:
     controller = data.get("controller")
     if controller is None:
         return
-    controller.auto_master = bool(options.get("auto_master", False))
+    controller.auto_master = bool(options.get("auto_master", True))
     controller.balance_autocap = bool(options.get("balance_autocap", False))
-    controller.auto_flowcap = bool(options.get("auto_flowcap", False))
+    controller.auto_flowcap = bool(options.get("auto_flowcap", True))
     occupancy = getattr(controller, "occupancy", None)
     if occupancy is not None and hasattr(occupancy, "enabled"):
         was_enabled = bool(occupancy.enabled)
