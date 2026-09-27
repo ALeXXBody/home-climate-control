@@ -1880,6 +1880,9 @@ class HomeClimatePanel extends HTMLElement {
       return null;
     }
     return {
+      // Identity of the room THIS snapshot came from, so the restore can tell
+      // whether the draft still belongs to the form about to be rendered.
+      roomKey: r.getElementById(prefix + "-form-room")?.value || "",
       prefix,
       name: r.getElementById(prefix + "-name")?.value || "",
       control: r.getElementById(prefix + "-control")?.value || "smart",
@@ -1897,6 +1900,12 @@ class HomeClimatePanel extends HTMLElement {
 
   _restoreAddRoomForm(s) {
     const r = this.shadowRoot;
+    // The draft is only valid for the room it was captured on. When the
+    // current form belongs to a DIFFERENT room (edit-switched rooms, or the
+    // add form after an edit), restoring here would stomp the fresh, correct
+    // prefill of the new room with stale values from the previous form.
+    const marker = r.getElementById(s.prefix + "-form-room");
+    if (marker && marker.value !== s.roomKey) return;
     const set = (id, v) => { const e = r.getElementById(id); if (e) e.value = v; };
     set(s.prefix + "-name", s.name);
     set(s.prefix + "-control", s.control);
@@ -1972,6 +1981,7 @@ class HomeClimatePanel extends HTMLElement {
     const action = isEdit ? "save-edit" : "create";
     return `
       <div class="card" style="margin-top:12px">
+        <input type="hidden" id="${prefix}-form-room" value="${isEdit ? this._esc(z.name || "") : "new"}">
         <h3>${isEdit ? "Edit room" : "New room"}</h3>
         ${isEdit ? "" : `<div class="row"><label>Name</label>
           <input id="${prefix}-name" type="text" placeholder="e.g. Kitchen" value="${this._esc(curName)}" style="flex:1"></div>`}

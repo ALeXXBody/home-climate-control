@@ -544,6 +544,54 @@ check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
   check(el._showDebug === false, "debug-close did not hide the Debug tab");
 }
 
+// ── Gate: edit-switch must not carry another room's draft into the form ──
+// Draft capture keyed only by er/nr prefix used to stomp the second room's
+// correct prefill with the first room's saved values (user report: "when I
+// try to edit a room, everything is populated with office trv/sensor").
+{
+  const saved = el._status.systems[0].zones;
+  el._status.systems[0].zones = [
+    { name: "Office", heat_control: "smart", trv_climates: ["climate.office_trv"],
+      temp_sensor: "sensor.office_sensor_temperature", floor: 0 },
+    { name: "Living", heat_control: "smart", trv_climates: ["climate.living_trv"],
+      temp_sensor: "sensor.living_sensor_temperature", floor: 0 },
+  ];
+  const states = el._hass?.states || {};
+  el._hass = { states: { ...states,
+    "climate.office_trv": { attributes: { friendly_name: "Office TRV" } },
+    "climate.living_trv": { attributes: { friendly_name: "Living TRV" } },
+    "sensor.office_sensor_temperature": { attributes: { friendly_name: "Office temp", device_class: "temperature" } },
+    "sensor.living_sensor_temperature": { attributes: { friendly_name: "Living temp", device_class: "temperature" } },
+  } };
+  const openEdit = (room) => {
+    el._tab = "rooms";
+    el._render();
+    const b = [...el.shadowRoot.querySelectorAll('[data-zone-action="edit"]')]
+      .find(x => x.getAttribute("data-zone-name") === room);
+    b.dispatchEvent(new w.Event("click", { bubbles: true }));
+    return new Promise((r) => setTimeout(r, 20));
+  };
+  const gv = (id) => el.shadowRoot.getElementById(id)?.value || "";
+  await openEdit("Office");
+  check(gv("er-trv") === "climate.office_trv", "Office edit prefills its own TRV (got " + gv("er-trv") + ")");
+  // Now switch to Living — the form must NOT inherit Office's values.
+  await openEdit("Living");
+  check(gv("er-trv") === "climate.living_trv",
+    "Living edit polluted with another room's draft (got " + gv("er-trv") + ")");
+  check(gv("er-sensor") === "sensor.living_sensor_temperature",
+    "Living sensor field polluted (got " + gv("er-sensor") + ")");
+  // Type a draft into Living, go back to Office: the draft must NOT follow.
+  const typed = el.shadowRoot.getElementById("er-humidity");
+  if (typed) typed.value = "sensor.living_humidity";
+  await openEdit("Office");
+  check(gv("er-humidity") === "", "draft leaked across rooms (got " + gv("er-humidity") + ")");
+  check(gv("er-trv") === "climate.office_trv", "Office edit re-prefills its own TRV");
+  el._editingZone = null;
+  el._status.systems[0].zones = saved;
+  el._hass = { states };
+  el._render();
+}
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);
