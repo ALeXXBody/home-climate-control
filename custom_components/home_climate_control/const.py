@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.15.20"
+INTEGRATION_VERSION = "1.15.21"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
@@ -153,9 +153,18 @@ CONF_ZONE_HUMIDITY_SENSOR = "humidity_sensor"  # optional RH % (sensor.*)
 CONF_ZONE_WINDOW_SENSORS = "window_sensors"
 CONF_ZONE_TRV_CLIMATES = "trv_climates"  # one or more climate entities (TRV)
 CONF_ZONE_FLOOR = "floor"  # int: 0 = ground floor, 1 = first floor, ...
-CONF_ZONE_HEAT_CONTROL = "heat_control"  # smart | manual
+CONF_ZONE_HEAT_CONTROL = "heat_control"  # smart | valve | manual
 HEAT_CONTROL_SMART = "smart"    # addressable TRV: HCC commands it
+HEAT_CONTROL_VALVE = "valve"    # direct valve actuator: HCC drives the opening degree
 HEAT_CONTROL_MANUAL = "manual"  # hand-turned valve: HCC observes only
+
+# Valve-direct drive tuning (per-room writes to a number.* valve entity)
+VALVE_MIN_PCT = 15.0            # smallest useful opening (motor + valve dead band)
+VALVE_HYST_PCT = 3.0            # re-write only when the target moves ≥ this
+VALVE_WRITE_INTERVAL_S = 600.0  # ≥ this between writes on the same motor
+VALVE_PIN_INTERVAL_S = 1800.0   # how often to re-assert the TRV pin (mode/SP)
+VALVE_OPEN_DEMAND = 0.03        # demand fraction that justifies opening
+VALVE_CLOSE_DEMAND = 0.01       # demand fraction below which the valve shuts
 CONF_ZONE_IS_UNDERFLOOR = "underfloor"
 
 # Tier 3/4 per-room extras

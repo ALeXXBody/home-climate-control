@@ -906,6 +906,7 @@ class HomeClimatePanel extends HTMLElement {
           opacity: .9; pointer-events: none; z-index: 2;
         }
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
+        .mode-pill.valve { color: #9fce6a; border-color: #9fce6a55; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
         /* 3-col: info | centered tall thermostat | rail under pill */
@@ -1929,6 +1930,12 @@ class HomeClimatePanel extends HTMLElement {
     return this._roomFormHtml(null);
   }
 
+  _modeLabel(manual, valveMode) {
+    if (manual) return { cls: "manual", text: "✋ manual" };
+    if (valveMode) return { cls: "valve", text: "🎛 valve" };
+    return { cls: "smart", text: "⚡ smart" };
+  }
+
   _roomFormHtml(z) {
     const isEdit = z != null;
     const prefix = isEdit ? "er" : "nr";
@@ -1988,13 +1995,14 @@ class HomeClimatePanel extends HTMLElement {
         <div class="row"><label>Heater control</label>
           <select id="${prefix}-control" style="flex:1">
             <option value="smart" ${curControl === "smart" ? "selected" : ""}>⚡ Smart TRV (controlled)</option>
+            <option value="valve" ${curControl === "valve" ? "selected" : ""}>🎛 Valve direct (HCC drives opening)</option>
             <option value="manual" ${curControl === "manual" ? "selected" : ""}>✋ Manual radiator (observed)</option>
           </select></div>
         <div class="row"><label>Floor</label>
           <select id="${prefix}-floor" style="flex:1">
             ${[0, 1, 2, 3].map((f) => `<option value="${f}" ${curFloor === String(f) ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`).join("")}
           </select></div>
-        <div class="row"><label>TRV climate<br><span style="font-weight:400">(required for smart, comma-sep)</span></label>
+        <div class="row"><label>TRV climate<br><span style="font-weight:400">(required for smart/valve, comma-sep)</span></label>
           <input id="${prefix}-trv" list="${prefix}-climates" value="${this._esc(curTrv)}" placeholder="climate.… (blank for manual)" style="flex:1">
           <datalist id="${prefix}-climates">${climates.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
         <div class="row"><label>Temp sensor<br><span style="font-weight:400">(optional)</span></label>
@@ -2065,7 +2073,7 @@ class HomeClimatePanel extends HTMLElement {
     if (compact) {
       return `
           <div class="card zone" style="position:relative">
-            <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
+            <span class="mode-pill ${this._modeLabel(manual, z.heat_control === "valve").cls}">${this._modeLabel(manual, z.heat_control === "valve").text}</span>
             ${infoHtml}
           </div>`;
     }
@@ -2121,7 +2129,7 @@ class HomeClimatePanel extends HTMLElement {
               </div>`;
     return `
           <div class="card zone" style="position:relative">
-            <span class="mode-pill ${manual ? "manual" : "smart"}">${manual ? "✋ manual" : "⚡ smart"}</span>
+            <span class="mode-pill ${this._modeLabel(manual, z.heat_control === "valve").cls}">${this._modeLabel(manual, z.heat_control === "valve").text}</span>
             <div class="z-main">
               ${infoHtml}
               ${tempHtml}

@@ -790,8 +790,10 @@ class CentralController:
                 _LOGGER.debug("health feed failed", exc_info=True)
 
         # ── Tier 4: radiator metering + TRV balancing feed ──────────────
+        # ── Tier 5: valve-direct closed loop (rooms with a number valve) ─
         be_flow = getattr(self.backend, "flow_temp", None)
         be_ret = getattr(self.backend, "return_temp", None)
+        healthy = self._system_healthy_for_auto()
         for z in self.zones:
             if getattr(z, "radiator_kw", None):
                 z._radiator_kw_est = radiator_output_kw(
@@ -804,6 +806,18 @@ class CentralController:
                     and z.effective_setpoint() - z.current_temperature > 0.1
                 )
                 z.balance.sample(valve, below)
+            if getattr(z, "valve_direct_active", None) and callable(
+                getattr(z, "valve_direct_active")
+            ) and z.valve_direct_active():
+                    # Valve-driving rooms ignore the auto-cap path (their
+                    # valve is owned by HCC already) — run pin + drive.
+                    try:
+                        await z.valve_pin_tick(now)
+                        if healthy:
+                            z.valve_apply(now, self.hass)
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("valve drive failed", exc_info=True)
+            elif valve is not None:
                 await self._async_maybe_autocap(z, now)
 
         # Auto-flow-cap feed: sample the hot-return signal each tick

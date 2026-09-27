@@ -38,9 +38,15 @@ from .const import (
     DEFAULT_TARGET_STEP,
     DEFAULT_ZONE_SETPOINT,
     DEFAULT_PRESET_TEMPS,
+    HEAT_CONTROL_VALVE,
     PID_INTEGRAL_CLAMP,
     PID_KI,
     PID_KP,
+    VALVE_HYST_PCT,
+    VALVE_MIN_PCT,
+    VALVE_OPEN_DEMAND,
+    VALVE_PIN_INTERVAL_S,
+    VALVE_WRITE_INTERVAL_S,
     ZONE_PRESETS,
 )
 from .balancing import BalanceMonitor
@@ -104,7 +110,12 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         except (TypeError, ValueError):
             self.floor = 0
         control = str(zone_cfg.get("heat_control", "smart") or "smart").lower()
-        self.heater_control: str = control if control in ("smart", "manual") else "smart"
+        self.heater_control: str = (
+            control if control in ("smart", "valve", "manual") else "smart"
+        )
+        # Valve-direct drive state (rate-limit + pin bookkeeping).
+        self._valve_last_write: float = 0.0
+        self._valve_pin_at: float = 0.0
         # Rooms without physical sensors get slope-based detection instead:
         # an abnormally fast temperature drop pauses heat just like a
         # tripped door sensor would.
@@ -780,6 +791,108 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if temp is not None:
             self._current_temp = temp
             self._temp_from_trv = True
+
+    def valve_direct_active(self) -> bool:
+        """True when HCC drives this room's valve opening degree directly.
+
+        Requires the valve-direct heat mode AND a writable (number.*) valve
+        position entity; sensor-only positions stay read-only.
+        """
+        return self.heater_control == HEAT_CONTROL_VALVE and (
+            self._trv_position_entity or ""
+        ).startswith("number.")
+
+    def valve_want_pct(self) -> float:
+        """Desired valve opening (0-100) from the room's live demand.
+
+        Closed loop: demand_level() is the clamped comfort error / 3 °C, so
+        ~33 % demand ≈ 1 °C deficit. The +10 headroom pushes the valve past
+        proportional so a stubborn room actually reaches setpoint. Zero
+        demand shuts fully — no smoulder into an already-warm room.
+        """
+        demand = self.demand_level()
+        if demand > VALVE_OPEN_DEMAND:
+            pct = max(VALVE_MIN_PCT, round(demand * 100.0))
+            return min(100.0, float(pct + 10.0))
+        return 0.0
+
+    def valve_current_pct(self, hass) -> float | None:
+        st = hass.states.get(self._trv_position_entity)
+        if st is None:
+            return None
+        try:
+            v = float(st.state)
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, min(100.0, v))
+
+    def valve_apply(self, now: float, hass) -> None:
+        """One tick of the valve-direct closed loop (rate-limited)."""
+        if not self.valve_direct_active() or self._hvac_mode != HVACMode.HEAT:
+            return
+        want = self.valve_want_pct()
+        cur = self.valve_current_pct(hass)
+        if cur is None:
+            return
+        if self._window_open or self._hvac_mode != HVACMode.HEAT:
+            want = 0.0  # paused: shut the valve regardless of demand
+        if (
+            abs(want - cur) < VALVE_HYST_PCT
+            or now - self._valve_last_write < VALVE_WRITE_INTERVAL_S
+        ):
+            return
+        self._valve_last_write = now
+        self.hass.async_create_task(hass.services.async_call(
+            "number", "set_value",
+            {"entity_id": self._trv_position_entity, "value": want},
+            blocking=False,
+        ))
+        self._debug(
+            "valve-drive",
+            f"{self._zone_name()}: valve → {want:.0f}% (was {cur:.0f}%, "
+            f"demand {self.demand_level():.2f})",
+        )
+
+    async def valve_pin_tick(self, now: float) -> None:
+        """Keep the physical TRV out of its own algorithm's way: force heat
+        mode and pin the target so the onboard curve does not close the valve
+        while HCC is driving it (rate-limited)."""
+        if not self.valve_direct_active() or self._hvac_mode != HVACMode.HEAT:
+            return
+        if now - self._valve_pin_at < VALVE_PIN_INTERVAL_S:
+            return
+        st = self._hass.states.get(self._trv_entity) if self._hass else None
+        if st is None:
+            return
+        mode_ok = getattr(st, "state", None) == str(
+            getattr(HVACMode, "HEAT", None)
+        )
+        cur_sp = (st.attributes or {}).get("temperature") if st.attributes else None
+        want_sp = self.effective_setpoint()
+        try:
+            want_sp = round(float(want_sp), 1)
+        except (TypeError, ValueError):
+            want_sp = None
+        if mode_ok and isinstance(cur_sp, (int, float)) and (
+            abs(float(cur_sp) - want_sp) < 0.6
+        ):
+            self._valve_pin_at = now  # healthy pin: refresh the clock only
+            return
+        self._valve_pin_at = now
+        if not mode_ok:
+            await self._push_hvac_to_trv(
+                HVACMode.HEAT, "valve-mode re-assert"
+            )
+        if isinstance(want_sp, (int, float)):
+            await self.hass.services.async_call(
+                "climate", "set_temperature",
+                {"entity_id": self._trv_entity, "temperature": want_sp},
+                blocking=False,
+            )
+            self._debug(
+                "valve-drive",
+                f"{self._zone_name()}: TRV pinned to heat/{want_sp:.1f} °C",
+            )
 
     def _trv_humidity(self) -> float | None:
         st = self._trv_state()

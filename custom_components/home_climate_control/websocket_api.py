@@ -50,6 +50,7 @@ from .const import (
     DOMAIN,
     INTEGRATION_VERSION as _PACKAGED_VERSION,
     HEAT_CONTROL_SMART,
+    HEAT_CONTROL_VALVE,
     MAX_FLOW_TEMP_LIMIT,
     MIN_FLOW_TEMP_LIMIT,
     PRESET_AWAY,
@@ -882,7 +883,7 @@ def validate_zone_name(names: list[str | None], new_name: str) -> str | None:
 
 
 FLOOR_MAX = 30
-HEAT_CONTROLS = ("smart", "manual")
+HEAT_CONTROLS = ("smart", "valve", "manual")
 
 
 def build_zone_config(
@@ -910,11 +911,17 @@ def build_zone_config(
     if err:
         raise ValueError(err)
     if heat_control not in HEAT_CONTROLS:
-        raise ValueError("heat_control must be 'smart' or 'manual'")
+        raise ValueError("heat_control must be 'smart', 'valve' or 'manual'")
     floor = max(0, min(FLOOR_MAX, int(floor or 0)))
     trvs = [t.strip() for t in (trv_climates or []) if t and t.strip()]
     if heat_control == HEAT_CONTROL_SMART and not trvs:
         raise ValueError("A smart room needs at least one TRV climate entity")
+    if heat_control == HEAT_CONTROL_VALVE and not (trv_position_entity or "").strip():
+        raise ValueError(
+            "A valve room needs a TRV valve position (number) entity")
+    if heat_control == HEAT_CONTROL_VALVE and not trvs:
+        # A pinned TRV keeps its internal algorithm out of the way.
+        raise ValueError("A valve room needs at least one TRV climate to pin")
     for t in trvs:
         if not t.startswith("climate."):
             raise ValueError(f"'{t}' is not a climate entity")
@@ -986,7 +993,7 @@ def validate_zone_update(
     if floor is not None and not (0 <= int(floor) <= FLOOR_MAX):
         return f"Floor must be between 0 and {FLOOR_MAX}"
     if heat_control is not None and heat_control not in HEAT_CONTROLS:
-        return "heat_control must be 'smart' or 'manual'"
+        return "heat_control must be 'smart', 'valve' or 'manual'"
     return None
 
 
