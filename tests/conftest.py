@@ -133,6 +133,10 @@ def install_ha_stubs() -> None:
     comp_panel_custom = _mod("homeassistant.components.panel_custom")
     comp_panel_custom.async_register_panel = MagicMock()
     comp.panel_custom = comp_panel_custom
+    comp_select = _mod("homeassistant.components.select")
+    comp_select.SelectEntity = object
+    comp.select = comp_select
+    ha.select = comp_select
 
     wsapi = _mod("homeassistant.components.websocket_api")
     wsapi.websocket_command = lambda schema: (lambda fn: fn)

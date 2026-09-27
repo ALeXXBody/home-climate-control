@@ -17,7 +17,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import (
+    CONF_ZONES,
+    DOMAIN,
+    HEAT_CONTROL_SMART,
+    HEAT_CONTROL_VALVE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +46,17 @@ async def async_setup_entry(
     fs_sensor = FailsafeSensor(entry.entry_id, node_hint)
     hass.data[DOMAIN][entry.entry_id]["boiler_diag_sensor"] = sensor
     hass.data[DOMAIN][entry.entry_id]["failsafe_sensor"] = fs_sensor
+    room_entities = []
+    zones = (entry.options.get(CONF_ZONES, []) or [])
+    for zc in zones:
+        name = (zc.get("name") or "").strip()
+        if not name:
+            continue
+        rs = RoomControlSensor(entry.entry_id, name)
+        room_entities.append(rs)
+        data.setdefault("room_sensors", {})[name] = rs
+    if room_entities:
+        async_add_entities(room_entities)
     async_add_entities([sensor, fs_sensor])
     # Dynamic custom 1-Wire probes (role=custom on the gateway)
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
@@ -288,3 +304,89 @@ class ProbeManager:
             new.append(ent)
         if new:
             self._add(new)
+
+
+class RoomControlSensor(SensorEntity):
+    """Per-room control health feed for automations & notifications.
+
+    State: healthy | learning | degraded(<reason>). Attributes carry the
+    learning telemetry (cycles, warm/cool rates, dead-time, valve mode).
+    The controller's control tick refreshes it via `refresh(zone)`.
+    """
+
+    _attr_should_poll = False
+    _attr_icon = "mdi:home-thermometer"
+    _attr_device_class = None
+    native_value = "learning"
+
+    def __init__(self, entry_id: str, room: str) -> None:
+        self._entry_id = entry_id
+        self._room = room
+        self._attr_unique_id = f"{DOMAIN}_room_ctl_{entry_id}_{room}"
+        self._attr_native_unit_of_measurement = None
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="Home Climate Control",
+            manufacturer="Home Climate Control",
+        )
+
+    @callback
+    def refresh(self, zone) -> None:
+        """Pull the control state for the attached zone."""
+        if zone is None:
+            return
+        rc = getattr(zone, "heater_control", "smart")
+        has_trv = bool(getattr(zone, "_trv_entity", None)
+                       or getattr(zone, "_trv_climates", None))
+        has_temp = (
+            getattr(zone, "_temp_sensor", None) is not None
+            or getattr(zone, "current_temperature", None) is not None
+        )
+        valve_ok = getattr(zone, "valve_direct_active", None) and callable(
+            getattr(zone, "valve_direct_active")
+        )
+        if rc_valve := getattr(zone, "valve_direct_active", False):
+            has_valve = bool(
+                getattr(zone, "_trv_position_entity", None) or ""
+            ).startswith("number.")
+        else:
+            has_trv_valve = False
+        value = "healthy"
+        if rc_valve == "valve" or (
+            getattr(zone, "heater_control", None) == HEAT_CONTROL_VALVE
+            and not has_trv_valve
+        ):
+            value = "degraded:no_writable_valve"
+        elif getattr(zone, "heater_control", None) == HEAT_CONTROL_SMART and not has_trv:
+            value = "degraded:no_trv"
+        elif not has_temp:
+            value = "degraded:no_temperature_source"
+        elif getattr(zone, "window_open", False):
+            value = "paused:window"
+        learner = getattr(getattr(zone, "coordinator", None), "setbacks", None)
+        cycles = getattr(
+            getattr(learner, "rooms", {}).get(getattr(zone, "_zone_name", lambda: "")()),
+            "cycles", None,
+        ) if learner else None
+        if value == "healthy" and isinstance(cycles, int) and cycles < MIN_CYCLES:
+            value = "learning"
+        if value != self.native_value:
+            self.native_value = value
+        self._attr_extra_state_attributes = {
+            "warm_rate_cph": getattr(
+                getattr(learner, "rooms", {}).get(
+                    getattr(zone, "_zone_name", lambda: "")()
+                ),
+                "warm_ema", None,
+            ),
+            "cycles": cycles,
+            "control": getattr(zone, "heater_control", None),
+            "trv": getattr(zone, "_trv_entity", None),
+            "temp_sensor": getattr(zone, "_temp_sensor", None),
+            "valve_direct": getattr(zone, "valve_direct_active", lambda: False)()
+            if callable(getattr(zone, "valve_direct_active", None)) else False,
+            "name": self._room,
+        }
+        self.async_write_ha_state()
+
+from .setback import MIN_CYCLES

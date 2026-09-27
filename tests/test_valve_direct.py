@@ -10,6 +10,10 @@ from custom_components.home_climate_control.zone import ZoneClimateEntity
 from custom_components.home_climate_control.websocket_api import build_zone_config
 
 
+async def _noop_sleep(_sec):
+    return
+
+
 def _zone(heat_control="valve", valve_entity="number.office_trv_valve_opening_degree",
           trv="climate.office_trv", demand=0.6, cur_pct=0.0):
     z = object.__new__(ZoneClimateEntity)
@@ -114,3 +118,70 @@ async def test_valve_emit_targets_comfort_setpoint():
     z.valve_apply(2_000.0, hass)
     data = hass.services.async_call.call_args.args[2]
     assert data["value"] == 0.0, "room at target ⇒ valve fully shut"
+
+
+@pytest.mark.asyncio
+async def test_zone_exercise_writes_min_max_restore():
+    """Manual/automatic anti-stick sweep: 100 -> 0 -> saved, per room."""
+    z, hass, _ = _zone(demand=0.0, cur_pct=55.0)
+    z._valve_exercising = False
+    z._valve_last_exercise = 0.0
+    z._valve_last_write = 0.0
+    z.wants_heat = lambda: False  # room idle
+    z._exercise_sleep = _noop_sleep
+    await z.valve_exercise()
+    call_values = [
+        c.args[2]["value"]
+        for c in hass.services.async_call.await_args_list
+        if c.args and c.args[0] == "number"
+    ]
+    assert call_values == [100.0, 0.0, 55.0]
+    assert z._valve_exercising is False
+    # Cooldown armed so next tick does nothing for 7 days.
+    import time as _t
+    assert _t.time() - z._valve_last_exercise < 7 * 86400
+
+
+def test_push_setpoint_suppresses_noop_within_trv_step():
+    """A push whose value is within the TRV own rounding grid is skipped."""
+    import asyncio
+
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    z = object.__new__(ZoneClimateEntity)
+    z._trv_entity = "climate.x"
+    z.heater_control = "smart"
+    z._trv_state = lambda: MagicMock(attributes={"target_temp_step": 1.0,
+                                                 "temperature": 21.0})
+    _ct = z  # property; skip
+    z.effective_setpoint = lambda: 21.2   # inside one grid step of 1.0
+    z._zone_name = lambda: "X"
+    z._valve_pct = None
+    hass = MagicMock()
+    hass.services.async_call = AsyncMock()
+    z._hass = hass
+    hass.services.async_call.assert_not_called()
+
+
+def test_push_setpoint_still_pushes_real_change():
+    """A change outside the rounding grid is pushed normally."""
+    import asyncio
+
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    z = object.__new__(ZoneClimateEntity)
+    z._trv_entity = "climate.x"
+    z.heater_control = "smart"
+    z._trv_state = lambda: MagicMock(attributes={"target_temp_step": 1.0,
+                                                 "temperature": 20.0})
+    z.effective_setpoint = lambda: 21.0
+    z._zone_name = lambda: "X"
+    z._valve_pct = None
+    hass = MagicMock()
+    hass.services.async_call = AsyncMock()
+    z._hass = hass
+    z.hass = hass
+    asyncio.run(z._push_setpoint_to_trv("test"))
+    assert hass.services.async_call.await_count == 1
+    data = hass.services.async_call.await_args.args[2]
+    assert data["temperature"] == 21.0

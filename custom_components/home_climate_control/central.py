@@ -795,6 +795,18 @@ class CentralController:
         be_ret = getattr(self.backend, "return_temp", None)
         healthy = self._system_healthy_for_auto()
         for z in self.zones:
+            # Per-room health/learning state → HA sensor (name-matched).
+            rs_map = (self.hass.data.get(DOMAIN, {}) or {}).get(
+                getattr(self, "entry_id", None) or "", {}
+            ).get("room_sensors", {}) or {}
+            rs = rs_map.get(getattr(z, "name", None))
+            if rs is not None:
+                rs_fn = getattr(rs, "refresh", None)
+                if callable(rs_fn):
+                    try:
+                        rs_fn(z)
+                    except (AttributeError, TypeError):
+                        pass
             if getattr(z, "radiator_kw", None):
                 z._radiator_kw_est = radiator_output_kw(
                     z.radiator_kw, be_flow, be_ret, z.current_temperature
@@ -806,6 +818,10 @@ class CentralController:
                     and z.effective_setpoint() - z.current_temperature > 0.1
                 )
                 z.balance.sample(valve, below)
+            rs = (self.hass.data.get(DOMAIN, {}) or {}).get(
+                getattr(self, 'entry_id', None), {},
+            ).get('room_sensors') or {}
+            _room_sens = None  # filled below
             if getattr(z, "valve_direct_active", None) and callable(
                 getattr(z, "valve_direct_active")
             ) and z.valve_direct_active():

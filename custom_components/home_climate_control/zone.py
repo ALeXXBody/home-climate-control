@@ -116,6 +116,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # Valve-direct drive state (rate-limit + pin bookkeeping).
         self._valve_last_write: float = 0.0
         self._valve_pin_at: float = 0.0
+        self._valve_last_exercise: float = 0.0
+        self._valve_exercising = False
         # Rooms without physical sensors get slope-based detection instead:
         # an abnormally fast temperature drop pauses heat just like a
         # tripped door sensor would.
@@ -853,6 +855,73 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             f"demand {self.demand_level():.2f})",
         )
 
+    async def force_valve_exercise(self) -> None:
+        """Manual 'run valve maintenance now' action (panel button/WS)."""
+        import time as _t
+
+        self._valve_last_exercise = 0.0
+        self._valve_last_exercise = _t.time()
+        await self.valve_exercise()
+
+    async def maybe_exercise(self, now: float = None) -> None:
+        """Cheap per-tick entry: run valve_exercise only when the 7-day
+        anti-stick clock is due and the room is idle."""
+        if not self.valve_direct_active() or self._valve_exercising:
+            return
+        import time as _t
+
+        if _t.time() - self._valve_last_exercise < 7 * 86400.0:
+            return
+        # Don't even build the task while heating demand is active.
+        if self._hvac_mode != HVACMode.HEAT or self.wants_heat():
+            return
+        self._valve_last_exercise = _t.time()         # start the cooldown
+        self.hass.async_create_task(self.valve_exercise())
+
+    async def _exercise_sleep(self, seconds: float) -> None:
+        await __import__("asyncio").sleep(seconds)
+
+    async def valve_exercise(self) -> None:
+        """Anti-stick valve exercise: a full travel sweep (min -> max -> min)
+        while heating is IDLE -- that is exactly when mechanical valves
+        seize. Returns the valve to the drive position afterwards, and
+        suspends the drive loop for the duration so nothing fights the sweep.
+        Rate-limited to one run per 7 days per room."""
+        if not self.valve_direct_active() or self._valve_exercising:
+            return
+        # Never fight active heating: only exercise while the room is idle.
+        if self._hvac_mode != HVACMode.HEAT or self.wants_heat():
+            return
+        import asyncio
+        import time as _t
+
+        if _t.time() - self._valve_last_exercise < 7 * 86400.0:
+            return
+        self._valve_exercising = True
+        self._valve_last_exercise = _t.time()
+        saved = self.valve_current_pct(self._hass)
+        restore = float(saved) if saved is not None else 0.0
+        steps = ((100.0, 45.0), (0.0, 45.0), (restore, 0.0))
+        try:
+            for step, wait in steps:
+                await self._hass.services.async_call(
+                    "number", "set_value",
+                    {"entity_id": self._trv_position_entity, "value": step},
+                    blocking=False,
+                )
+                self._debug(
+                    "valve-drive",
+                    f"{self._zone_name()}: exercising valve to {step:.0f}% (anti-stick)",
+                )
+                if wait:
+                    await self._exercise_sleep(wait)
+        finally:
+            self._valve_exercising = False
+            self._valve_last_write = _t.monotonic()  # restart the rate window
+            self._debug(
+                "valve-drive",
+                f"{self._zone_name()}: valve exercise done (back to {restore:.0f}%)",
+            )
     async def valve_pin_tick(self, now: float) -> None:
         """Keep the physical TRV out of its own algorithm's way: force heat
         mode and pin the target so the onboard curve does not close the valve
@@ -1004,6 +1073,26 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             return
         try:
             sp = self.effective_setpoint()
+            # No-op suppression: skip re-sends of values the TRV already
+            # holds, compared ON ITS OWN rounding grid (0.5/1.0 °C). Every
+            # avoided push saves a zigbee write + a motor wake.
+            st = self._trv_state()
+            if st is not None:
+                try:
+                    step = float((st.attributes or {}).get("target_temp_step", 0.5))
+                except (TypeError, ValueError):
+                    step = 0.5
+                live = (st.attributes or {}).get("temperature")
+                if (
+                    isinstance(live, (int, float))
+                    and step > 0
+                    and sp - float(live) < step * 0.9
+                ):
+                    _LOGGER.debug(
+                        "%s: TRV already at %.2f (grid %.2f), skip push",
+                        self._zone_name(), float(live), step,
+                    )
+                    return
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
@@ -1032,6 +1121,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if not self._trv_entity or self.heater_control == "manual":
             return
         try:
+            st = self._trv_state()
+            if st is not None and str(st.state or "").lower() == str(mode).lower():
+                return  # already there
             await self.hass.services.async_call(
                 "climate",
                 "set_hvac_mode",

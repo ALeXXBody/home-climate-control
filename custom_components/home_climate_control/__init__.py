@@ -279,7 +279,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await hass.config_entries.async_forward_entry_setups(
-        entry, ["climate", "sensor", "update"]
+        entry, ["climate", "sensor", "select", "update"]
     )
     # No add_update_listener. WS handlers (add/rename/remove/set_options)
     # already await async_reload after async_update_entry so the panel gets
@@ -462,7 +462,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _bi_active.pop(entry.entry_id, None)
 
         unload_ok = await hass.config_entries.async_unload_platforms(
-            entry, ["climate", "sensor", "update"]
+            entry, ["climate", "sensor", "select", "update"]
         )
 
     remaining = [

@@ -2121,6 +2121,10 @@ class HomeClimatePanel extends HTMLElement {
                           .join("")}
                       </select>
                     </div>`}
+                    ${z.heat_control === "valve" && z.trv_position_entity ? `
+                    <button type="button" class="ghost" data-zone-action="exercise-valve"
+                      data-zone-name="${this._esc(z.name || "")}"
+                      title="Anti-stick sweep (min → max → back), ~2 min, only while idle">Ex. valve</button>` : ""}
                     <button type="button" class="ghost" data-zone-action="remove"
                       data-zone-name="${this._esc(z.name || "")}"
                       title="Remove this room">Delete</button>
@@ -3099,6 +3103,12 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "cancel-edit") {
       this._editingZone = null;
       this._render();
+      return;
+    }
+    if (action === "exercise-valve") {
+      const zoneName = el.getAttribute("data-zone-name");
+      if (zoneName)
+        this._adminZone("exercise_valve", { zone: zoneName });
       return;
     }
     if (action === "save-edit") {

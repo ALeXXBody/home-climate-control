@@ -1713,6 +1713,34 @@ async def ws_get_ot_log(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
+        vol.Required("type"): f"{DOMAIN}/exercise_valve",
+        vol.Required("zone"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_exercise_valve(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Manual anti-stick valve maintenance (full travel sweep, ~2 min)."""
+    for data in (hass.data.get(DOMAIN, {}) or {}).values():
+        controller = data.get("controller") if isinstance(data, dict) else None
+        zones = getattr(controller, "zones", None) or []
+        z = next((x for x in zones if getattr(x, "name", None) == msg["zone"]), None)
+        if z is None:
+            continue
+        fn = getattr(z, "force_valve_exercise", None)
+        if callable(fn):
+            hass.async_create_task(fn())
+            connection.send_result(msg["id"], {"ok": True})
+            return
+    connection.send_error(msg["id"], "not_found", "zone not found")
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
         vol.Required("type"): f"{DOMAIN}/get_debug_log",
     }
 )
