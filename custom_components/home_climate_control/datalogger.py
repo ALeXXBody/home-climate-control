@@ -181,8 +181,12 @@ class TrainingDataLogger:
             _LOGGER.debug("retention prune failed", exc_info=True)
 
     # ------------------------------------------------------------------ init
-    def async_start(self) -> None:
-        self._load_meta()
+    def async_start(self, hass=None) -> None:
+        # Blocking file I/O must leave the event loop (HA warns otherwise).
+        if hass is not None and hasattr(hass, "async_add_executor_job"):
+            hass.async_add_executor_job(self._load_meta)
+        else:
+            self._load_meta()
 
     async def async_stop(self) -> None:
         if not self._buf:

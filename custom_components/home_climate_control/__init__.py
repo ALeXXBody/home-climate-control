@@ -145,7 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     insulation = InsulationScorer(hass)
     await insulation.async_load()
     datalogger = TrainingDataLogger(hass)
-    datalogger.async_start()
+    datalogger.async_start(hass)
     gas = GasMeter(
         hass,
         rated_power_kw=opts.get("rated_heat_input_kw", 24.0),
