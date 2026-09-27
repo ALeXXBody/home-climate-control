@@ -510,6 +510,40 @@ check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
     "rooms wrap not re-rendered after clearing stale edit zone");
 }
 
+// ── Gate: secret Debug tab flow (Settings button → tab + log screen) ──
+{
+  check(!el.shadowRoot.querySelector('[data-tab="debug"]'),
+    "Debug tab button should be hidden until enabled");
+  el._tab = "settings";
+  el._render();
+  const dbgBtn2 = el.shadowRoot.querySelector('[data-action="debug-open"]');
+  check(!!dbgBtn2, "Debug trigger button not rendered on Settings tab");
+  if (dbgBtn2) {
+    dbgBtn2.dispatchEvent(new w.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    check(el._showDebug === true, "debug-open did not enable _showDebug");
+    check(el._tab === "debug", "debug-open did not switch to the Debug tab");
+    const nav = el.shadowRoot.querySelector('[data-tab="debug"]');
+    check(!!nav, "Debug tab button not visible after open");
+    const pre = el.shadowRoot.getElementById("hcc-debug-pre");
+    check(!!pre, "Debug log screen missing");
+    el._debugData = [
+      { t: "2026-09-24T12:00:00", k: "trv", m: "Office: TRV target → 21.0 °C (schedule)" },
+    ];
+    el._render();
+    const pre2 = el.shadowRoot.getElementById("hcc-debug-pre");
+    check(!!pre2 && pre2.innerHTML.includes("TRV target → 21.0"),
+      "debug log does not render the TRV event text");
+    // Close → tab hidden again.
+    const close = el.shadowRoot.querySelector('[data-action="debug-close"]');
+    if (close) {
+      close.dispatchEvent(new w.Event("click", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+  check(el._showDebug === false, "debug-close did not hide the Debug tab");
+}
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);

@@ -165,6 +165,41 @@ class CentralController:
         self._warned_no_outdoor = False
         self._warned_no_return = False
         self._tick_running = False
+        # Secret debug screen: rolling in-memory event log (tail shown in the
+        # panel). Kept small — plain dicts, newest last, trimmed to DEBUG_MAX.
+        self._debug_log: list = []
+
+    # ---------------------------------------------------------------- debug
+    DEBUG_MAX = 400
+
+    def debug_log(self, kind: str, text: str) -> None:
+        """Append one line to the in-memory debug feed (secret panel screen)."""
+        from datetime import datetime
+
+        self._debug_log.append(
+            {"t": datetime.now().isoformat(timespec="seconds"), "k": kind, "m": text}
+        )
+        if len(self._debug_log) > self.DEBUG_MAX:
+            del self._debug_log[: len(self._debug_log) - self.DEBUG_MAX]
+
+    def _debug_tick(self) -> None:
+        def _f(v, nd=1):
+            return f"{v:.{nd}f}" if isinstance(v, (int, float)) else "n/a"
+
+        self.debug_log(
+            "tick",
+            "CH %s · flow setpoint %s°C · demand %s%% · zones %s · "
+            "out %s°C · return %s°C · flame %s"
+            % (
+                "on" if self._ch_on else "off",
+                _f(self.flow_setpoint),
+                _f(self.total_demand * 100, 0),
+                ", ".join(self.active_zone_names) or "none",
+                _f(getattr(self.backend, "outdoor_temp", None)),
+                _f(getattr(self.backend, "return_temp", None)),
+                "yes" if getattr(self.backend, "flame_on", False) else "no",
+            ),
+        )
 
     async def async_start(self) -> None:
         if self._unsub_loop is not None:
@@ -529,6 +564,17 @@ class CentralController:
             if ch_state:
                 why = _reason if _reason != "start" else duty_reason
                 _LOGGER.info("CH on (%s)", why)
+                self.debug_log(
+                    "boiler",
+                    "CH ON (%s) — zones %s → flow %s°C"
+                    % (
+                        why,
+                        ", ".join(self.active_zone_names) or "n/a",
+                        f"{self.flow_setpoint:.1f}"
+                        if isinstance(self.flow_setpoint, (int, float))
+                        else "n/a",
+                    ),
+                )
                 # Dead-time stopwatches: rooms demanding at this instant are
                 # timed until their temperature starts to move.
                 if self.deadtime is not None:
@@ -547,6 +593,7 @@ class CentralController:
             else:
                 why = _reason if _reason != "stop" else duty_reason
                 _LOGGER.info("CH off (%s)", why)
+                self.debug_log("boiler", f"CH OFF ({why})")
                 if self.deadtime is not None:
                     self.deadtime.disarm_all()
 
@@ -785,6 +832,8 @@ class CentralController:
                     if temp is not None and hasattr(zone, "on_sensor_update"):
                         zone.on_sensor_update(temp, None)
 
+        self._debug_tick()
+
     def _training_row(self) -> dict:
         """Flat, ML-friendly snapshot of the whole system for this tick."""
         from datetime import datetime, timezone
@@ -940,6 +989,10 @@ class CentralController:
             _LOGGER.info(
                 "%s: balance auto-cap → TRV %s opening capped at %s%% (was %.0f%%)",
                 z.name, ent, cap, cur,
+            )
+            self.debug_log(
+                "valve-cap",
+                f"{z.name}: TRV valve {ent} opening capped to {cap}% (was {cur:.0f}%)",
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("balance auto-cap write failed", exc_info=True)

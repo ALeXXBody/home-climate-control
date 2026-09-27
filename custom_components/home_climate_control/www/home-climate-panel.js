@@ -22,6 +22,8 @@ class HomeClimatePanel extends HTMLElement {
     this._curveData = null;
     this._curveAt = 0;
     this._drafts = {};
+    this._showDebug = false;   // secret Debug tab: toggled from Settings
+    this._debugData = null;
   }
 
   set hass(hass) {
@@ -68,12 +70,31 @@ class HomeClimatePanel extends HTMLElement {
         this._tab = tab.getAttribute("data-tab");
         if (this._tab !== "settings") this._soptMsg = null;
         if (this._tab === "stats") this._fetchStats();
+        if (this._tab === "debug") this._fetchDebugLog();
         this._render();
         return;
       }
       if (t.closest('[data-action="stats-reset"]')) {
         if (!confirm("Reset all statistics?\nClears every day bucket and zeroes the gas meter totals.")) return;
         this._resetStats();
+        return;
+      }
+      if (t.closest('[data-action="debug-open"]')) {
+        this._showDebug = true;
+        this._tab = "debug";
+        this._debugData = null;
+        this._render();
+        this._fetchDebugLog();
+        return;
+      }
+      if (t.closest('[data-action="debug-refresh"]')) {
+        this._fetchDebugLog();
+        return;
+      }
+      if (t.closest('[data-action="debug-close"]')) {
+        this._showDebug = false;
+        if (this._tab === "debug") this._tab = "settings";
+        this._render();
         return;
       }
       if (t.closest('[data-action="refresh"]')) {
@@ -431,6 +452,11 @@ class HomeClimatePanel extends HTMLElement {
           w.innerHTML = this._zonesHtml(sys);
           this._applyRoomFlash(root); // survive polls while animating
         }
+        break;
+      }
+      case "debug": {
+        // Auto-refresh the feed while the debug screen is open.
+        this._debugTick_();
         break;
       }
       case "devices": {
@@ -1156,6 +1182,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("devices", "Devices")}
           ${this._tabBtn("settings", "Settings")}
           ${this._tabBtn("diagnostics", "Diagnostics")}
+          ${this._showDebug ? this._tabBtn("debug", "Debug") : ""}
         </nav>
         <div id="hcc-error" class="error" ${this._error ? "" : "hidden"}>${this._esc(this._error || "")}</div>
         <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
@@ -1296,6 +1323,8 @@ class HomeClimatePanel extends HTMLElement {
           <p class="sub" style="margin-top:0">Engineering telemetry — safe to ignore, fun to watch.</p>
           ${this._settingsLiveHtml(sys)}
         </div>`;
+      case "debug":
+        return this._debugHtml();
       default: // home
         return `<div id="hcc-live">${this._homeHtml(sys)}</div>`;
     }
@@ -1545,6 +1574,79 @@ class HomeClimatePanel extends HTMLElement {
       }
     } finally {
       this._otlogBusy = false;
+    }
+  }
+
+  /* ── Secret debug screen (opened from Settings) ────────────────────
+     Rolling HCC event feed: control ticks (CH/flow/demand/temps),
+     real TRV actions (setpoint + mode pushes, with trigger), valve
+     opening/closing moves, and balance valve-cap writes. */
+  _debugHtml() {
+    const events = this._debugData == null
+      ? null
+      : Array.isArray(this._debugData) ? this._debugData : [];
+    const color = { tick: "#7fd3ff", trv: "#ffd479", valve: "#8ef58e",
+      "valve-cap": "#f5a68e", boiler: "#f58ea8" };
+    const body = events == null
+      ? "loading…"
+      : (events.length
+        ? events.map((e) =>
+          `<div><span style="opacity:.55">${this._esc(e.t || "")}</span> `
+          + `<b style="color:${color[e.k] || "#ccc"}">[${this._esc(e.k || "")}]</b> `
+          + `<span>${this._esc(e.m || "")}</span></div>`)
+        : "(no events yet — the feed fills within a minute)");
+    return `
+      <div class="card wide">
+        <div class="row">
+          <h3 style="margin:0">Debug feed</h3>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <button type="button" class="ghost" data-action="debug-refresh">⟳ Refresh</button>
+            <button type="button" class="ghost" data-action="debug-close">Close debug</button>
+          </span>
+        </div>
+        <p class="sub">Rolling event log (newest first), capped server-side. Lines: tick = control loop, trv = real TRV actions (target/mode pushes + trigger), valve = valve-position moves, valve-cap = auto-balance writes, boiler = CH on/off.</p>
+        <pre id="hcc-debug-pre" style="max-height:430px;overflow:auto;font-size:.72rem;line-height:1.4;margin:8px 0 0;white-space:pre-wrap">${body}</pre>
+      </div>`;
+  }
+
+  _debugTick_() {
+    const now = Date.now();
+    if (now - (this._debugLastMs || 0) < 3000) return;
+    this._debugLastMs = now;
+    this._fetchDebugLog();
+  }
+
+  async _fetchDebugLog() {
+    if (!this._hass || this._debugBusy) return;
+    this._debugBusy = true;
+    const pre = this.shadowRoot.getElementById("hcc-debug-pre");
+    try {
+      const res = await this._hass.callWS({
+        type: "home_climate_control/get_debug_log",
+      });
+      if (res?.ok) {
+        this._debugData = res.events || [];
+        if (pre) {
+          const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+          // Render newest first is server-side; refill here without wiping focus.
+          pre.innerHTML = (this._debugData.length
+            ? this._debugData
+            : [{ t: "", k: "", m: "(no events yet — the feed fills within a minute)" }]
+          ).map((e) =>
+            `<div><span style="opacity:.55">${this._esc(e.t || "")}</span> `
+            + `<b style="color:${{ tick: "#7fd3ff", trv: "#ffd479", valve: "#8ef58e",
+              "valve-cap": "#f5a68e", boiler: "#f58ea8" }[e.k] || "#ccc"}">[${this._esc(e.k || "")}]</b> `
+            + `<span>${this._esc(e.m || "")}</span></div>`
+          ).join("");
+          pre.scrollTop = 0;
+        }
+      } else if (pre) {
+        pre.textContent = "error: " + (res?.error || "failed");
+      }
+    } catch (err) {
+      if (pre) pre.textContent = "error: " + (err?.message || String(err));
+    } finally {
+      this._debugBusy = false;
     }
   }
 
@@ -2175,7 +2277,11 @@ class HomeClimatePanel extends HTMLElement {
         <input type="number" id="so-maxflow" step="1" min="20" max="95" value="${num(o.max_flow_temp)}" ${numCls}>
         ${ck("autotune_curve", "Auto-tune curve", o.autotune_curve)}
         ${ck("learn_setbacks", "Learn smart setbacks", o.learn_setbacks)}
-        <div class="settings-save">${saveBtn("curve")}</div>
+        <div class="settings-save">
+          ${saveBtn("curve")}
+          <button type="button" class="ghost" style="margin-left:10px;padding:4px 12px"
+            data-action="debug-open" title="Live HCC event feed (control loop, TRV actions, valve moves)">Debug</button>
+        </div>
       </div>
       <div class="card">
         <h3>Outdoor &amp; wind</h3>

@@ -365,7 +365,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 self._target_temp = min(
                     self._attr_max_temp, max(self._attr_min_temp, v)
                 )
-            await self._push_setpoint_to_trv()
+            await self._push_setpoint_to_trv("user set target")
         self._safe_write_ha_state()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -376,8 +376,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self.pid.reset()
             await self._push_hvac_to_trv(HVACMode.OFF)
         else:
-            await self._push_hvac_to_trv(HVACMode.HEAT)
-            await self._push_setpoint_to_trv()
+            await self._push_hvac_to_trv(HVACMode.HEAT, "user heat mode")
+            await self._push_setpoint_to_trv("user heat mode")
         self._safe_write_ha_state()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
@@ -386,7 +386,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._preset = preset_mode
         self._preset_source = "user"  # sticky until schedule window changes
         self._preheat_active = False
-        await self._push_setpoint_to_trv()
+        await self._push_setpoint_to_trv(f"preset {preset_mode}")
         self._safe_write_ha_state()
 
     def apply_schedule_preset(self, preset_mode: str) -> bool:
@@ -404,7 +404,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # Best-effort TRV push without awaiting (called from state listener).
         if self.hass is not None:
             try:
-                self.hass.async_create_task(self._push_setpoint_to_trv())
+                self.hass.async_create_task(
+                    self._push_setpoint_to_trv(f"schedule → {preset_mode}")
+                )
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -752,6 +754,16 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._valve_pct = max(0.0, min(100.0, float(pct)))
         except (TypeError, ValueError):
             return
+        # Valve-open action for the debug screen: log meaningful moves
+        # (≥1% change) so the log shows when a valve opened/closed by how much.
+        prev = getattr(self, "_valve_pct_dbg", None)
+        if prev is None or abs(self._valve_pct - prev) >= 1.0:
+            self._valve_pct_dbg = self._valve_pct
+            self._debug(
+                "valve",
+                f"{self._zone_name()}: valve {'opened' if (prev is None or self._valve_pct > prev) else 'closed'}"
+                f" → {self._valve_pct:.0f}%",
+            )
         below = (
             self._current_temp is not None
             and self.effective_setpoint() - self._current_temp > 0.1
@@ -866,23 +878,44 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             return (target - cur) > 0.1 and st.state not in ("off", "unavailable")
         return st.state == "heat"
 
-    async def _push_setpoint_to_trv(self) -> None:
+    def _debug(self, kind: str, text: str) -> None:
+        log = getattr(self.coordinator, "debug_log", None)
+        if callable(log):
+            try:
+                log(kind, text)
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _push_setpoint_to_trv(self, reason: str = "") -> None:
         if not self._trv_entity or self.heater_control == "manual":
             return
         try:
+            sp = self.effective_setpoint()
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
                 {
                     "entity_id": self._trv_entity,
-                    "temperature": self.effective_setpoint(),
+                    "temperature": sp,
                 },
                 blocking=False,
+            )
+            # Real TRV action for the debug screen: room + target + trigger.
+            valve = (
+                f", valve {self._valve_pct:.0f}%"
+                if isinstance(self._valve_pct, (int, float))
+                else ""
+            )
+            self._debug(
+                "trv",
+                f"{self._zone_name()}: TRV {self._trv_entity} target → "
+                f"{sp:.1f} °C{valve}"
+                + (f" ({reason})" if reason else ""),
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("TRV setpoint push failed for %s", self._trv_entity)
 
-    async def _push_hvac_to_trv(self, mode: HVACMode) -> None:
+    async def _push_hvac_to_trv(self, mode: HVACMode, reason: str = "") -> None:
         if not self._trv_entity or self.heater_control == "manual":
             return
         try:
@@ -891,6 +924,12 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 "set_hvac_mode",
                 {"entity_id": self._trv_entity, "hvac_mode": mode},
                 blocking=False,
+            )
+            self._debug(
+                "trv",
+                f"{self._zone_name()}: TRV {self._trv_entity} mode → "
+                f"{str(mode).upper()}"
+                + (f" ({reason})" if reason else ""),
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("TRV mode push failed for %s", self._trv_entity)

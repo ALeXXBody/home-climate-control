@@ -1701,3 +1701,28 @@ async def ws_get_ot_log(
     mgr = await async_setup_firmware_manager(hass)
     result = await mgr.async_get_ot_log(msg["node_id"], msg["clear"])
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/get_debug_log",
+    }
+)
+@websocket_api.async_response
+async def ws_get_debug_log(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Rolling in-memory event feed for the secret debug screen."""
+    events: list = []
+    for data in (hass.data.get(DOMAIN, {}) or {}).values():
+        controller = data.get("controller") if isinstance(data, dict) else None
+        log = getattr(controller, "_debug_log", None)
+        if isinstance(log, list) and log:
+            events.extend(log)
+            break  # one system per install; take the configured controller
+    # Newest first for a log-screen read.
+    events.reverse()
+    connection.send_result(msg["id"], {"ok": True, "events": events})
