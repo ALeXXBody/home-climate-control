@@ -368,6 +368,44 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             ),
         }
 
+    def _align_preset_to_manual(self, v: float) -> None:
+        """Manual target vs preset reconciliation (both directions).
+
+        * A manual temperature that is DISTINCT from every preset's temp
+          overrides the preset — the preset is dropped ("none") so the
+          manual target becomes the effective setpoint.
+        * A manual temperature that EQUALS a preset's temp (within a step)
+          auto-selects that preset instead of hiding it.
+        """
+        temps = getattr(self.coordinator, "preset_temps", None)
+        if not isinstance(temps, dict):
+            temps = DEFAULT_PRESET_TEMPS
+        matched = None
+        for name in ("comfort", "eco", "away", "boost"):
+            pt = temps.get(name)
+            if pt is None:
+                continue
+            try:
+                if abs(float(v) - float(pt)) <= 0.25:  # exact grid match
+                    matched = name
+                    break
+            except (TypeError, ValueError):
+                continue
+        if matched is not None:
+            if self._preset != matched:
+                self._debug(
+                    "trv", f"{self._zone_name()}: manual {v:.1f} °C == "
+                    f"{matched} preset — {matched} selected"
+                )
+            self._preset = matched
+        elif self._preset in ("comfort", "eco", "away", "boost"):
+            self._debug(
+                "trv", f"{self._zone_name()}: manual {v:.1f} °C overrides "
+                f"{self._preset} preset → none"
+            )
+            self._preset = "none"
+        self._preset_source = "user"  # sticky until the schedule window changes
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         if ATTR_TEMPERATURE in kwargs:
             try:
@@ -378,7 +416,17 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 self._target_temp = min(
                     self._attr_max_temp, max(self._attr_min_temp, v)
                 )
-            await self._push_setpoint_to_trv("user set target")
+                # Manual target must actually rule (the preset must not
+                # swallow it) — with the auto-align carve-out for the
+                # calibration session's own boosted write.
+                calib = getattr(self.coordinator, "calibration", None)
+                in_calib = calib is not None and bool(calib.active()) and (
+                    calib.active_zone == self._zone_name()
+                )
+                if not in_calib:
+                    self._align_preset_to_manual(self._target_temp)
+                    self._preset_source = "user"
+                await self._push_setpoint_to_trv("manual set")
         self._safe_write_ha_state()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
