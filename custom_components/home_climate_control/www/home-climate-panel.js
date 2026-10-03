@@ -105,6 +105,17 @@ class HomeClimatePanel extends HTMLElement {
       }
       const za = t.closest("[data-zone-action]");
       if (za) {
+        if (za.getAttribute("data-zone-action") === "modal-close") {
+          // Only a DIRECT click on the dimmed backdrop closes the room
+          // popup; clicks on the form card inside bubble up here too but
+          // must not wipe the user's input.
+          if (t.classList && t.classList.contains("modal-back")) {
+            this._addingRoom = false;
+            this._editingZone = null;
+            this._render();
+          }
+          return;
+        }
         this._onZoneAction(za);
         return;
       }
@@ -673,6 +684,14 @@ class HomeClimatePanel extends HTMLElement {
           box-shadow: var(--ha-card-box-shadow, none);
           border: 1px solid var(--divider-color, #2a2a2a);
         }
+        .modal-back {
+          position: fixed; inset: 0;
+          background: rgba(2, 6, 14, 0.62);
+          z-index: 1000;
+          display: flex; align-items: flex-start; justify-content: center;
+          padding: 28px 12px; overflow: auto;
+        }
+        .modal-card { max-width: 560px; width: 100%; margin: 0 auto; }
         .card h3 {
           margin: 0 0 8px;
           font-size: 0.85rem;
@@ -1836,10 +1855,32 @@ class HomeClimatePanel extends HTMLElement {
 
   static ZONE_PRESET_OPTS = ["comfort", "eco", "away", "boost"];
 
+  _addRoomHeaderHtml() {
+    // "+ Add room" row shown over the room list (and the empty state);
+    // includes the add/edit popup when one is open.
+    let out = "";
+    if (!this._addingRoom) {
+      out += `
+        <div style="display:flex;justify-content:flex-end;margin:2px 0 10px">
+          <button type="button" class="a" data-zone-action="add" style="padding:8px 18px">+ Add room</button>
+        </div>`;
+      return out;
+    }
+    out += `
+      <div class="modal-back" data-zone-action="modal-close"><div class="modal-card">${this._roomFormHtml(null)}</div></div>`;
+    return out;
+  }
+
   _zonesHtml(sys, compact = false) {
     const zones = sys.zones || [];
     if (!zones.length) {
-      return `<div class="card empty">No rooms configured. Add rooms (TRV + optional temp sensor) in the integration setup.</div>`;
+      let out = `<div class="card empty">No rooms configured. Add a room now (TRV + optional temp sensor).</div>`;
+      if (!compact) {
+        // Zero rooms: the empty card is the only body; still render the
+        // "+ Add room" header plus the add popup when open.
+        out += this._addRoomHeaderHtml(sys);
+      }
+      return out;
     }
     const ctx = {
       compact,
@@ -1865,8 +1906,18 @@ class HomeClimatePanel extends HTMLElement {
         </div>`)
       .join("");
     if (compact) return body;
-    return `${body}
-      ${this._addRoomHtml()}`;
+    // "+ Add room" lives at the top of the Rooms tab, above the first
+    // shown floor; add/edit forms open as a popup over the list.
+    let modal = "";
+    if (this._editingZone) {
+      const ez = zones.find((zz) => zz.name === this._editingZone);
+      if (!ez) {
+        this._editingZone = null;   // stale edit target — drop silently
+      } else {
+        modal = `<div class="modal-back" data-zone-action="modal-close"><div class="modal-card">${this._roomFormHtml(ez)}</div></div>`;
+      }
+    }
+    return `${this._addRoomHeaderHtml()}${body}${modal}`;
   }
 
   _saveAddRoomForm() {
@@ -1919,15 +1970,6 @@ class HomeClimatePanel extends HTMLElement {
     set(s.prefix + "-co2", s.co2);
     set(s.prefix + "-valve", s.valve);
     set(s.prefix + "-radkw", s.radkw);
-  }
-
-  _addRoomHtml() {
-    if (!this._addingRoom) {
-      return `<div class="card" style="text-align:center">
-        <button type="button" data-zone-action="add" style="width:100%;padding:10px">+ Add room</button>
-      </div>`;
-    }
-    return this._roomFormHtml(null);
   }
 
   _modeLabel(manual, valveMode) {
@@ -2034,9 +2076,6 @@ class HomeClimatePanel extends HTMLElement {
 
   _zoneCard(z, ctx) {
     const { compact, cal, rates, dts, health, insul } = ctx;
-    if (this._editingZone === z.name && !compact) {
-      return this._roomFormHtml(z);
-    }
     const heat =
       String(z.hvac_action).includes("heat") || z.hvac_action === "heating";
     const rate = rates[z.name]?.warm_rate;
@@ -3057,6 +3096,14 @@ class HomeClimatePanel extends HTMLElement {
     const id = el.getAttribute("data-entity");
     if (action === "add") {
       this._addingRoom = true;
+      this._render();
+      return;
+    }
+    if (action === "modal-close") {
+      // Clicked the dimmed backdrop (a button press never bubbles here —
+      // data-zone-action buttons are matched directly).
+      this._addingRoom = false;
+      this._editingZone = null;
       this._render();
       return;
     }

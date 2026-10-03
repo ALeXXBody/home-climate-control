@@ -592,13 +592,80 @@ check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
   el._render();
 }
 
+// ── Gate: "+ Add room" sits in the header (above the first floor) ──
+//
+{
+  el._tab = "rooms";
+  el._addingRoom = false;
+  el._editingZone = null;
+  el._render();
+  const adds = [...el.shadowRoot.querySelectorAll('[data-zone-action="add"]')];
+  check(adds.length === 1, "there must be exactly one Add room button (got " + adds.length + ")");
+  const firstFloor = el.shadowRoot.querySelector(".floor-head");
+  const firstFloorTop = firstFloor
+    ? el.shadowRoot.querySelector("#hcc-zones-wrap").innerHTML.indexOf("floor-head")
+    : -1;
+  if (firstFloor) {
+    const htmlTop = el.shadowRoot.querySelector("#hcc-zones-wrap").innerHTML;
+    check(htmlTop.indexOf('data-zone-action="add"') !== -1
+      && htmlTop.indexOf('data-zone-action="add"') < firstFloorTop,
+      "Add room button is not above the first floor");
+  }
+}
+
+// ── Gate: room add/edit renders as a popup over the list ──
+//
+{
+  const saved_zones_for_modal = el._status.systems[0].zones;
+  el._tab = "rooms";
+  // Add → modal with nr-* form.
+  const addBtn = el.shadowRoot.querySelector('[data-zone-action="add"]');
+  addBtn.dispatchEvent(new w.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check(el._addingRoom === true, "Add click did not open the add form");
+  const back1 = el.shadowRoot.querySelector(".modal-back");
+  check(!!back1, "add room form is not shown as a popup");
+  check(!!el.shadowRoot.getElementById("nr-name"), "add popup misses the name field");
+  check(!!el.shadowRoot.querySelector("#hcc-zones-wrap .zone") || !!el.shadowRoot.querySelector(".zones"),
+    "room list should stay visible behind the popup");
+
+  // Click on the dimmed backdrop closes it; a click inside the form must not.
+  const inner = el.shadowRoot.getElementById("nr-name");
+  inner.dispatchEvent(new w.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  check(el._addingRoom === true, "click inside the popup closed it (data lost)");
+  back1.dispatchEvent(new w.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  check(el._addingRoom === false, "backdrop click did not close the popup");
+
+  // Edit → modal with er-* prefill.
+  el._status.systems[0].zones = [
+    { name: "Office", heat_control: "smart", trv_climates: ["climate.office_trv"],
+      temp_sensor: "sensor.office_temperature", floor: 0 },
+  ];
+  el._hass = { states: {
+    "climate.office_trv": { attributes: { friendly_name: "Office TRV" } },
+    "sensor.office_temperature": { attributes: { friendly_name: "Office temp", device_class: "temperature" } },
+  } };
+  el._render();
+  const editBtn = el.shadowRoot.querySelector('[data-zone-action="edit"]');
+  editBtn.dispatchEvent(new w.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check(!!el.shadowRoot.querySelector(".modal-back"), "edit room form is not shown as a popup");
+  check(el.shadowRoot.getElementById("er-trv")?.value === "climate.office_trv",
+    "edit popup does not prefill the room's TRV");
+  // Cancel button inside the popup closes it.
+  const cancel = el.shadowRoot.querySelector('[data-zone-action="cancel-edit"]');
+  if (cancel) cancel.dispatchEvent(new w.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  check(!el.shadowRoot.querySelector(".modal-back"), "cancel did not close the edit popup");
+  el._status.systems[0].zones = saved_zones_for_modal;
+}
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);
 }
-console.log("panel DOM gates: all passed");
-process.exit(0);
-
 // ── Gate: edit-room form keeps selected devices (prefill + safe save) ──
 {
   const zone = {
@@ -638,3 +705,10 @@ process.exit(0);
     process.exit(1);
   }
 }
+
+if (failures.length) {
+  console.error("FAILURES:\n - " + failures.join("\n - "));
+  process.exit(1);
+}
+console.log("panel DOM gates: all passed");
+process.exit(0);

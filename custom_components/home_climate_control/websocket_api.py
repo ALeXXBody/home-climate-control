@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -526,6 +527,70 @@ async def ws_calibrate_zone(
         return
 
     connection.send_result(msg["id"], {**result, "status": _collect_status(hass)})
+
+
+def _detect_trv_position_entity(
+    hass: HomeAssistant,
+    room_name: str,
+    trv_climates: list[str] | None,
+) -> str | None:
+    """Best-guess the valve-position entity of a room's TRV.
+
+    Candidates must link to the room: entity_id starting with one of the
+    TRV slugs, or matching the room slug (entity or friendly name) with
+    "valve" present. Scoring prefers an opening-degree number entity on
+    the TRV's own slug, then any valve entity on that slug, then a room
+    slug match. Only a helper — explicit user input always wins.
+    """
+    def _slug(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+
+    slugs: list[str] = []
+    for t in trv_climates or []:
+        s = _slug(str(t).strip().removeprefix("climate."))
+        if s and s not in slugs:
+            slugs.append(s)
+    room_slug = _slug(room_name or "")
+    if room_slug and room_slug not in slugs:
+        slugs.append(room_slug)
+    if not slugs:
+        return None
+
+    best: tuple[int, str] | None = None
+    for st in hass.states.async_all("number"):
+        eid = st.entity_id
+        ent = eid[len("number."):]
+        attrs = getattr(st, "attributes", None) or {}
+        friendly = str(attrs.get("friendly_name") or "").lower()
+        unit = str(attrs.get("unit_of_measurement") or "")
+        haystack = f"{ent} {friendly}"
+        if "valve" not in haystack:
+            continue
+        score = 0
+        room_hit = bool(room_slug) and bool(
+            re.search(rf"(^|_){re.escape(room_slug)}(_|$)", ent)
+            or room_slug in friendly
+        )
+        for s in slugs:
+            if s and (
+                re.search(rf"(^|_){re.escape(s)}(_|$)", ent) or s in friendly
+            ):
+                score = max(score, 100)
+        if score == 0 and room_hit:
+            score = 50
+        if score == 0:
+            continue  # unlinked valves of other rooms are never picked
+        # A valve position is % (or unitless); anything else (°C…) is noise.
+        if unit and "%" not in unit:
+            continue
+        if "opening" in haystack:
+            score += 15
+        elif "closing" in haystack:
+            score += 5
+        cand = (score, eid)
+        if best is None or cand[0] > best[0] or (cand[0] == best[0] and eid < best[1]):
+            best = cand
+    return best[1] if best else None
 
 
 def _zone_entry_and_names(hass: HomeAssistant, zone_name: str):
@@ -1104,6 +1169,17 @@ async def ws_rename_zone(
                 )
                 return
             z[CONF_ZONE_TRV_CLIMATES] = trvs
+            # Auto-detect the valve-position entity when a TRV set is
+            # (re)configured and the room has none yet — never overwrite
+            # a user-chosen or intentionally cleared value.
+            if "trv_position_entity" not in msg and not z.get(
+                CONF_ZONE_TRV_POSITION
+            ):
+                auto_valve = _detect_trv_position_entity(
+                    hass, new_name or msg["zone"], trvs
+                )
+                if auto_valve:
+                    z[CONF_ZONE_TRV_POSITION] = auto_valve
         if "temp_sensor" in msg:
             sensor = (temp_sensor or "").strip() or None
             if sensor and not sensor.startswith("sensor."):
@@ -1253,6 +1329,13 @@ async def ws_add_zone(
     ]
 
     try:
+        # Auto-detect the valve-position entity when the user left the
+        # field empty: when a TRV is added we look for its valve entity.
+        auto_valve = msg.get("trv_position_entity")
+        if not (auto_valve or "").strip():
+            auto_valve = _detect_trv_position_entity(
+                hass, msg["name"], msg.get("trv_climates") or []
+            )
         zone = build_zone_config(
             existing,
             name=msg["name"],
@@ -1264,7 +1347,7 @@ async def ws_add_zone(
             window_sensors=msg["window_sensors"],
             lux_sensor=msg.get("lux_sensor"),
             co2_sensor=msg.get("co2_sensor"),
-            trv_position_entity=msg.get("trv_position_entity"),
+            trv_position_entity=auto_valve,
             radiator_kw=msg.get("radiator_kw"),
         )
     except ValueError as err:
