@@ -93,15 +93,15 @@ def test_detect_ignores_trv_without_position_entity():
     assert got is None
 
 
-def test_detect_never_autofills_closing_only_entity():
-    """A closing-degree-only entity is inverted for our purpose; skip."""
+def test_detect_fills_closing_only_entity():
+    """A closing-degree-only TRV gets filled — the drive inverts it."""
     hass = _hass([
         _St("number.office_trv_valve_closing_degree", "%"),
     ])
     got = _detect_trv_position_entity(
         hass, "Office", ["climate.office_trv"]
     )
-    assert got is None
+    assert got == "number.office_trv_valve_closing_degree"
 
 
 def test_detect_closing_loses_to_opening_sibling():

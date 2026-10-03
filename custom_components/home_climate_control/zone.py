@@ -861,10 +861,33 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         demand shuts fully — no smoulder into an already-warm room.
         """
         demand = self.demand_level()
-        if demand > VALVE_OPEN_DEMAND:
-            pct = max(VALVE_MIN_PCT, round(demand * 100.0))
-            return min(100.0, float(pct + 10.0))
-        return 0.0
+        if demand <= VALVE_OPEN_DEMAND:
+            return 0.0
+        pct = max(VALVE_MIN_PCT, round(demand * 100.0)) + 10.0
+        # Overshoot damper: the TRV's internal sensor tracks the radiator
+        # mass. When it gets well above the room, the radiator is pushing
+        # heat faster than the room absorbs — back the opening off instead
+        # of letting the room shoot past the setpoint.
+        dev = self._trv_current_temp()
+        ext = self.current_temperature
+        if isinstance(dev, (int, float)) and isinstance(ext, (int, float)):
+            gap = float(dev) - float(ext)
+            if gap > 2.0:
+                pct -= min(40.0, (gap - 2.0) * 20.0)
+        return max(VALVE_MIN_PCT, min(100.0, float(pct)))
+
+    def _valve_entity_inverted(self) -> bool:
+        """True when the configured entity is a CLOSING-degree value.
+
+        Some TRVs expose only the closing-degree. The naming is decisive:
+        an entity id holding 'closing' is treated as inverted everywhere
+        (reads become 100 − v, writes become 100 − want) so the rest of the
+        drive logic always thinks in opening %.
+        """
+        ent = self._trv_position_entity or ""
+        if not ent or "." not in ent:
+            return False
+        return "closing" in ent.split(".", 1)[1]
 
     def valve_current_pct(self, hass) -> float | None:
         st = hass.states.get(self._trv_position_entity)
@@ -874,7 +897,13 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             v = float(st.state)
         except (TypeError, ValueError):
             return None
-        return max(0.0, min(100.0, v))
+        v = max(0.0, min(100.0, v))
+        return (100.0 - v) if self._valve_entity_inverted() else v
+
+    def _valve_write_pct(self, opening: float) -> float:
+        """Translate an opening % into the value the entity expects."""
+        opening = max(0.0, min(100.0, float(opening)))
+        return (100.0 - opening) if self._valve_entity_inverted() else opening
 
     def valve_apply(self, now: float, hass) -> None:
         """One tick of the valve-direct closed loop (rate-limited)."""
@@ -894,7 +923,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._valve_last_write = now
         self.hass.async_create_task(hass.services.async_call(
             "number", "set_value",
-            {"entity_id": self._trv_position_entity, "value": want},
+            {"entity_id": self._trv_position_entity,
+             "value": self._valve_write_pct(want)},
             blocking=False,
         ))
         self._debug(
@@ -954,7 +984,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             for step, wait in steps:
                 await self._hass.services.async_call(
                     "number", "set_value",
-                    {"entity_id": self._trv_position_entity, "value": step},
+                    {"entity_id": self._trv_position_entity,
+                     "value": self._valve_write_pct(step)},
                     blocking=False,
                 )
                 self._debug(
@@ -970,6 +1001,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 "valve-drive",
                 f"{self._zone_name()}: valve exercise done (back to {restore:.0f}%)",
             )
+
     async def valve_pin_tick(self, now: float) -> None:
         """Keep the physical TRV out of its own algorithm's way: force heat
         mode and pin the target so the onboard curve does not close the valve

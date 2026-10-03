@@ -185,3 +185,25 @@ def test_push_setpoint_still_pushes_real_change():
     assert hass.services.async_call.await_count == 1
     data = hass.services.async_call.await_args.args[2]
     assert data["temperature"] == 21.0
+
+
+@pytest.mark.asyncio
+async def test_closing_entity_reads_and_writes_inverted():
+    """closing-degree-only entity: reads open=100-v, writes v=100-want."""
+    from types import SimpleNamespace
+
+    z, hass, _ = _zone(demand=0.6, cur_pct=0.0)
+    z._trv_position_entity = "number.office_trv_valve_closing_degree"
+    # closing entity reports 30 -> opening is 70
+    hass.states.get = lambda eid: SimpleNamespace(state="30",
+                                                  attributes={"temperature": 40.0})
+    got = z.valve_current_pct(hass)
+    assert got == 70.0
+    # drive to want 80 -> entity must receive 20
+    z._hvac_mode = HVACMode.HEAT
+    z.valve_want_pct = lambda: 80.0
+    z._valve_last_write = -9999.0
+    hass.services.async_call = AsyncMock()
+    z.valve_apply(0.0, hass)
+    called = hass.services.async_call.call_args_list[0]
+    assert called.args[2]["value"] == 20.0

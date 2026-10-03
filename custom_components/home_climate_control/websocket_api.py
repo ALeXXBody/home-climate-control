@@ -595,14 +595,7 @@ def _detect_trv_position_entity(
         cand = (score, eid)
         if best is None or cand[0] > best[0] or (cand[0] == best[0] and eid < best[1]):
             best = cand
-    if best is None:
-        return None
-    # A closing-degree-only entity is INVERTED for our purposes (HCC
-    # drives the opening value). Never auto-fill one — leave the field
-    # empty rather than drive a valve backwards.
-    if "closing" in best[1].split(".", 1)[1]:
-        return None
-    return best[1]
+    return best[1] if best else None
 
 
 def _zone_entry_and_names(hass: HomeAssistant, zone_name: str):
