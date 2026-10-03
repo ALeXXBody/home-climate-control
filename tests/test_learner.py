@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from custom_components.home_climate_control.const import DOMAIN
 from custom_components.home_climate_control.learner import (
     MIN_DAYS,
     RoomLearner,
@@ -146,3 +147,73 @@ def test_model_file_corruption_is_tolerated():
     (tmp / "model.json").write_text("not json{", encoding="utf-8")
     assert ln.load() is False
     assert ln.model == {}
+
+
+def test_rename_room_migrates_model_and_persists():
+    """Rename must carry the model like setbacks — never orphan the key."""
+    ln, tmp, _ = _learner_with(None)
+    ln.model = {"Office": {"coef": {"demand": 1.0, "gap": 0.0, "bias": 0.0},
+                           "n": 10, "rmse": 0.1}}
+    ln.trained_at = "2026-10-01T10:00:00+00:00"
+    ln.hass = None  # disable the async dispatch → synchronous persist path
+    got = ln.rename_room("Office", "Study")
+    assert got is True
+    assert "Study" in ln.model and "Office" not in ln.model
+    blob = json.loads((tmp / "model.json").read_text(encoding="utf-8"))
+    assert "Study" in blob["rooms"] and "Office" not in blob["rooms"]
+
+
+def test_rename_room_ignores_unknown():
+    ln, _, _ = _learner_with(None)
+    ln.model = {"Office": {"coef": {"demand": 0, "gap": 0, "bias": 0}}}
+    assert ln.rename_room("Ghost", "New") is False
+    assert ln.model == {"Office": {"coef": {"demand": 0, "gap": 0, "bias": 0}}}
+    assert ln.rename_room("Office", "Office") is False  # no-op self rename
+
+
+def test_room_rows_carry_model_same_schema():
+    """get_status rooms must expose the AI model per room, keyed by name."""
+    from custom_components.home_climate_control.websocket_api import _collect_status
+
+    class _Z:
+        name = "Office"
+        entity_id = "climate.office"
+        current_temperature = 20.0
+        target_temperature = 21.0
+        hvac_mode = "heat"
+        hvac_action = "idle"
+        preset_mode = "none"
+        floor = 0
+        heater_control = "smart"
+        window_sensor_entities = []
+        trv_entity = None
+        trv_entities = []
+        current_humidity = None
+        paused = staticmethod(lambda: False)
+        demand_level = staticmethod(lambda: 0.3)
+        effective_setpoint = staticmethod(lambda: 21.0)
+        extra_state_attributes = {}
+        solar = None
+        co2 = None
+        humidity_sensor_entity = None
+        temp_sensor_entity = None
+        window_open_override = False
+
+        def lead_time_s(self, **k):
+            return None
+
+    ctrl = SimpleNamespace(zones=[_Z()], learner=SimpleNamespace(
+        model={"Office": {"coef": {"demand": 0.4, "gap": -0.01, "bias": 0.1},
+                          "n": 2400, "rmse": 0.21}},
+        trained_at="2026-10-02T10:00:00+00:00", rooms=["Office"],
+        room_detail={"Office": {"n": 2400, "rmse": 0.21}},
+        training=False, last_attempt=0.0, last_error=None))
+    hass = MagicMock()
+    hass.states.get = MagicMock(return_value=None)
+    hass.data = {DOMAIN: {"e1": {"controller": ctrl}}}
+    hass.config_entries.async_entries = MagicMock(return_value=[])
+    out = _collect_status(hass)
+    zones = out["systems"][0]["zones"]
+    row = next(z for z in zones if z["name"] == "Office")
+    assert row["model"]["n"] == 2400
+    assert row["model"]["coef"]["demand"] == 0.4

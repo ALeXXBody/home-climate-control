@@ -2099,6 +2099,7 @@ class HomeClimatePanel extends HTMLElement {
                   <summary>insights</summary>
                   <div class="zone-meta">
                     ${!manual && rate ? `warms ${rate} °C/h · ` : ""}
+                    ${z.model?.coef ? `AI shadow model: ${(z.model.n ?? 0) >= 1000 ? Math.round((z.model.n ?? 0) / 1000 * 10) / 10 + "k" : (z.model.n ?? 0)} samples · RMSE ${z.model.rmse ?? "?"} °C · <span style="opacity:.8">no control effect yet</span><br>` : ""}
                     ${!manual && dt != null ? `responds ~${dt} min · ` : ""}
                     ${!manual && z.lead_time_s != null && z.lead_time_s > 0 ? `lead ~${Math.round(z.lead_time_s / 60)} min · ` : ""}
                     ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}

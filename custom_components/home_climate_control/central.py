@@ -326,6 +326,11 @@ class CentralController:
             self.deadtime._persist()
         if old in self.health.rooms and new not in self.health.rooms:
             self.health.rooms[new] = self.health.rooms.pop(old)
+        if getattr(self, "learner", None) is not None:
+            # The self-learning model follows the same per-room schema as
+            # every other learned coefficient: it must migrate on rename,
+            # never orphan the old key.
+            self.learner.rename_room(old, new)
         if self.calibration.active_zone == old:
             # A session cannot survive the entity reload anyway.
             self.calibration.cancel()

@@ -180,6 +180,48 @@ class RoomLearner:
         )
         return True
 
+    # ------------------------------------------------------- same schema
+    def rename_room(self, old: str, new: str) -> bool:
+        """Migrate a room's model to its new name (same schema as rooms).
+
+        Fits the rename migration of setbacks/dead-time/insulation: learned
+        history must never be orphaned by a room rename. Persisted through
+        the standard atomic model.json write.
+        """
+        if not old or not new or old == new:
+            return False
+        m = self.model.pop(old, None)
+        if m is None:
+            return False
+        self.model[new] = m
+        if self.hass is not None and hasattr(self.hass, "async_create_task"):
+            self.hass.async_create_task(
+                self.hass.async_add_executor_job(self._persist_model_sync)
+            )
+        else:
+            self._persist_model_sync()
+        _LOGGER.info("Learner: room model migrated %r -> %r", old, new)
+        return True
+
+    def _persist_model_sync(self) -> None:
+        """Atomically write the CURRENT model state to model.json."""
+        assert self._dir is not None
+        try:
+            if not self.model:
+                return
+            blob = {
+                "version": 1,
+                "trained_at": self.trained_at
+                or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "rooms": self.model,
+            }
+            path = self._dir / MODEL_FILE
+            tmp = path.with_suffix(f".tmp{uuid.uuid4().hex}")
+            tmp.write_text(json.dumps(blob), encoding="utf-8")
+            tmp.replace(path)
+        except Exception:  # noqa: BLE001 - never break heating over logs
+            _LOGGER.debug("Learner: model persist failed", exc_info=True)
+
     def _train_sync(self) -> None:
         """Executor-side heavy lifting: stream corpus → fit → save."""
         assert self._dir is not None
