@@ -112,9 +112,17 @@ def test_zone_valve_move_logs_open_and_close():
     z._balance_samples_to_save = 0
     z._async_persist_balance = None
 
-    z.on_valve_update(10.0)   # first sample → logged as opened
+    z.on_valve_update(10.0)   # first sample → neutral wording, direction unknown
     z.on_valve_update(10.4)   # <1% move → not logged
-    z.on_valve_update(75.0)   # big move → logged
-    z.on_valve_update(3.0)    # big close → logged
+    z.on_valve_update(75.0)   # big move → logged as opened
+    z.on_valve_update(3.0)    # big close → logged as closed
     kinds = [c.args[0] for c in coord.debug_log.call_args_list if c.args]
     assert kinds.count("valve") == 3
+    msgs = [c.args[1] for c in coord.debug_log.call_args_list
+            if c.args and c.args[0] == "valve"]
+    # First read must NOT claim "opened"/"closed" — 0% first reads used to
+    # say "valve opened → 0%" which is a contradiction.
+    assert "reported 10%" in msgs[0]
+    assert "valve opened" not in msgs[0] and "valve closed" not in msgs[0]
+    assert any("opened" in m for m in msgs[1:])     # subsequent real opens
+    assert any("closed" in m for m in msgs[1:])     # subsequent real closes

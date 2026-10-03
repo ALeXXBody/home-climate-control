@@ -815,16 +815,21 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._valve_pct = max(0.0, min(100.0, float(pct)))
         except (TypeError, ValueError):
             return
-        # Valve-open action for the debug screen: log meaningful moves
-        # (≥1% change) so the log shows when a valve opened/closed by how much.
+        # Valve report for the debug screen: meaningful moves (≥1%) show
+        # opened/closed; a FIRST reading has no direction to compare, so it
+        # gets neutral wording ("opened → 0%" on a first read was just wrong).
         prev = getattr(self, "_valve_pct_dbg", None)
         if prev is None or abs(self._valve_pct - prev) >= 1.0:
+            if prev is None:
+                msg = f"{self._zone_name()}: valve reported {self._valve_pct:.0f}%"
+            else:
+                msg = (
+                    f"{self._zone_name()}: valve "
+                    f"{'opened' if self._valve_pct > prev else 'closed'}"
+                    f" → {self._valve_pct:.0f}%"
+                )
             self._valve_pct_dbg = self._valve_pct
-            self._debug(
-                "valve",
-                f"{self._zone_name()}: valve {'opened' if (prev is None or self._valve_pct > prev) else 'closed'}"
-                f" → {self._valve_pct:.0f}%",
-            )
+            self._debug("valve", msg)
         below = (
             self._current_temp is not None
             and self.effective_setpoint() - self._current_temp > 0.1
