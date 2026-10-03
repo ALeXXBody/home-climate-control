@@ -79,6 +79,42 @@ def test_detect_returns_none_with_no_states():
     assert got is None
 
 
+def test_detect_ignores_trv_without_position_entity():
+    """TRVs that expose no valve position at all must stay empty."""
+    hass = _hass([
+        # valve-adjacent entities that are NOT position readouts
+        _St("number.office_trv_valve_heat_available", ""),
+        _St("number.office_trv_valve_motor_travel_mm", "mm"),
+        _St("climate.office_trv"),
+    ])
+    got = _detect_trv_position_entity(
+        hass, "Office", ["climate.office_trv"]
+    )
+    assert got is None
+
+
+def test_detect_never_autofills_closing_only_entity():
+    """A closing-degree-only entity is inverted for our purpose; skip."""
+    hass = _hass([
+        _St("number.office_trv_valve_closing_degree", "%"),
+    ])
+    got = _detect_trv_position_entity(
+        hass, "Office", ["climate.office_trv"]
+    )
+    assert got is None
+
+
+def test_detect_closing_loses_to_opening_sibling():
+    hass = _hass([
+        _St("number.office_trv_valve_closing_degree", "%"),
+        _St("number.office_trv_valve_opening_degree", "%"),
+    ])
+    got = _detect_trv_position_entity(
+        hass, "Office", ["climate.office_trv"]
+    )
+    assert got == "number.office_trv_valve_opening_degree"
+
+
 # ── wiring: add / edit auto-populate ─────────────────────────────────
 
 
