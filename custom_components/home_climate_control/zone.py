@@ -152,7 +152,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # would otherwise already be blown.
         self._preheat_active: bool = False
 
-        # ── Tier 3/4 per-room extras ────────────────────────────────────
+        # ── Per-room optional extras ────────────────────────────────────
         self._lux_sensor = zone_cfg.get(CONF_ZONE_LUX_SENSOR) or None
         self._co2_sensor = zone_cfg.get(CONF_ZONE_CO2_SENSOR) or None
         self._humidity_sensor = zone_cfg.get(CONF_ZONE_HUMIDITY_SENSOR) or None
@@ -348,7 +348,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             "effective_setpoint": self.effective_setpoint(),
             "preheat": bool(self._preheat_active),
             "preset_source": self._preset_source,
-            # Tier 3/4
+            # optional per-room sensors
             "solar_gain": self.solar.active,
             "co2_ppm": (
                 round(self.co2.ppm) if self.co2.ppm is not None else None
@@ -542,7 +542,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         the preset temperature is the DEEPEST the room may drop, while the
         per-room learned offset raises the target for slow rooms (a leaky
         hall that recovers slowly gets a shallower setback so it can catch
-        up in time — it never drops below the preset). The Tier 3 solar
+        up in time — it never drops below the preset). The solar
         trim applies in every state.
         """
         solar = getattr(self, "solar", None)
@@ -793,7 +793,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # setup-time safety lives in _trv_state(): it no-ops while hass is
         # None, so wire_zone_sensors() can call this before entities attach.
 
-    # ── Tier 3/4 sensor feeds ────────────────────────────────────────────
+    # ── Per-room optional sensor feeds ────────────────────────────────────────────
     @callback
     def on_lux_update(self, lux: float | None) -> None:
         """Lux sensor reading — feeds the solar-gain detector."""

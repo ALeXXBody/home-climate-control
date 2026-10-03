@@ -1,4 +1,4 @@
-"""Tier 3/4 tests: solar gain, CO₂ guard, radiator metering, balancing."""
+"""Optional per-room extras: solar gain, CO₂ guard, radiator metering, balancing."""
 
 import pytest
 from unittest.mock import MagicMock
@@ -22,7 +22,7 @@ class _Coord:
 
 
 
-# ── Tier 3: solar gain ────────────────────────────────────────────────────
+# ── solar gain ────────────────────────────────────────────────────
 def test_solar_gain_hysteresis():
     s = SolarGain()
     # dim indoor light — never activates
@@ -67,7 +67,7 @@ def test_solar_offset_applies_to_zone_comfort_only():
     assert z.effective_setpoint() == pytest.approx(15.5)  # 16 default − 0.5 solar
 
 
-# ── Tier 3: CO₂ guard ─────────────────────────────────────────────────────
+# ── CO₂ guard ─────────────────────────────────────────────────────
 def test_co2_hysteresis_and_bounds():
     g = Co2Guard()
     g.update(900)
@@ -84,7 +84,7 @@ def test_co2_hysteresis_and_bounds():
     assert g.ppm is not None and g.ppm <= 10000
 
 
-# ── Tier 4: radiator metering ─────────────────────────────────────────────
+# ── radiator metering ─────────────────────────────────────────────
 def test_radiator_output_formula():
     # 2 kW @ ΔT50, water avg 50, room 20 → ΔT=30 → 2×(0.6)^1.3 ≈ 1.02
     assert radiator_output_kw(2.0, 60, 40, 20) == pytest.approx(1.02, abs=0.02)
@@ -96,7 +96,7 @@ def test_radiator_output_formula():
     assert radiator_output_kw(2.0, None, 40, 20) is None
 
 
-# ── Tier 4: balancing ─────────────────────────────────────────────────────
+# ── balancing ─────────────────────────────────────────────────────
 def test_balancing_classification():
     b = BalanceMonitor()
     assert b.report()["state"] == "learning"

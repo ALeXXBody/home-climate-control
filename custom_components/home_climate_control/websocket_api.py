@@ -264,7 +264,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         else None
                     ),
                     "state": state.state if state else None,
-                    # Tier 3/4
+                    # optional per-room sensors
                     "solar_gain": getattr(zone, "solar", None) is not None
                     and zone.solar.active,
                     "co2_ppm": (

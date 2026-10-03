@@ -1,4 +1,4 @@
-"""Radiator output metering (Tier 4).
+"""Radiator output metering (optional per-room extra).
 
 With a per-room nominal radiator output (kW at the standard ΔT50 rating
 point) and the boiler's real flow/return temperatures, the actual heat

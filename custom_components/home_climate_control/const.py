@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.15.24"
+INTEGRATION_VERSION = "1.15.25"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
@@ -62,7 +62,7 @@ CONF_PRESET_TEMPS = "preset_temps"
 # Panel curve chart: operating points kept in RAM (24 h @ 5-min sampling).
 CURVE_RING_POINTS = 288
 
-# Tier 4: optionally let HCC write the TRV max-opening cap (number entity)
+# Optionally let HCC write the TRV max-opening cap (number entity)
 # when a room stays oversupplied (2 h verdict). Off by default.
 CONF_BALANCE_AUTOCAP = "balance_autocap"
 BALANCE_AUTOCAP_MIN_PCT = 15   # never cap a valve below this
@@ -167,11 +167,11 @@ VALVE_OPEN_DEMAND = 0.03        # demand fraction that justifies opening
 VALVE_CLOSE_DEMAND = 0.01       # demand fraction below which the valve shuts
 CONF_ZONE_IS_UNDERFLOOR = "underfloor"
 
-# Tier 3/4 per-room extras
-CONF_ZONE_LUX_SENSOR = "lux_sensor"          # Tier 3: solar gain (sensor.*)
-CONF_ZONE_CO2_SENSOR = "co2_sensor"          # Tier 3: air quality (sensor.*)
-CONF_ZONE_RADIATOR_KW = "radiator_kw"        # Tier 4: nominal kW @ ΔT50
-CONF_ZONE_TRV_POSITION = "trv_position_entity"  # Tier 4: valve 0-100 (sensor./number.*)
+# Per-room optional extras
+CONF_ZONE_LUX_SENSOR = "lux_sensor"          # solar gain (sensor.*)
+CONF_ZONE_CO2_SENSOR = "co2_sensor"           # air quality (sensor.*)
+CONF_ZONE_RADIATOR_KW = "radiator_kw"         # nominal kW @ ΔT50
+CONF_ZONE_TRV_POSITION = "trv_position_entity"  # valve 0-100 (sensor./number.*)
 
 # Telemetry subjects on the native hcs/<node> bus (informational only):
 # (docs/api/MQTT.md "OpenTherm Numeric Values" + status flags).

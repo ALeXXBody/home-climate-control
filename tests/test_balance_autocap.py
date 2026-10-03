@@ -1,4 +1,4 @@
-"""Tier 4 auto-cap writes (behind explicit toggle) tests."""
+"""Auto-cap writes (behind explicit toggle) tests."""
 
 import asyncio
 from datetime import datetime, timezone

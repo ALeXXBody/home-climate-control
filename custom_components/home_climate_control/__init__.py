@@ -306,7 +306,7 @@ def wire_zone_sensors(hass: HomeAssistant, entry: ConfigEntry, zones: list) -> N
         for z in zones
         if z.temp_sensor_entity
     }
-    # Tier 3/4 per-room sensor maps
+    # Per-room optional sensor maps
     lux_map = {z._lux_sensor: z for z in zones if getattr(z, "_lux_sensor", None)}
     co2_map = {z._co2_sensor: z for z in zones if getattr(z, "_co2_sensor", None)}
     hum_map = {

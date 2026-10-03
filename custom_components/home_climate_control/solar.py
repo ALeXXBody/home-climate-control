@@ -1,4 +1,4 @@
-"""Solar-gain comfort trim (Tier 3).
+"""Solar-gain comfort trim (optional per-room extra).
 
 Direct sunlight makes occupants comfortable at a *lower* air temperature
 (radiant warmth). A per-room lux sensor lets HCC shave a small comfort

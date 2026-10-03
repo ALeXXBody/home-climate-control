@@ -1,4 +1,4 @@
-"""TRV balancing assistance (Tier 4).
+"""TRV balancing assistance (optional per-room extra).
 
 A per-room valve-position entity (many Zigbee/Wifi TRVs expose 0–100 %)
 lets HCC build a rolling balance picture:

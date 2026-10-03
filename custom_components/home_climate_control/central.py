@@ -789,8 +789,8 @@ class CentralController:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("health feed failed", exc_info=True)
 
-        # ── Tier 4: radiator metering + TRV balancing feed ──────────────
-        # ── Tier 5: valve-direct closed loop (rooms with a number valve) ─
+        # ── Radiator metering + TRV balancing feed ──────────────
+        # ── Valve-direct closed loop (rooms with a number valve) ─
         be_flow = getattr(self.backend, "flow_temp", None)
         be_ret = getattr(self.backend, "return_temp", None)
         healthy = self._system_healthy_for_auto()
@@ -968,7 +968,7 @@ class CentralController:
         }
 
     async def _async_maybe_autocap(self, z, now) -> None:
-        """Tier 4: write the suggested opening-degree cap to an oversized
+        """Write the suggested opening-degree cap to an oversized
         room's TRV number entity (only when the user turned it on).
 
         Guards: `number.` entity assigned, oversupplied verdict with a

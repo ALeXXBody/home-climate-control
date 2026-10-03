@@ -63,7 +63,7 @@ Over time, HCC nudges the curve coefficient to match your house: if rooms chroni
 
 On windy days, infiltration increases heat loss. HCC trims the curve's outdoor input by the wind speed (needs a weather entity with `wind_speed`).
 
-## 12. Insulation & balancing (Tier 3 / Tier 4)
+## 12. Insulation & balancing
 
 - **Insulation score** — a weather-normalized heat-loss factor per room.
 - **TRV balancing** — automatically re-balances valve limits so rooms warm up evenly. (Opt-in.)

@@ -182,7 +182,7 @@ def analyze(entity_ids, opts, rooms) -> list[dict]:
                        "and quantified balancing."),
         })
 
-    # ── Tier 3: solar trim ──────────────────────────────────────────────
+    # ── solar trim ──────────────────────────────────────────────
     if any(r.get("has_lux") for r in smart_rooms):
         items.append({
             "id": "solar",
@@ -200,7 +200,7 @@ def analyze(entity_ids, opts, rooms) -> list[dict]:
                        "the heat (small, free savings)."),
         })
 
-    # ── Tier 3: CO₂ ─────────────────────────────────────────────────────
+    # ── CO₂ guard ─────────────────────────────────────────────────────
     if any(r.get("has_co2") for r in smart_rooms):
         items.append({
             "id": "co2",

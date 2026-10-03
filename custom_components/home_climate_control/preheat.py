@@ -8,7 +8,7 @@ Every "start heating so the room is warm in time" decision is:
 * warm_rate  — measured °C/h recovery (SetbackLearner / calibration)
 * deficit    — how many °C below the comfort target we still are
 
-Tier 0 uses this in two places without needing a calendar:
+The control loop uses this in two places without needing a calendar:
 
 1. **Setback depth** — the allowed overnight drop is sized so that
    (recovery for that drop) + dead_time fits inside RECOVERY_TARGET_H.

@@ -1,4 +1,4 @@
-"""CO₂ air-quality watch (Tier 3).
+"""CO₂ air-quality watch (optional per-room extra).
 
 A per-room CO₂ sensor drives a ``needs_ventilation`` flag with
 hysteresis. HCC surfaces the flag (zone attribute + diagnostics) so HA

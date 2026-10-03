@@ -2014,16 +2014,16 @@ class HomeClimatePanel extends HTMLElement {
         <div class="row"><label>Window/door<br><span style="font-weight:400">(optional, comma-sep)</span></label>
           <input id="${prefix}-window" list="${prefix}-windows" value="${this._esc(curWindows)}" placeholder="binary_sensor.…" style="flex:1">
           <datalist id="${prefix}-windows">${windowSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
-        <div class="row"><label>Lux sensor<br><span style="font-weight:400">(Tier 3, optional)</span></label>
+        <div class="row"><label>Lux sensor<br><span style="font-weight:400">(optional)</span></label>
           <input id="${prefix}-lux" list="${prefix}-luxs" value="${this._esc(curLux)}" placeholder="sensor.… (solar gain)" style="flex:1">
           <datalist id="${prefix}-luxs">${luxSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
-        <div class="row"><label>CO₂ sensor<br><span style="font-weight:400">(Tier 3, optional)</span></label>
+        <div class="row"><label>CO₂ sensor<br><span style="font-weight:400">(optional)</span></label>
           <input id="${prefix}-co2" list="${prefix}-co2s" value="${this._esc(curCo2)}" placeholder="sensor.… ppm (ventilation flag)" style="flex:1">
           <datalist id="${prefix}-co2s">${co2Sensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
-        <div class="row"><label>TRV valve position<br><span style="font-weight:400">(Tier 4, optional)</span></label>
+        <div class="row"><label>TRV valve position<br><span style="font-weight:400">(optional)</span></label>
           <input id="${prefix}-valve" list="${prefix}-valves" value="${this._esc(curValve)}" placeholder="sensor.°/number.… 0-100%" style="flex:1">
           <datalist id="${prefix}-valves">${valveSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
-        <div class="row"><label>Radiator nominal kW<br><span style="font-weight:400">(Tier 4 @ ΔT50, optional)</span></label>
+        <div class="row"><label>Radiator nominal kW<br><span style="font-weight:400">(optional, nominal at ΔT50)</span></label>
           <input id="${prefix}-radkw" type="number" step="0.1" min="0" max="20" value="${this._esc(curRadKw)}" placeholder="e.g. 1.8" style="flex:1"></div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button type="button" class="a" data-zone-action="${action}" ${isEdit ? `data-zone-name="${this._esc(z.name || "")}"` : ""} style="flex:1">${isEdit ? "Save changes" : "Create room"}</button>
@@ -2562,7 +2562,7 @@ class HomeClimatePanel extends HTMLElement {
             </tr>`;
           }).join("");
           return `<div class="card">
-            <h3>Rooms — setbacks &amp; Tier 3/4</h3>
+            <h3>Rooms — setbacks &amp; optional sensors</h3>
             <table style="border-collapse:collapse;font-size:.82rem;width:100%">
               <thead><tr>${th}</tr></thead><tbody>${trs}</tbody>
             </table>

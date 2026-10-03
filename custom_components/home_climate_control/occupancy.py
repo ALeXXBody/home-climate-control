@@ -1,6 +1,6 @@
 """Occupancy → away/home presets from phone device trackers.
 
-Optional Tier-2 feature. When enabled in integration options, HCC watches
+Optional feature. When enabled in integration options, HCC watches
 one or more HA entities (``device_tracker.*``, ``person.*``,
 ``binary_sensor.*`` presence) and:
 

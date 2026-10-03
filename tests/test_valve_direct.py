@@ -1,4 +1,4 @@
-"""Valve-direct (Tier 5) close loop: demand → number.set_value writes."""
+"""Valve-direct close loop: demand → number.set_value writes."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
