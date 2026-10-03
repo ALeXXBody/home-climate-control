@@ -117,6 +117,8 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_reboot_device)
     websocket_api.async_register_command(hass, ws_firmware_catalog)
     websocket_api.async_register_command(hass, ws_get_ot_log)
+    websocket_api.async_register_command(hass, ws_get_debug_log)
+    websocket_api.async_register_command(hass, ws_exercise_valve)
     hass.data[key] = True
 
 

@@ -143,6 +143,7 @@ def install_ha_stubs() -> None:
     wsapi.async_response = lambda fn: fn
     wsapi.require_admin = lambda fn: fn  # admin check is live-HA behaviour
     wsapi.register_command = MagicMock()
+    wsapi.async_register_command = MagicMock()
     class _ActiveConnection:  # noqa: D401
         pass
     wsapi.ActiveConnection = _ActiveConnection
