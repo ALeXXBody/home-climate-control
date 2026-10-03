@@ -754,8 +754,11 @@ if (failures.length) {
   }
   check(cardTxt.includes("Office") && cardTxt.includes("2,400"),
     "modeled room detail not shown in Self-learning card");
-  check(cardTxt.includes("shadow"), "shadow influence not stated in Self-learning card");
-  check(cardTxt.includes("Modeled rooms: 2"), "modeled room count missing");
+  check(cardTxt.includes("Modeled rooms") === false && cardTxt.includes("Rooms with model"),
+    "copies should not carry process wording (old 'Modeled rooms' leaked)");
+  check(cardTxt.includes("Self-learning") && !cardTxt.includes("this house only"),
+    "card header must be plain 'Self-learning' (no opinion qualifiers)");
+  check(cardTxt.includes("Rooms with model: 2"), "modeled room count missing");
   delete sys0.boiler.learner;
   if (savedLearner) sys0.boiler.learner = savedLearner;
   sys0.boiler.datalogger = savedDl;

@@ -2099,7 +2099,7 @@ class HomeClimatePanel extends HTMLElement {
                   <summary>insights</summary>
                   <div class="zone-meta">
                     ${!manual && rate ? `warms ${rate} °C/h · ` : ""}
-                    ${z.model?.coef ? `AI shadow model: ${(z.model.n ?? 0) >= 1000 ? Math.round((z.model.n ?? 0) / 1000 * 10) / 10 + "k" : (z.model.n ?? 0)} samples · RMSE ${z.model.rmse ?? "?"} °C · <span style="opacity:.8">no control effect yet</span><br>` : ""}
+                    ${z.model?.coef ? `AI model: ${(z.model.n ?? 0) >= 1000 ? Math.round((z.model.n ?? 0) / 1000 * 10) / 10 + "k" : Intl.NumberFormat().format((z.model.n ?? 0))} samples · RMSE ${z.model.rmse ?? "?"} °C<br>` : ""}
                     ${!manual && dt != null ? `responds ~${dt} min · ` : ""}
                     ${!manual && z.lead_time_s != null && z.lead_time_s > 0 ? `lead ~${Math.round(z.lead_time_s / 60)} min · ` : ""}
                     ${!manual && ins?.label ? `insulation ${this._esc(ins.label)} (k=${ins.k}) · ` : ""}
@@ -2463,8 +2463,7 @@ class HomeClimatePanel extends HTMLElement {
       ${this._learnerCardHtml(sys)}`;
   }
 
-  /* Per-house self-learning status (v1.17+). Read-only visibility:
-     trained_at, per-room samples/error, mode. Control is untouched. */
+  /* Self-learning status: training time, per-room samples/error. */
   _learnerCardHtml(sys) {
     const ln = sys?.boiler?.learner;
     const fw = sys?.boiler?.datalogger || {};
@@ -2491,18 +2490,9 @@ class HomeClimatePanel extends HTMLElement {
       )}${extra}</div>`;
     };
     const roomsArr = ln.rooms || [];
-    const impact = ln.rooms?.length
-      ? "<strong>shadow</strong> (comparing only — no control effect)"
-      : "none yet (heuristic learning active)";
     return `
       <div class="card wide" style="margin-bottom:12px">
-        <h3>Self-learning (this house only)</h3>
-        <p class="sub" style="margin:4px 0 8px">
-          Local, automatic: every room's behaviour model trains from your own
-          logged telemetry once a week — nothing leaves this installation.
-          Models run in <strong>shadow mode</strong>: they only compare their
-          predictions against reality in the Debug log until proven.
-        </p>
+        <h3>Self-learning</h3>
         <div class="sub" style="margin:2px 0">
           Last training: ${fmtWhen(ln.trained_at)}
           ${ln.training ? " · <em>training now…</em>" : ""}
@@ -2513,10 +2503,10 @@ class HomeClimatePanel extends HTMLElement {
           ${fw.last_row_ts ? " (latest " + fmtWhen(fw.last_row_ts) + ")" : ""}
         </div>
         <div class="sub" style="margin:2px 0">
-          Modeled rooms: ${roomsArr.length || 0} · current influence: ${impact}
+          Rooms with model: ${roomsArr.length || 0}
         </div>
         ${roomsArr.slice(0, 12).map(room).join("")}
-        ${ln.last_error ? "" : roomsArr.length ? "" : `<div class="sub" style="margin:6px 0 0">First training needs ≥7 days of logged data, ≥2,000 heat-on samples per room and an outdoor spread ≥8 °C — it will dispatch automatically in the background.</div>`}
+        ${!roomsArr.length && !ln.last_error && !ln.training ? `<div class="sub" style="margin:6px 0 0">First training starts automatically once there are ≥7 days of data, ≥2,000 heating samples per room and an outdoor range ≥8 °C.</div>` : ""}
       </div>`;
   }
 
