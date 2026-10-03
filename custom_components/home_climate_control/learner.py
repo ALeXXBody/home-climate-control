@@ -172,7 +172,12 @@ class RoomLearner:
             return False
         self.last_attempt = now
         self.training = True
-        self.hass.async_add_executor_job(self._train_sync)
+        # Dispatch on the event loop properly: a bare async_add_executor_job
+        # call creates the coroutine but nobody awaits it — the job (and the
+        # training) would never actually run.
+        self.hass.async_create_task(
+            self.hass.async_add_executor_job(self._train_sync)
+        )
         return True
 
     def _train_sync(self) -> None:

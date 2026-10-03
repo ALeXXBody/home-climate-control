@@ -1176,6 +1176,13 @@ class CentralController:
             data["learner"] = {
                 "trained_at": self.learner.trained_at,
                 "rooms": sorted(self.learner.model),
+                "room_detail": {
+                    name: {
+                        "n": (m or {}).get("n"),
+                        "rmse": (m or {}).get("rmse"),
+                    }
+                    for name, m in self.learner.model.items()
+                },
                 "training": self.learner.training,
                 "last_attempt_ts": self.learner.last_attempt or None,
                 "last_error": self.learner.last_error,

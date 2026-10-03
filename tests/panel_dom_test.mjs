@@ -706,6 +706,62 @@ if (failures.length) {
   }
 }
 
+// ── Gate: Self-learning card is visible on Settings with learner data ──
+//
+{
+  el._tab = "settings";
+  const sys0 = el._status.systems[0];
+  sys0.boiler = sys0.boiler || {};
+  const savedLearner = sys0.boiler?.learner;
+  const savedDl = JSON.parse(JSON.stringify(sys0.boiler?.datalogger || {}));
+  sys0.boiler.learner = {
+    trained_at: null,
+    rooms: [],
+    room_detail: {},
+    training: false,
+    last_error: null,
+  };
+  sys0.boiler.datalogger = {
+    enabled: true, rows_total: 56146,
+    last_row_ts: "2026-10-03T18:48:23+00:00",
+    directory: "/config/home_climate_training",
+  };
+  el._render();
+  let cardTxt = "";
+  for (const c2 of el.shadowRoot.querySelectorAll(".card")) {
+    if (c2.querySelector("h3")?.textContent.includes("Self-learning")) {
+      cardTxt = c2.textContent;
+      break;
+    }
+  }
+  check(!!cardTxt, "Self-learning card missing on Settings tab");
+  check(cardTxt.includes("56,146") || cardTxt.includes("56146"),
+    "Self-learning card does not show the logged row count");
+  check(cardTxt.includes("not yet"), "Self-learning card missing trained_at 'not yet'");
+  sys0.boiler.learner = {
+    trained_at: "2026-10-02T10:00:00+00:00",
+    rooms: ["Office", "Conservatory"],
+    room_detail: { Office: { n: 2400, rmse: 0.21 }, Conservatory: { n: 3100, rmse: 0.18 } },
+    training: false, last_error: null,
+  };
+  el._render();
+  cardTxt = "";
+  for (const c2 of el.shadowRoot.querySelectorAll(".card")) {
+    if (c2.querySelector("h3")?.textContent.includes("Self-learning")) {
+      cardTxt = c2.textContent;
+      break;
+    }
+  }
+  check(cardTxt.includes("Office") && cardTxt.includes("2,400"),
+    "modeled room detail not shown in Self-learning card");
+  check(cardTxt.includes("shadow"), "shadow influence not stated in Self-learning card");
+  check(cardTxt.includes("Modeled rooms: 2"), "modeled room count missing");
+  delete sys0.boiler.learner;
+  if (savedLearner) sys0.boiler.learner = savedLearner;
+  sys0.boiler.datalogger = savedDl;
+  el._render();
+}
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);

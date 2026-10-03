@@ -2458,6 +2458,64 @@ class HomeClimatePanel extends HTMLElement {
           style="margin-top:8px;padding:6px 14px">Save to device</button>
         <span id="hcc-fs-msg" style="margin-left:8px;font-size:.85rem"></span>
       </div>
+      </div>
+      ${this._learnerCardHtml(sys)}`;
+  }
+
+  /* Per-house self-learning status (v1.17+). Read-only visibility:
+     trained_at, per-room samples/error, mode. Control is untouched. */
+  _learnerCardHtml(sys) {
+    const ln = sys?.boiler?.learner;
+    const fw = sys?.boiler?.datalogger || {};
+    if (!ln && !fw.directory) {
+      // Pre-1.17 data or logging disabled anywhere else — keep it quiet.
+      return "";
+    }
+    const fmtWhen = (iso) => {
+      if (!iso) return "not yet";
+      try {
+        return new Date(iso).toLocaleString();
+      } catch (e) {
+        return this._esc(String(iso));
+      }
+    };
+    const room = (n) => {
+      const nf = (v) => (typeof v === "number" ? new Intl.NumberFormat().format(v) : String(v ?? ""));
+      const m = ln.room_detail?.[n];
+      const extra =
+        m ? ` · ${nf(m.n)} samples · RMSE ${m.rmse} °C`
+          : "";
+      return `<div class="sub" style="margin:2px 0">• ${this._esc(
+        String(n)
+      )}${extra}</div>`;
+    };
+    const roomsArr = ln.rooms || [];
+    const impact = ln.rooms?.length
+      ? "<strong>shadow</strong> (comparing only — no control effect)"
+      : "none yet (heuristic learning active)";
+    return `
+      <div class="card wide" style="margin-bottom:12px">
+        <h3>Self-learning (this house only)</h3>
+        <p class="sub" style="margin:4px 0 8px">
+          Local, automatic: every room's behaviour model trains from your own
+          logged telemetry once a week — nothing leaves this installation.
+          Models run in <strong>shadow mode</strong>: they only compare their
+          predictions against reality in the Debug log until proven.
+        </p>
+        <div class="sub" style="margin:2px 0">
+          Last training: ${fmtWhen(ln.trained_at)}
+          ${ln.training ? " · <em>training now…</em>" : ""}
+          ${ln.last_error ? ` · <span style="color:#ef9a9a">last error: ${this._esc(ln.last_error)}</span>` : ""}
+        </div>
+        <div class="sub" style="margin:2px 0">
+          Logged telemetry: ${fw.rows_total ?? "?"} rows
+          ${fw.last_row_ts ? " (latest " + fmtWhen(fw.last_row_ts) + ")" : ""}
+        </div>
+        <div class="sub" style="margin:2px 0">
+          Modeled rooms: ${roomsArr.length || 0} · current influence: ${impact}
+        </div>
+        ${roomsArr.slice(0, 12).map(room).join("")}
+        ${ln.last_error ? "" : roomsArr.length ? "" : `<div class="sub" style="margin:6px 0 0">First training needs ≥7 days of logged data, ≥2,000 heat-on samples per room and an outdoor spread ≥8 °C — it will dispatch automatically in the background.</div>`}
       </div>`;
   }
 

@@ -123,6 +123,10 @@ def test_maybe_train_throttled_to_week():
     assert ln.maybe_train(ref + 2 * 86400) is False
     assert ln.maybe_train(ref + 8 * 86400) is True   # ≥7 days: dispatch
     ln.training = False
+    # The dispatch must be a real scheduled task — a bare (never-awaited)
+    # async_add_executor_job silently never ran (release 1.17.0 bug).
+    hass_ = ln.hass
+    assert hass_.async_create_task.called, "training job was not scheduled"
 
 
 def test_shadow_compare_reports_after_two_samples():
