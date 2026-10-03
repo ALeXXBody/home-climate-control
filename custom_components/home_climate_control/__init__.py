@@ -110,6 +110,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .deadtime import DeadTimeEstimator
     from .insulation import InsulationScorer
     from .datalogger import TrainingDataLogger
+    from .learner import RoomLearner
     from .gasmeter import GasMeter
     from .stats import HccStats
     from .panel import async_register_panel
@@ -146,6 +147,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await insulation.async_load()
     datalogger = TrainingDataLogger(hass)
     datalogger.async_start(hass)
+    learner = RoomLearner(hass)
+    learner.load()  # existing model.json (safe no-op until first training)
     gas = GasMeter(
         hass,
         rated_power_kw=opts.get("rated_heat_input_kw", 24.0),
@@ -214,6 +217,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     controller.deadtime = deadtime
     controller.insulation = insulation
     controller.datalogger = datalogger
+    controller.learner = learner
     controller.gas = gas
     controller.stats = stats
     controller.schedule = schedule

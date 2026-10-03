@@ -100,6 +100,7 @@ class CentralController:
         self.deadtime = None
         self.insulation = None
         self.datalogger = None
+        self.learner = None
         self.schedule = None
         self.occupancy = None
         from .cycleguard import CycleGuard
@@ -848,6 +849,14 @@ class CentralController:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("training feed failed", exc_info=True)
 
+        # Per-house self-learning: weekly local retrain when due, plus the
+        # rotating shadow log (one prediction-vs-actual per room per hour).
+        if self.learner is not None:
+            try:
+                self._learner_tick(now)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("learner tick failed", exc_info=True)
+
         # Demo physics + push simulated room temps into zones.
         simulate = getattr(self.backend, "simulate_step", None)
         if callable(simulate):
@@ -863,6 +872,34 @@ class CentralController:
                         zone.on_sensor_update(temp, None)
 
         self._debug_tick()
+
+    def _learner_tick(self, now: float) -> None:
+        """Cheap per-tick learner bookkeeping (dispatches run in executor)."""
+        self.learner.maybe_train(now)
+        # Shadow validation: one modeled room per minute — the learner keeps
+        # the previous sample per room and returns the realised delta line.
+        names = sorted(n for n in self.learner.model)
+        if not names:
+            return
+        name = names[int(now // 60) % len(names)]
+        z = self._find_zone(name)
+        if z is None:
+            return
+        cur = getattr(z, "current_temperature", None)
+        outdoor = self.outdoor_temp()
+        try:
+            demand = min(1.0, max(0.0, float(z.demand_level())))
+        except Exception:  # noqa: BLE001
+            return
+        if not isinstance(cur, (int, float)) or not isinstance(
+            outdoor, (int, float)
+        ):
+            return
+        line = self.learner.shadow_compare(
+            name, demand, float(outdoor) - float(cur), float(cur), now
+        )
+        if line:
+            self._debug("learner", line)
 
     def _training_row(self) -> dict:
         """Flat, ML-friendly snapshot of the whole system for this tick."""
@@ -1135,6 +1172,14 @@ class CentralController:
             data["insulation"] = self.insulation.as_dict()
         if self.datalogger is not None:
             data["datalogger"] = self.datalogger.stats()
+        if self.learner is not None:
+            data["learner"] = {
+                "trained_at": self.learner.trained_at,
+                "rooms": sorted(self.learner.model),
+                "training": self.learner.training,
+                "last_attempt_ts": self.learner.last_attempt or None,
+                "last_error": self.learner.last_error,
+            }
         data["calibration"] = self.calibration.as_dict()
         data["health"] = self.health.as_dict()
         if self.gas is not None:

@@ -387,6 +387,29 @@ class RoomControlSensor(SensorEntity):
             if callable(getattr(zone, "valve_direct_active", None)) else False,
             "name": self._room,
         }
+        # Per-house self-learning status (RoomLearner, shadow mode only).
+        learner = None
+        try:
+            data = getattr(self.hass, "data", {}).get(DOMAIN, {}).get(
+                self._entry_id, {}
+            )
+            learner = getattr(data.get("controller"), "learner", None)
+        except (AttributeError, TypeError):
+            learner = None
+        if learner is not None:
+            m = learner.model.get(self._room)
+            if m:
+                self._attr_extra_state_attributes["model"] = {
+                    "trained_at": learner.trained_at,
+                    "n": m.get("n"),
+                    "rmse": m.get("rmse"),
+                    "influence": "shadow",   # never controls heat
+                }
+            else:
+                self._attr_extra_state_attributes["model"] = {
+                    "influence": "none",
+                    "trained_at": learner.trained_at,
+                }
         self.async_write_ha_state()
 
 from .setback import MIN_CYCLES
