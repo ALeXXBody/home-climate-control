@@ -217,3 +217,45 @@ def test_room_rows_carry_model_same_schema():
     row = next(z for z in zones if z["name"] == "Office")
     assert row["model"]["n"] == 2400
     assert row["model"]["coef"]["demand"] == 0.4
+
+
+def test_demand_only_training_when_outdoor_absent():
+    """Houses with NO outdoor data still earn a demand-only model."""
+    import datetime as _dt
+    base = _dt.datetime(2026, 8, 10, 12, 0, 0,
+                        tzinfo=_dt.timezone.utc).timestamp()
+    rows = []
+    for i in range(MIN_DAYS * 1440 + 300):
+        ts = base + i * 60
+        iso = _dt.datetime.fromtimestamp(ts, _dt.timezone.utc).isoformat(
+            timespec="seconds"
+        )
+        demand = 0.3 + 0.7 * ((i % 50) / 50)
+        rows.append(_row(iso, None, 19.0 + 0.25 * demand, demand, ch_on=True))
+    ln, tmp, _ = _learner_with(rows)
+    ln._train_sync()
+    assert "Office" in ln.model
+    assert ln.model["Office"]["mode"] == "demand_only"
+    assert "gap" not in ln.model["Office"]["coef"]
+    assert ln.model["Office"]["coef"]["demand"] >= 0
+    got = ln.predict_delta("Office", 1.0, 0.0)
+    assert got is not None
+
+
+def test_outdoor_spread_gate_still_blocks_with_outdoor():
+    """Present-but-flat outdoor data (mild-only weeks) must not set a model."""
+    import datetime as _dt
+    base = _dt.datetime(2026, 8, 10, 12, 0, 0,
+                        tzinfo=_dt.timezone.utc).timestamp()
+    rows = []
+    for i in range(MIN_DAYS * 1440 + 300):
+        ts = base + i * 60
+        iso = _dt.datetime.fromtimestamp(ts, _dt.timezone.utc).isoformat(
+            timespec="seconds"
+        )
+        demand = 0.5
+        rows.append(_row(iso, 12.0 + (i % 4) * 0.5,
+                         19.5 + 0.2 * demand, demand))
+    ln, tmp, _ = _learner_with(rows)
+    ln._train_sync()
+    assert ln.model == {}

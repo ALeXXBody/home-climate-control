@@ -99,6 +99,7 @@ class RoomLearner:
         self.training: bool = False
         self.last_attempt: float = 0.0
         self.last_error: str | None = None
+        self.skip_reason: str | None = None
         # rotating debug of one prediction-vs-actual per tick
         self._shadow_state: dict[str, Any] = {}
 
@@ -138,27 +139,39 @@ class RoomLearner:
 
     # ------------------------------------------------------------ prediction
     def predict_delta(self, room: str, demand: float, gap: float) -> float | None:
-        """Predict next-minute ΔT (°C) for a room; None when not modeled."""
+        """Predict next-minute ΔT (°C) for a room; None when not modeled.
+
+        Demand-only models (houses without an outdoor sensor) ignore the
+        gap argument — the coef dict simply has no 'gap' key.
+        """
         m = self.model.get(room)
         if not isinstance(m, dict):
             return None
+        coef = m.get("coef")
+        if not isinstance(coef, dict):
+            return None
         try:
-            coef = m["coef"]
             a = float(coef["demand"])
-            bgap = float(coef["gap"])
             c = float(coef["bias"])
         except (KeyError, TypeError, ValueError):
             return None
-        if not all(isinstance(v, (int, float)) for v in (a, bgap, c)):
+        if not all(isinstance(v, (int, float)) for v in (a, c)):
             return None
-        return a * demand + bgap * gap + c
+        bgap = coef.get("gap")
+        if isinstance(bgap, (int, float)):
+            return a * demand + float(bgap) * gap + c
+        return a * demand + c
 
     # ------------------------------------------------------------ retraining
     def maybe_train(self, now: float | None = None) -> bool:
         """Cheap tick check: dispatch a retrain when the week is due."""
         if now is None:
             now = time.time()
-        if self.training or self._dir is None:
+        if self.training:
+            self.skip_reason = "training in progress"
+            return False
+        if self._dir is None:
+            self.skip_reason = "no data directory"
             return False
         last = 0.0
         if self.trained_at:
@@ -169,8 +182,10 @@ class RoomLearner:
             except (ValueError, TypeError):
                 last = 0.0
         if now - last < RETRAIN_INTERVAL_S:
+            self.skip_reason = "next weekly run not due yet"
             return False
         self.last_attempt = now
+        self.skip_reason = None
         self.training = True
         # Dispatch on the event loop properly: a bare async_add_executor_job
         # call creates the coroutine but nobody awaits it — the job (and the
@@ -271,6 +286,9 @@ class RoomLearner:
         xs: dict[str, list[list[float]]] = {}
         ys: dict[str, list[float]] = {}
         heat_rows: dict[str, int] = {}
+        # demand-only pairs (houses without an outdoor sensor)
+        xs0_all: dict[str, list[tuple[float, float]]] = {}
+        ys0_all: dict[str, list[float]] = {}
         for path in files:
             if path.stat().st_size > 200 * 1024 * 1024:
                 continue  # never read monster files whole
@@ -284,7 +302,8 @@ class RoomLearner:
                         except (ValueError, TypeError):
                             continue
                         self._absorb(
-                            row, prev, xs, ys, heat_rows, days, outdoor_seen
+                            row, prev, xs, ys, heat_rows, days, outdoor_seen,
+                            xs0_all, ys0_all,
                         )
                         if sum(len(v) for v in xs.values()) > MAX_ROWS:
                             break
@@ -298,15 +317,36 @@ class RoomLearner:
         coverage = {
             "days": len(days),
             "outdoor_spread": round(out_spread, 1),
+            "outdoor_available": bool(outdoor_seen),
             "heat_rows": {k: v for k, v in heat_rows.items() if v},
         }
-        if len(days) < MIN_DAYS or out_spread < MIN_OUTDOOR_SPREAD:
+        if len(days) < MIN_DAYS:
+            return {}, coverage
+        # Outdoor is REQUIRED when the house provides it (its cooling signal
+        # matters), optional when it does not — a house with no outdoor
+        # sensor still deserves a demand-driven model.
+        outdoor_ok = not outdoor_seen or out_spread >= MIN_OUTDOOR_SPREAD
+        if not outdoor_ok:
             return {}, coverage
 
         rooms: dict[str, Any] = {}
-        for name, xs_r in xs.items():
-            n = len(ys[name])
+        room_names = sorted(set(xs) | set(xs0_all))
+        for name in room_names:
+            xs_r = xs.get(name) or []
+            n = len(ys.get(name) or [])
             if n < MIN_ROOM_ROWS:
+                # No-outdoor house: fall back to the demand-only pairs.
+                xs0, ys0 = xs0_all.get(name) or [], ys0_all.get(name) or []
+                if outdoor_seen or len(ys0) < MIN_ROOM_ROWS:
+                    continue
+                coef, rmse, n = self._fit_room(xs0, ys0)
+                if coef is None:
+                    continue
+                rooms[name] = {
+                    "coef": coef,       # {'demand', 'bias'} — no gap term
+                    "n": n, "rmse": rmse,
+                    "mode": "demand_only",
+                }
                 continue
             try:
                 coef = _solve_ols(xs_r, ys[name], len(xs_r[0]))
@@ -328,7 +368,11 @@ class RoomLearner:
                 },
                 "n": n,
                 "rmse": round(rmse, 4),
+                "mode": "full",
             }
+        # Demand-only fallback counts for rooms that DID reach the full
+        # gate are unnecessary (they already have the better model).
+        del xs0_all
         return rooms, coverage
 
     # ------------------------------------------------------------- shadow
@@ -359,7 +403,8 @@ class RoomLearner:
         )
 
     # ------------------------------------------------------------- absorber
-    def _absorb(self, row, prev, xs, ys, heat_rows, days, outdoor_seen):
+    def _absorb(self, row, prev, xs, ys, heat_rows, days, outdoor_seen,
+                xs0_all, ys0_all):
         """One corpus row → delta training pairs (linked to the previous)."""
         ts = row.get("ts")
         try:
@@ -369,7 +414,8 @@ class RoomLearner:
         t_s = t.timestamp()
         days.add(t_s // 86400)
         outdoor = row.get("outdoor")
-        if isinstance(outdoor, (int, float)) and -60 < outdoor < 60:
+        outdoor_ok = isinstance(outdoor, (int, float)) and -60 < outdoor < 60
+        if outdoor_ok:
             outdoor_seen.append(float(outdoor))
         boiler = row.get("boiler") or {}
         ch_on = bool(row.get("ch_on") or boiler.get("flame"))
@@ -396,10 +442,38 @@ class RoomLearner:
             dt = t_s - prev_ts
             if dt <= 15 or dt > 150:
                 continue  # only true ~1-minute successive rows pair up
-            # feature row: (demand, outdoor-gap); target: ΔT over the pair
-            if not (isinstance(outdoor, (int, float)) and -60 < outdoor < 60):
+            ys0_all.setdefault(name, []).append(float(temp) - prev_temp)
+            xs0_all.setdefault(name, []).append((demand, float(prev_temp)))
+            if not outdoor_ok:
                 continue
+            # feature row: (demand, outdoor-gap); target: ΔT over the pair
             xs.setdefault(name, []).append(
                 [demand, float(outdoor) - float(prev_temp)]
             )
             ys.setdefault(name, []).append(float(temp) - prev_temp)
+
+    @staticmethod
+    def _fit_room(demand_rows, target_deltas):
+        """Demand-only OLS per room: ΔT ≈ a·demand + bias. Returns
+        (coef_dict|None, rmse, n)."""
+        n = len(target_deltas)
+        if n < 2 or len(demand_rows) != n:
+            return None, 0.0, 0
+        try:
+            coef = _solve_ols(
+                [[d] for d, _ in demand_rows], target_deltas, 1
+            )
+        except Exception:  # noqa: BLE001
+            return None, 0.0, 0
+        a, bias = coef[0], coef[1]
+        rmse = 0.0
+        for (d, _), y in zip(demand_rows, target_deltas):
+            rmse += (a * d + bias - y) ** 2
+        rmse = (rmse / n) ** 0.5
+        if abs(a) >= 50 or abs(bias) >= 50 or rmse > 5.0:
+            return None, 0.0, 0
+        return (
+            {"demand": round(a, 6), "bias": round(bias, 6)},
+            round(rmse, 4),
+            n,
+        )
