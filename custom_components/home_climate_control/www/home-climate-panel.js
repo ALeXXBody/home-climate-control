@@ -91,6 +91,11 @@ class HomeClimatePanel extends HTMLElement {
         this._fetchDebugLog();
         return;
       }
+      if (t.closest('[data-action="train-now"]')) {
+        this._hass?.callWS({ type: "home_climate_control/train_now" });
+        this._render();
+        return;
+      }
       if (t.closest('[data-action="debug-close"]')) {
         this._showDebug = false;
         if (this._tab === "debug") this._tab = "settings";
@@ -1204,6 +1209,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("diagnostics", "Diagnostics")}
           ${this._showDebug ? this._tabBtn("debug", "Debug") : ""}
         </nav>
+        <div class="sub" id="hcc-tab-hint" style="margin:-6px 0 8px">${this._esc(HomeClimatePanel.TAB_HINTS[this._tab] || "")}</div>
         <div id="hcc-error" class="error" ${this._error ? "" : "hidden"}>${this._esc(this._error || "")}</div>
         <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
@@ -1855,6 +1861,16 @@ class HomeClimatePanel extends HTMLElement {
 
   static ZONE_PRESET_OPTS = ["comfort", "eco", "away", "boost"];
 
+  // One plain line under the nav: what each tab is for.
+  static TAB_HINTS = {
+    home: "Live overview of every room and the floor plan.",
+    rooms: "Room cards and room settings — add or edit rooms via the button above the list.",
+    stats: "Gas use, heating history and daily charts.",
+    devices: "HCS boards — firmware, OTA updates and devices.",
+    settings: "Integration options and self-learning.",
+    diagnostics: "Technical telemetry: setup analyzer and boiler internals.",
+  };
+
   _addRoomHeaderHtml() {
     // "+ Add room" row shown over the room list (and the empty state);
     // includes the add/edit popup when one is open.
@@ -2490,13 +2506,21 @@ class HomeClimatePanel extends HTMLElement {
       )}${extra}</div>`;
     };
     const roomsArr = ln.rooms || [];
+    const stuck =
+      !ln.trained_at && !ln.training && !roomsArr.length
+        ? (ln.skip_reason ? String(ln.skip_reason) : null)
+        : null;
     return `
       <div class="card wide" style="margin-bottom:12px">
+        <button type="button" class="ghost" data-action="train-now"
+          style="float:right;margin-top:2px;padding:4px 12px">Train now</button>
         <h3>Self-learning</h3>
         <div class="sub" style="margin:2px 0">
           Last training: ${fmtWhen(ln.trained_at)}
           ${ln.training ? " · <em>training now…</em>" : ""}
           ${ln.last_error ? ` · <span style="color:#ef9a9a">last error: ${this._esc(ln.last_error)}</span>` : ""}
+          ${stuck ? ` · <span style="color:#ffcc80">waiting: ${this._esc(stuck)}</span>` : ""}
+          ${(ln.tick_count || 0) === 0 ? ' · learner not started (integration reload needed)' : ""}
         </div>
         <div class="sub" style="margin:2px 0">
           Logged telemetry: ${fw.rows_total ?? "?"} rows

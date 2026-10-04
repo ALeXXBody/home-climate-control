@@ -259,3 +259,17 @@ def test_outdoor_spread_gate_still_blocks_with_outdoor():
     ln, tmp, _ = _learner_with(rows)
     ln._train_sync()
     assert ln.model == {}
+
+
+def test_force_train_dispatches_immediately():
+    """Manual 'Train now': clears the weekly latch, schedules the job."""
+    ln, _, _ = _learner_with([])
+    ln.model = {"Office": {"coef": {"demand": 0, "gap": 0, "bias": 0}}}
+    ln.trained_at = "2026-09-30T12:00:00+00:00"
+    import datetime as _dt
+    ref = _dt.datetime(2026, 9, 30, 12, 0, 0,
+                       tzinfo=_dt.timezone.utc).timestamp()
+    ln.force_train()
+    assert ln.hass.async_create_task.called, "force_train did not dispatch"
+    assert ln.trained_at is None  # latch cleared by force_train
+    assert ln.skip_reason is None

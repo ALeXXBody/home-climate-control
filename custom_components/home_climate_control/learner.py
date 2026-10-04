@@ -100,6 +100,7 @@ class RoomLearner:
         self.last_attempt: float = 0.0
         self.last_error: str | None = None
         self.skip_reason: str | None = None
+        self.tick_count: int = 0
         # rotating debug of one prediction-vs-actual per tick
         self._shadow_state: dict[str, Any] = {}
 
@@ -163,6 +164,47 @@ class RoomLearner:
         return a * demand + c
 
     # ------------------------------------------------------------ retraining
+    def tick_seen(self, now: float) -> None:
+        """Tick-path heartbeat: called before any decision, for diagnosis."""
+        self.tick_count += 1
+
+    def schedule_initial_train(self) -> None:
+        """Dispatch the first retrain shortly after setup, decoupled from
+        the control-loop tick path (a misbehaving tick can never stop the
+        corpus from being used)."""
+        if self._dir is None or self.hass is None:
+            return
+        async def _first():
+            await __import__("asyncio").sleep(90.0)
+            self.maybe_train()
+        self.hass.async_create_task(_first())
+
+    def schedule_hourly_watch(self) -> None:
+        """Repeat the weekly-due check hourly, also decoupled from ticks;
+        the week throttle inside maybe_train keeps it cheap."""
+        if self._dir is None or self.hass is None:
+            return
+        async def _watch():
+            import asyncio as _aio
+            while True:
+                await _aio.sleep(3600.0)
+                self.maybe_train()
+        self.hass.async_create_task(_watch())
+
+    def force_train(self) -> None:
+        """Manual 'train now' (admin). Clears the weekly latch.
+
+        Public WS command: home_climate_control/train_now.
+        """
+        if self._dir is None:
+            self.skip_reason = "no data directory"
+            return
+        if self.training:
+            return
+        self.trained_at = None   # due immediately
+        self.skip_reason = None
+        self.maybe_train()
+
     def maybe_train(self, now: float | None = None) -> bool:
         """Cheap tick check: dispatch a retrain when the week is due."""
         if now is None:

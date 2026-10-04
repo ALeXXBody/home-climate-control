@@ -149,6 +149,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     datalogger.async_start(hass)
     learner = RoomLearner(hass)
     learner.load()  # existing model.json (safe no-op until first training)
+    learner.schedule_initial_train()
+    learner.schedule_hourly_watch()
     gas = GasMeter(
         hass,
         rated_power_kw=opts.get("rated_heat_input_kw", 24.0),

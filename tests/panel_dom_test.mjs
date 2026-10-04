@@ -759,6 +759,27 @@ if (failures.length) {
   check(cardTxt.includes("Self-learning") && !cardTxt.includes("this house only"),
     "card header must be plain 'Self-learning' (no opinion qualifiers)");
   check(cardTxt.includes("Rooms with model: 2"), "modeled room count missing");
+  check(!!(function(){
+    for (const c3 of el.shadowRoot.querySelectorAll(".card"))
+      if (c3.querySelector("h3")?.textContent.includes("Self-learning"))
+        return c3.querySelector('[data-action="train-now"]');
+    return null;
+  })(), "Train now button missing on Self-learning card");
+  // Tab hint bar: plain one-liner under the nav for every main tab.
+  const hint = el.shadowRoot.getElementById("hcc-tab-hint");
+  check(!!hint, "tab hint bar missing");
+  const hintChecks = {
+    home: "Live overview", rooms: "Room cards", stats: "Gas use",
+    devices: "HCS boards", settings: "Integration options",
+    diagnostics: "Technical telemetry",
+  };
+  for (const t of Object.keys(hintChecks)) {
+    el._tab = t;
+    el._render();
+    const h2 = el.shadowRoot.getElementById("hcc-tab-hint");
+    check(h2 && h2.textContent.includes(hintChecks[t]), "tab hint for " + t + " missing");
+  }
+  el._tab = "settings";
   delete sys0.boiler.learner;
   if (savedLearner) sys0.boiler.learner = savedLearner;
   sys0.boiler.datalogger = savedDl;

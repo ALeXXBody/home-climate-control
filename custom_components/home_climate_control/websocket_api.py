@@ -119,6 +119,7 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_ot_log)
     websocket_api.async_register_command(hass, ws_get_debug_log)
     websocket_api.async_register_command(hass, ws_exercise_valve)
+    websocket_api.async_register_command(hass, ws_train_now)
     hass.data[key] = True
 
 
@@ -1806,6 +1807,30 @@ async def ws_get_ot_log(
     mgr = await async_setup_firmware_manager(hass)
     result = await mgr.async_get_ot_log(msg["node_id"], msg["clear"])
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/train_now",
+    }
+)
+@websocket_api.async_response
+async def ws_train_now(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Immediately dispatch the per-house training (admin)."""
+    for data in (hass.data.get(DOMAIN, {}) or {}).values():
+        controller = data.get("controller") if isinstance(data, dict) else None
+        learner = getattr(controller, "learner", None)
+        if learner is None:
+            continue
+        learner.force_train()
+        connection.send_result(msg["id"], {"ok": True})
+        return
+    connection.send_error(msg["id"], "not_found", "no learner")
 
 
 @websocket_api.require_admin

@@ -880,6 +880,7 @@ class CentralController:
 
     def _learner_tick(self, now: float) -> None:
         """Cheap per-tick learner bookkeeping (dispatches run in executor)."""
+        self.learner.tick_seen(now)
         self.learner.maybe_train(now)
         # Shadow validation: one modeled room per minute — the learner keeps
         # the previous sample per room and returns the realised delta line.
@@ -1191,6 +1192,8 @@ class CentralController:
                 "training": self.learner.training,
                 "last_attempt_ts": self.learner.last_attempt or None,
                 "last_error": self.learner.last_error,
+                "skip_reason": self.learner.skip_reason,
+                "tick_count": self.learner.tick_count,
             }
         data["calibration"] = self.calibration.as_dict()
         data["health"] = self.health.as_dict()
