@@ -471,8 +471,11 @@ class HomeClimatePanel extends HTMLElement {
         break;
       }
       case "debug": {
-        // Auto-refresh the feed while the debug screen is open.
+        // Auto-refresh the feed while open; also refresh the live TRV
+        // table above it (the feed <pre> itself is owned by _fetchDebugLog).
         this._debugTick_();
+        const dw = root.getElementById("hcc-debug-live");
+        if (dw && !this._focusBlocked(dw)) dw.innerHTML = this._trvTableHtml();
         break;
       }
       case "devices": {
@@ -1350,7 +1353,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._settingsLiveHtml(sys)}
         </div>`;
       case "debug":
-        return this._debugHtml();
+        return `<div id="hcc-debug-root">${this._debugHtml()}</div>`;
       default: // home
         return `<div id="hcc-live">${this._homeHtml(sys)}</div>`;
     }
@@ -1622,6 +1625,7 @@ class HomeClimatePanel extends HTMLElement {
           + `<span>${this._esc(e.m || "")}</span></div>`)
         : "(no events yet — the feed fills within a minute)");
     return `
+      <div id="hcc-debug-live">${this._trvTableHtml()}</div>
       <div class="card wide">
         <div class="row">
           <h3 style="margin:0">Debug feed</h3>
@@ -1632,6 +1636,59 @@ class HomeClimatePanel extends HTMLElement {
         </div>
         <p class="sub">Rolling event log (newest first), capped server-side. Lines: tick = control loop, trv = real TRV actions (target/mode pushes + trigger), valve = valve-position moves, valve-cap = auto-balance writes, boiler = CH on/off.</p>
         <pre id="hcc-debug-pre" style="max-height:430px;overflow:auto;font-size:.72rem;line-height:1.4;margin:8px 0 0;white-space:pre-wrap">${body}</pre>
+      </div>`;
+  }
+
+  /* Live per-room TRV state at a glance — read from the same status the
+     panel polls, so the table refreshes with every poll on this tab. */
+  _trvTableHtml() {
+    const sys = (this._status?.systems || [])[0] || {};
+    const zones = sys.zones || [];
+    let rows = "";
+    for (const z of zones) {
+      const manual = z.heat_control === "manual";
+      const src = z.temp_source === "trv" && !z.temp_sensor
+        ? "TRV internal"
+        : (z.temp_sensor ? this._esc(String(z.temp_sensor)) : "—");
+      const valve = (z.valve_pct != null && !Number.isNaN(z.valve_pct))
+        ? `${Math.round(z.valve_pct)}%`
+        : "—";
+      const trv = z.trv ? this._esc(String(z.trv)) : "—";
+      const demand = (!manual && z.demand_level != null)
+        ? `${Math.round(z.demand_level * 100)}%`
+        : "—";
+      const target = (!manual && z.effective_setpoint != null)
+        ? `${this._fmt(z.effective_setpoint)}°C`
+        : ("—");
+      rows += `<tr>
+        <td>${this._esc(z.name || "?")}</td>
+        <td>${this._esc(z.heat_control || "smart")}</td>
+        <td>${trv}</td>
+        <td>${this._esc(String(z.hvac_mode || "?"))}</td>
+        <td>${this._fmt(z.current_temperature)}°C</td>
+        <td>${target}</td>
+        <td>${demand}</td>
+        <td>${valve}</td>
+        <td>${src}</td>
+        <td>${z.window_open ? "🪟" : ""}</td>
+      </tr>`;
+    }
+    if (!rows) rows = `<tr><td colspan="10" class="sub">No rooms.</td></tr>`;
+    return `
+      <div class="card wide" style="margin-bottom:12px">
+        <h3>Rooms — live TRV state</h3>
+        <div style="overflow:auto">
+          <table class="hcc-table" style="width:100%;font-size:.78rem;border-collapse:collapse">
+            <thead>
+              <tr style="text-align:left;opacity:.7">
+                <th>Room</th><th>Control</th><th>TRV</th><th>Mode</th>
+                <th>Room °C</th><th>Target</th><th>Demand</th>
+                <th>Valve</th><th>Temp source</th><th>Window</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>`;
   }
 

@@ -544,6 +544,42 @@ check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
   check(el._showDebug === false, "debug-close did not hide the Debug tab");
 }
 
+// ── Gate: Debug tab shows the live per-room TRV table above the feed ──
+//
+{
+  el._showDebug = true;
+  el._tab = "debug";
+  const savedZones = JSON.parse(JSON.stringify(el._status.systems[0].zones));
+  el._status.systems[0].zones = [
+    { name: "Office", heat_control: "valve", trv: "climate.office_trv",
+      hvac_mode: "heat", current_temperature: 21.2, effective_setpoint: 21.5,
+      demand_level: 0.4, valve_pct: 62.4, temp_source: "trv",
+      window_open: false },
+    { name: "LivingRoom", heat_control: "smart", trv: "climate.livingroom_trv",
+      hvac_mode: "heat", current_temperature: 20.1, effective_setpoint: 21.0,
+      demand_level: 0.55, valve_pct: 30.0, temp_source: "trv",
+      window_open: true },
+  ];
+  el._render();
+  await new Promise((r) => setTimeout(r, 10));
+  const rootEl = el.shadowRoot.getElementById("hcc-debug-root");
+  const tabTxt = rootEl ? rootEl.textContent : "";
+  check(el.shadowRoot.querySelector("table.hcc-table") !== null,
+    "Debug tab missing the live TRV state table");
+  check(rootEl !== null, "Debug tab wrapper missing");
+  check(tabTxt.includes("Rooms — live TRV state"),
+    "TRV table heading missing on Debug tab");
+  check(tabTxt.includes("Office") && tabTxt.includes("LivingRoom"),
+    "TRV table does not list the rooms");
+  check(tabTxt.includes("62%"), "TRV table missing live valve %");
+  check(tabTxt.includes("TRV internal"), "TRV table missing temp source");
+  check(tabTxt.includes("Debug feed"), "the rolling feed must stay on the tab too");
+  el._status.systems[0].zones = savedZones;
+  const close2 = el.shadowRoot.querySelector('[data-action="debug-close"]');
+  if (close2) close2.dispatchEvent(new w.Event("click", { bubbles: true }));
+  el._showDebug = false;
+}
+
 // ── Gate: edit-switch must not carry another room's draft into the form ──
 // Draft capture keyed only by er/nr prefix used to stomp the second room's
 // correct prefill with the first room's saved values (user report: "when I
