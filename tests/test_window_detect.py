@@ -169,3 +169,57 @@ def test_zone_without_contact_sensor_gets_slope_detector(monkeypatch):
 def test_zone_with_contact_sensor_keeps_real_path():
     room = _make_room(["binary_sensor.kitchen_door"])
     assert room._slope_detector is None
+
+
+def test_sustained_escape_trips_only_with_heating():
+    """Windows open for days: slow fall + active heating → long pause."""
+    d = SlopeWindowDetector()
+    t0, M = 1000.0, 60.0
+    temp = 21.0
+    # 30 min of falling at ~0.8 °C/h while demand ≈ 0.6 (heating pushing)
+    for i in range(1, 31):
+        temp -= 0.8 * (60.0 / 3600.0)
+        d.observe(t0 + i * M, round(temp, 3), 0.6)
+    assert d.open is True
+    assert d.as_dict()["reason"] == "escape"
+    # KEEPS pausing for hours while it keeps falling (no 45-min cap)
+    for i in range(31, 61):
+        temp -= 0.8 * (60.0 / 3600.0)
+        d.observe(t0 + i * M, round(temp, 3), 0.6)
+    assert d.open is True
+
+
+def test_sustained_escape_never_trips_without_heat():
+    """Gentle structural cooling with heating idle is NOT an escape."""
+    d = SlopeWindowDetector()
+    t0, M = 1000.0, 60.0
+    temp = 21.0
+    for i in range(1, 31):
+        temp -= 2.0 * (60.0 / 3600.0)
+        d.observe(t0 + i * M, round(temp, 3), 0.0)
+    assert d.open is False
+
+
+def test_sustained_escape_never_trips_when_flat():
+    """A struggling radiator (flat temp, high demand) must NOT pause."""
+    d = SlopeWindowDetector()
+    t0, M = 1000.0, 60.0
+    for i in range(1, 31):
+        d.observe(t0 + i * M, 19.0, 0.9)
+    assert d.open is False
+
+
+def test_sustained_escape_recovers_when_stable():
+    """Windows closen → room stabilises → pause ends without user action."""
+    d = SlopeWindowDetector()
+    t0, M = 1000.0, 60.0
+    temp = 21.0
+    for i in range(1, 31):
+        temp -= 0.8 * (60.0 / 3600.0)
+        d.observe(t0 + i * M, round(temp, 3), 0.6)
+    assert d.open is True
+    # windows closed: heating on, temperature recovers instead of falling
+    for i in range(31, 42):
+        temp += 0.3 * (60.0 / 3600.0)
+        d.observe(t0 + i * M, round(temp, 3), 0.6)
+    assert d.open is False

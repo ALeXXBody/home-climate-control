@@ -773,7 +773,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             import time as _t
 
             try:
-                now_open = self._slope_detector.observe(_t.time(), temperature)
+                now_open = self._slope_detector.observe(
+                    _t.time(), temperature, self._demand
+                )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("window-slope detect failed", exc_info=True)
                 now_open = self._window_open
