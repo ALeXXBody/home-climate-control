@@ -1204,6 +1204,7 @@ class CentralController:
                 "last_error": self.learner.last_error,
                 "skip_reason": self.learner.skip_reason,
                 "tick_count": self.learner.tick_count,
+                "scores": self.learner.shadow_scores(),
             }
         data["calibration"] = self.calibration.as_dict()
         data["health"] = self.health.as_dict()

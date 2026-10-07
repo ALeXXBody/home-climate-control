@@ -329,3 +329,41 @@ def test_windowed_training_with_outdoor_cooling():
     # NOTE: spread here is 3 °C (< MIN_OUTDOOR_SPREAD) so the FULL gate
     # blocks — this asserts the guard keeps protecting against mild weeks.
     assert ln.model == {}
+
+
+def test_weighted_ols_favours_high_weight_samples():
+    """Weighted OLS: identical one-column data set, weights pin the fit."""
+    from custom_components.home_climate_control.learner import _solve_ols
+    xs = [[0.0], [1.0], [0.0], [1.0]]
+    ys = [0.0, 1.0, 0.9, 1.0]        # the last idle row is an outlier
+    no_w = _solve_ols(xs, ys, 1)
+    big = _solve_ols(xs, ys, 1, weights=[1.0, 1.0, 1.0, 50.0])
+    # heavy weight on y=1.0@x=1 pulls the slope up
+    assert big[0] > no_w[0]
+
+
+def test_heated_windows_dominate_the_fit():
+    """A room that heats only briefly still learns its true heating rate."""
+    import datetime as _dt
+    base = _dt.datetime(2026, 9, 10, 12, 0, 0,
+                        tzinfo=_dt.timezone.utc).timestamp()
+    rows = []
+    t_sim = 19.0
+    for i in range(MIN_DAYS * 1440 + 700):
+        ts = base + i * 60
+        iso = _dt.datetime.fromtimestamp(ts, _dt.timezone.utc).isoformat(
+            timespec="seconds"
+        )
+        # heat 10 min per hour only; CH flag follows demand
+        on = (i % 60) < 10
+        demand = 1.0 if on else 0.0
+        outdoor = 6.0 + 10.0 * ((i // 1440) % 2)
+        rows.append(_row(iso, outdoor, round(t_sim, 3), demand, ch_on=on))
+        t_sim += 0.06 if on else 0.0   # +0.36 °C/10min while heating
+    ln, tmp, _ = _learner_with(rows)
+    ln._train_sync()
+    assert "Office" in ln.model
+    m = ln.model["Office"]
+    assert m.get("weighted") is True
+    # truth: +0.36 °C/10min at demand 1.0 ; idle rows contribute only w=0.25
+    assert 0.2 <= m["coef"]["demand"] <= 0.6, m["coef"]

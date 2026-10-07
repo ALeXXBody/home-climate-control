@@ -49,15 +49,29 @@ WINDOW_S = 600            # training target: temperature change over ~10 min
 WINDOW_TOL_S = 180        # ...accept samples WINDOW_S ± this
 
 
-def _solve_ols(xs: list[list[float]], ys: list[float], k: int) -> list[float]:
-    """Closed-form small ridge OLS: returns k+1 coefficients (last = bias)."""
+def _solve_ols(
+    xs: list[list[float]],
+    ys: list[float],
+    k: int,
+    weights: list[float] | None = None,
+) -> list[float]:
+    """Closed-form small ridge OLS: returns k+1 coefficients (last = bias).
+
+    Optional per-sample weights: heating-weighted training uses them to
+    make windows that actually ran the boiler count for more.
+    """
     m = k + 1
     a = [[0.0] * m for _ in range(m)]
     b = [0.0] * m
-    for row, y in zip(xs, ys):
+    if weights is None or len(weights) != len(xs):
+        weights = [1.0] * len(xs)
+    for row, y, w in zip(xs, ys, weights):
+        w = max(0.0, float(w))
+        if w == 0.0:
+            continue
         feat = [*row, 1.0]
         for i in range(m):
-            xi = feat[i]
+            xi = feat[i] * w
             b[i] += xi * y
             for j in range(m):
                 a[i][j] += xi * feat[j]
@@ -106,6 +120,9 @@ class RoomLearner:
         self.tick_count: int = 0
         # rotating debug of one prediction-vs-actual per tick
         self._shadow_state: dict[str, Any] = {}
+        # per-room shadow scorecard: model RMSE vs the do-nothing baseline
+        # (predicting "no change"), on the 10-minute scale
+        self._shadow_score: dict[str, dict[str, float]] = {}
 
     # -------------------------------------------------------------- loading
     def load(self) -> bool:
@@ -287,6 +304,33 @@ class RoomLearner:
         assert self._dir is not None
         try:
             model, coverage = self._fit_all()
+            # Versioning + rollback: a room's fresh fit replaces the stored
+            # one only when it is not WORSE (same 10-minute scale). Rooms
+            # from a different scale (e.g. pre-windowing training) always
+            # get replaced — their numbers are not comparable.
+            prev = dict(self.model or {})
+            kept_prev = replaced = scale_change = 0
+            merged: dict[str, Any] = {}
+            for name, m in (model or {}).items():
+                old = prev.get(name)
+                if old and old.get("scale_s") == m.get("scale_s"):
+                    if (m.get("rmse") or 99.0) <= (old.get("rmse") or 99.0):
+                        merged[name] = m
+                        replaced += 1
+                    else:
+                        merged[name] = old   # rollback: previous was better
+                        kept_prev += 1
+                else:
+                    merged[name] = m
+                    if old:
+                        scale_change += 1
+            for name, old in prev.items():
+                if name not in merged:
+                    merged[name] = old
+                    kept_prev += 1
+            model = merged
+            coverage = {**(coverage or {}), "kept_prev": kept_prev,
+                        "replaced": replaced, "scale_change": scale_change}
             # sanity: never write an empty/garbage model
             if not model:
                 self.last_error = "no room had enough data"
@@ -326,8 +370,9 @@ class RoomLearner:
             return {}, {}
         days: set[str] = set()
         outdoor_seen: list[float] = []
-        # per-room rolling history: [(ts, temp, demand, outdoor|None), …]
-        hist: dict[str, list[tuple[float, float, float, float | None]]] = {}
+        # per-room rolling history:
+        # [(ts, temp, demand, outdoor|None, ch_on), …]
+        hist: dict[str, list[tuple[float, float, float, float | None, bool]]] = {}
         xs: dict[str, list[list[float]]] = {}
         ys: dict[str, list[float]] = {}
         heat_rows: dict[str, int] = {}
@@ -391,18 +436,23 @@ class RoomLearner:
                     "coef": coef,       # {'demand', 'bias'} — no gap term
                     "n": n, "rmse": rmse,
                     "mode": "demand_only",
+                    "scale_s": WINDOW_S,
                 }
                 continue
+            wts = [w for (_, _, w) in xs0_all.get(name) or []][:n]
+            wts = (wts + [1.0] * n)[:n]
             try:
-                coef = _solve_ols(xs_r, ys[name], len(xs_r[0]))
+                coef = _solve_ols(xs_r, ys[name], len(xs_r[0]), weights=wts)
             except Exception:  # noqa: BLE001
                 continue
             a, bgap, bias = coef[0], coef[1], coef[-1]
             rmse = 0.0
-            for xrow, y in zip(xs_r, ys[name]):
+            tot_w = 0.0
+            for xrow, y, w0 in zip(xs_r, ys[name], wts):
                 p = a * xrow[0] + bgap * xrow[1] + bias
-                rmse += (p - y) ** 2
-            rmse = (rmse / n) ** 0.5
+                rmse += w0 * (p - y) ** 2
+                tot_w += w0
+            rmse = (rmse / tot_w) ** 0.5 if tot_w > 0 else 0.0
             if not all(abs(v) < 50 for v in (a, bgap, bias)) or rmse > 5.0:
                 continue  # absurd fit → refuse
             rooms[name] = {
@@ -414,6 +464,8 @@ class RoomLearner:
                 "n": n,
                 "rmse": round(rmse, 4),
                 "mode": "full",
+                "scale_s": WINDOW_S,
+                "weighted": True,
             }
         # Demand-only fallback counts for rooms that DID reach the full
         # gate are unnecessary (they already have the better model).
@@ -444,10 +496,40 @@ class RoomLearner:
         actual = (cur - prev_temp) * (600.0 / dt)
         if abs(actual) > 5.0:
             return None
+        # scorecard: model error vs the do-nothing baseline ("no change")
+        sc = self._shadow_score.setdefault(
+            room, {"n": 0, "model_sse": 0.0, "base_sse": 0.0}
+        )
+        sc["n"] += 1
+        sc["model_sse"] += (prev_pred - actual) ** 2
+        sc["base_sse"] += actual ** 2
         return (
             f"{room}: shadow ΔT/10min predicted {prev_pred:+.2f} °C vs "
             f"actual {actual:+.2f} °C over {dt:.0f}s"
         )
+
+    def shadow_scores(self) -> dict[str, dict[str, float]]:
+        """/10min RMSE per room for the model and the no-change baseline.
+
+        skill = (baseline − model) / baseline: >0 means the model beats
+        doing nothing, negative means it is currently worse. Samples are
+        runtime-accumulated and reset on restart.
+        """
+        out = {}
+        for room, sc in self._shadow_score.items():
+            n = sc["n"]
+            if n < 1:
+                continue
+            model_rmse = (sc["model_sse"] / n) ** 0.5
+            base_rmse = (sc["base_sse"] / n) ** 0.5
+            skill = ((base_rmse - model_rmse) / base_rmse) if base_rmse > 1e-9 else 0.0
+            out[room] = {
+                "n": n,
+                "model_rmse": round(model_rmse, 4),
+                "baseline_rmse": round(base_rmse, 4),
+                "skill": round(max(-1.0, min(1.0, skill)), 3),
+            }
+        return out
 
     # ------------------------------------------------------------- absorber
     def _absorb(self, row, hist, xs, ys, heat_rows, days, outdoor_seen,
@@ -491,7 +573,7 @@ class RoomLearner:
             h = hist.setdefault(name, [])
             # pair against the sample ~WINDOW_S ago
             partner = None
-            for (ts0, temp0, dem0, out0) in reversed(h):
+            for (ts0, temp0, dem0, out0, ch0) in reversed(h):
                 dt = t_s - ts0
                 if WINDOW_S - WINDOW_TOL_S <= dt <= WINDOW_S + WINDOW_TOL_S:
                     partner = (ts0, temp0, dem0, out0)
@@ -500,7 +582,8 @@ class RoomLearner:
                     break
             # append AFTER pairing so the current sample isn't its own partner
             h.append((t_s, float(temp), demand,
-                      float(outdoor) if outdoor_ok else None))
+                      float(outdoor) if outdoor_ok else None,
+                      bool(ch_on)))
             # prune anything older than the pairing horizon
             cutoff = t_s - (WINDOW_S + WINDOW_TOL_S)
             while h and h[0][0] < cutoff:
@@ -509,11 +592,16 @@ class RoomLearner:
                 continue
             ts0, temp0, dem0, out0 = partner
             # average demand across the stored window samples
-            win = [d for (s, _, d, _) in h if ts0 <= s <= t_s]
+            win = [d for (s, _, d, _, _) in h if ts0 <= s <= t_s]
             avg_demand = sum(win) / len(win) if win else demand
+            # heating weight: fraction of the window that ran the boiler,
+            # floored at 0.25 so idle dynamics still contribute a little
+            ch_win = [c for (s, _, _, _, c) in h if ts0 <= s <= t_s]
+            ch_share = (sum(1 for c in ch_win if c) / len(ch_win)) if ch_win else 0.0
+            w = 0.25 + 0.75 * ch_share
             y = float(temp) - temp0
             ys0_all.setdefault(name, []).append(y)
-            xs0_all.setdefault(name, []).append((avg_demand, float(temp0)))
+            xs0_all.setdefault(name, []).append((avg_demand, float(temp0), w))
             if not (outdoor_ok and out0 is not None):
                 continue
             # gap anchored at the window START (the state being explained)
@@ -523,22 +611,29 @@ class RoomLearner:
 
     @staticmethod
     def _fit_room(demand_rows, target_deltas):
-        """Demand-only OLS per room: ΔT ≈ a·demand + bias. Returns
-        (coef_dict|None, rmse, n)."""
+        """Demand-only weighted OLS per room: ΔT ≈ a·demand + bias.
+
+        demand_rows are (avg_demand, start_temp, weight) triples from the
+        window absorber — only the first element is the feature.
+        Returns (coef_dict|None, rmse, n).
+        """
         n = len(target_deltas)
         if n < 2 or len(demand_rows) != n:
             return None, 0.0, 0
+        wts = [row[2] for row in demand_rows]
         try:
             coef = _solve_ols(
-                [[d] for d, _ in demand_rows], target_deltas, 1
+                [[row[0]] for row in demand_rows], target_deltas, 1, weights=wts
             )
         except Exception:  # noqa: BLE001
             return None, 0.0, 0
         a, bias = coef[0], coef[1]
         rmse = 0.0
-        for (d, _), y in zip(demand_rows, target_deltas):
-            rmse += (a * d + bias - y) ** 2
-        rmse = (rmse / n) ** 0.5
+        tot_w = 0.0
+        for (d, _, w), y in zip(demand_rows, target_deltas):
+            rmse += w * (a * d + bias - y) ** 2
+            tot_w += w
+        rmse = (rmse / tot_w) ** 0.5 if tot_w > 0 else 0.0
         if abs(a) >= 50 or abs(bias) >= 50 or rmse > 5.0:
             return None, 0.0, 0
         return (

@@ -2555,9 +2555,13 @@ class HomeClimatePanel extends HTMLElement {
     const room = (n) => {
       const nf = (v) => (typeof v === "number" ? new Intl.NumberFormat().format(v) : String(v ?? ""));
       const m = ln.room_detail?.[n];
-      const extra =
+      const sc = (ln.scores || {})[n];
+      let extra =
         m ? ` · ${nf(m.n)} samples · RMSE ${m.rmse} °C`
           : "";
+      if (sc && sc.n) {
+        extra += ` · checks ${nf(sc.n)}: model ${sc.model_rmse} °C vs no-model ${sc.baseline_rmse} °C`;
+      }
       return `<div class="sub" style="margin:2px 0">• ${this._esc(
         String(n)
       )}${extra}</div>`;

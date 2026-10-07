@@ -399,12 +399,18 @@ class RoomControlSensor(SensorEntity):
         if learner is not None:
             m = learner.model.get(self._room)
             if m:
-                self._attr_extra_state_attributes["model"] = {
+                sc = learner.shadow_scores().get(self._room) or {}
+                attrs = {
                     "trained_at": learner.trained_at,
                     "n": m.get("n"),
                     "rmse": m.get("rmse"),
                     "influence": "shadow",   # never controls heat
                 }
+                if sc.get("n"):
+                    attrs["shadow_checks"] = sc["n"]
+                    attrs["shadow_rmse"] = sc["model_rmse"]
+                    attrs["baseline_rmse"] = sc["baseline_rmse"]
+                self._attr_extra_state_attributes["model"] = attrs
             else:
                 self._attr_extra_state_attributes["model"] = {
                     "influence": "none",
