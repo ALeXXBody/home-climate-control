@@ -118,6 +118,8 @@ class RoomLearner:
         self.last_error: str | None = None
         self.skip_reason: str | None = None
         self.tick_count: int = 0
+        self._task_initial = None
+        self._task_watch = None
         # rotating debug of one prediction-vs-actual per tick
         self._shadow_state: dict[str, Any] = {}
         # per-room shadow scorecard: model RMSE vs the do-nothing baseline
@@ -197,7 +199,7 @@ class RoomLearner:
         async def _first():
             await __import__("asyncio").sleep(90.0)
             self.maybe_train()
-        self.hass.async_create_task(_first())
+        self._task_initial = self.hass.async_create_task(_first())
 
     def schedule_hourly_watch(self) -> None:
         """Repeat the weekly-due check hourly, also decoupled from ticks;
@@ -209,7 +211,16 @@ class RoomLearner:
             while True:
                 await _aio.sleep(3600.0)
                 self.maybe_train()
-        self.hass.async_create_task(_watch())
+        self._task_watch = self.hass.async_create_task(_watch())
+
+    def async_stop(self) -> None:
+        """Cancel the setup-time tasks: a config-entry reload must not leak
+        immortal watch loops racing each other on model.json."""
+        for attr in ("_task_initial", "_task_watch"):
+            task = getattr(self, attr, None)
+            if task is not None and hasattr(task, "cancel"):
+                task.cancel()
+                setattr(self, attr, None)
 
     def force_train(self) -> None:
         """Manual 'train now' (admin). Clears the weekly latch.
@@ -229,6 +240,13 @@ class RoomLearner:
         """Cheap tick check: dispatch a retrain when the week is due."""
         if now is None:
             now = time.time()
+        # Latch watchdog: an executor job that queued/hung must not wedge
+        # learning permanently ("training in progress" forever).
+        if self.training and self.last_attempt and (
+            now - self.last_attempt > 2 * 3600.0
+        ):
+            self.training = False
+            self.last_error = "training watchdog: recovered stuck latch"
         if self.training:
             self.skip_reason = "training in progress"
             return False

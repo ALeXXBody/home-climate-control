@@ -250,6 +250,11 @@ class CentralController:
                 self.occupancy.async_stop()
             except Exception:  # noqa: BLE001
                 pass
+        if getattr(self, "learner", None) is not None:
+            try:
+                self.learner.async_stop()
+            except Exception:  # noqa: BLE001
+                pass
         if self._ch_on:
             await self.backend.async_set_ch_enabled(False)
             self._ch_on = False
@@ -834,10 +839,6 @@ class CentralController:
                     and z.effective_setpoint() - z.current_temperature > 0.1
                 )
                 z.balance.sample(valve, below)
-            rs = (self.hass.data.get(DOMAIN, {}) or {}).get(
-                getattr(self, 'entry_id', None), {},
-            ).get('room_sensors') or {}
-            _room_sens = None  # filled below
             if getattr(z, "valve_direct_active", None) and callable(
                 getattr(z, "valve_direct_active")
             ) and z.valve_direct_active():
@@ -847,6 +848,13 @@ class CentralController:
                         await z.valve_pin_tick(now)
                         if healthy:
                             z.valve_apply(now, self.hass)
+                        else:
+                            # Supervision lost (backend diagnostics down,
+                            # device offline…): never leave a latched
+                            # opening serving an unsupervised room.
+                            self.hass.async_create_task(
+                                z.valve_close_for_outage()
+                            )
                     except Exception:  # noqa: BLE001
                         _LOGGER.debug("valve drive failed", exc_info=True)
             elif valve is not None:
@@ -895,7 +903,10 @@ class CentralController:
     def _learner_tick(self, now: float) -> None:
         """Cheap per-tick learner bookkeeping (dispatches run in executor)."""
         self.learner.tick_seen(now)
-        self.learner.maybe_train(now)
+        # The weekly throttle compares epoch timestamps from trained_at —
+        # the tick's monotonic clock must NOT be passed through (mixed
+        # clocks made this check permanently inert).
+        self.learner.maybe_train()
         # Shadow validation: one modeled room per minute — the learner keeps
         # the previous sample per room and returns the realised delta line.
         names = sorted(n for n in self.learner.model)

@@ -148,7 +148,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     datalogger = TrainingDataLogger(hass)
     datalogger.async_start(hass)
     learner = RoomLearner(hass)
-    learner.load()  # existing model.json (safe no-op until first training)
+    # Blocking config-dir I/O must stay off the event loop.
+    await hass.async_add_executor_job(learner.load)
     learner.schedule_initial_train()
     learner.schedule_hourly_watch()
     gas = GasMeter(

@@ -980,17 +980,38 @@ class FirmwareManager:
             self._wipe_retained(msg.topic)
             return
 
-        node = data.get("node_id") or msg.topic.rsplit("/", 1)[-1]
+        topic_node = msg.topic.rsplit("/", 1)[-1]
+        on_disc = "/discovery" in msg.topic
+        node = data.get("node_id") or topic_node
+        # Discovery input is LAN-untrusted: a rogue MQTT client must not
+        # hijack another board's identity or inject arbitrary strings.
+        if not valid_node_id(node):
+            _LOGGER.warning("Discovery: invalid node_id %r ignored", node)
+            self._wipe_retained(msg.topic)
+            return
+        if on_disc and topic_node and data.get("node_id") and node != topic_node:
+            # Only on the actual discovery topic the payload may NOT name a
+            # different board — identity comes from the topic there.
+            _LOGGER.warning(
+                "Discovery: node_id %r does not match topic %r — using topic",
+                node, topic_node,
+            )
+            node = topic_node
         if node in self._suppressed:
             _LOGGER.debug("ignoring announcement from removed board %s", node)
             return
+        def _meta(key, current):
+            v = data.get(key)
+            if not isinstance(v, str) or not v or len(v) > 60:
+                return current
+            return v
         ip = data.get("ip") or ""
         if not _safe_device_host(ip):
             ip = ""
         dev = self.devices.get(node) or HcsDevice(node_id=node)
-        dev.name = data.get("name") or dev.name or node
-        dev.board = data.get("board") or dev.board
-        dev.version = data.get("version") or dev.version
+        dev.name = _meta("name", dev.name or node)
+        dev.board = _meta("board", dev.board)
+        dev.version = _meta("version", dev.version)
         dev.ip = ip or dev.ip
         dev.ota_http = (
             data.get("ota_http") if _safe_device_host(data.get("ota_http"))

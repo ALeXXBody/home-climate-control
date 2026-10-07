@@ -436,6 +436,24 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._pid_output = 0.0
             self.pid.reset()
             await self._push_hvac_to_trv(HVACMode.OFF)
+            # Valve-direct rooms must PHYSICALLY close: the last commanded
+            # opening latches on the number entity otherwise, and the room
+            # keeps receiving hot water while other zones run.
+            if self.valve_direct_active():
+                try:
+                    await self.hass.services.async_call(
+                        "number", "set_value",
+                        {"entity_id": self._trv_position_entity, "value": 0},
+                        blocking=False,
+                    )
+                    self._valve_last_write = 0.0
+                    self._debug(
+                        "valve",
+                        f"{self._zone_name()}: valve closed (HVAC off)",
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("%s: valve close on OFF failed",
+                                  self._zone_name(), exc_info=True)
         else:
             await self._push_hvac_to_trv(HVACMode.HEAT, "user heat mode")
             await self._push_setpoint_to_trv("user heat mode")
@@ -857,6 +875,33 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._trv_position_entity or ""
         ).startswith("number.")
 
+    async def valve_close_for_outage(self) -> None:
+        """Write 0% once when supervision is lost, so a latched opening
+        cannot serve an unsupervised room. Idempotent per outage: re-runs
+        stay no-ops while the valve actually reads closed."""
+        if not self.valve_direct_active():
+            return
+        try:
+            cur = self.valve_current_pct(self.hass)
+        except Exception:  # noqa: BLE001
+            return
+        if cur is None or cur <= 0.5:
+            return   # already closed / unreadable — nothing to force
+        try:
+            await self.hass.services.async_call(
+                "number", "set_value",
+                {"entity_id": self._trv_position_entity, "value": 0},
+                blocking=False,
+            )
+            self._valve_last_write = 0.0
+            self._debug(
+                "valve",
+                f"{self._zone_name()}: valve closed (supervision lost)",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("%s: outage close failed", self._zone_name(),
+                          exc_info=True)
+
     def valve_want_pct(self) -> float:
         """Desired valve opening (0-100) from the room's live demand.
 
@@ -1171,8 +1216,13 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 if (
                     isinstance(live, (int, float))
                     and step > 0
-                    and sp - float(live) < step * 0.9
+                    and 0 < sp - float(live) < step * 0.9
                 ):
+                    # Only a HALF-STEP-OR-LESS *upward* re-send can round to
+                    # the same TRV state and be skipped. Downward pushes must
+                    # ALWAYS go through — without the lower bound every
+                    # setback/cooldown was silently swallowed (rooms kept
+                    # heating to stale targets, gas wasted).
                     _LOGGER.debug(
                         "%s: TRV already at %.2f (grid %.2f), skip push",
                         self._zone_name(), float(live), step,

@@ -1547,7 +1547,7 @@ class HomeClimatePanel extends HTMLElement {
         ? this._selectedBoardId : devs[0].node_id);
     this._otlogNodeId = sel;
     const opts = devs.map(
-      (d) => `<option value="${d.node_id}"${d.node_id === sel ? " selected" : ""}>${this._esc(d.name || d.node_id)}</option>`
+      (d) => `<option value="${this._esc(d.node_id)}"${d.node_id === sel ? " selected" : ""}>${this._esc(d.name || d.node_id)}</option>`
     ).join("");
     const lines = this._otlogLines;
     const body = lines == null
