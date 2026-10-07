@@ -97,7 +97,9 @@ def _dedupe_zones(zones: list) -> list:
     """
     by_name: dict[str, dict] = {}
     for z in zones or []:
-        name = (z or {}).get(CONF_ZONE_NAME)
+        if not isinstance(z, dict):
+            continue   # legacy/corrupt entry — skip, never brick the setup
+        name = z.get(CONF_ZONE_NAME)
         if name:
             by_name[name] = z
     return list(by_name.values())

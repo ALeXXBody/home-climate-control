@@ -424,7 +424,14 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     calib.active_zone == self._zone_name()
                 )
                 if not in_calib:
+                    prev_target = self._target_temp
                     self._align_preset_to_manual(self._target_temp)
+                    if self._preset in ("comfort", "eco", "away", "boost"):
+                        # A preset got auto-selected: restore the standing
+                        # comfort target. Overwriting it with the preset
+                        # temp erased the room's own setpoint (preheat
+                        # disarmed, room stuck at setback after 'none').
+                        self._target_temp = prev_target
                     self._preset_source = "user"
                 await self._push_setpoint_to_trv("manual set")
         self._safe_write_ha_state()
@@ -910,6 +917,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         proportional so a stubborn room actually reaches setpoint. Zero
         demand shuts fully — no smoulder into an already-warm room.
         """
+        if getattr(self, "_current_temp", None) is None:
+            return 0.0   # no measurement → never blind-open
         demand = self.demand_level()
         if demand <= VALVE_OPEN_DEMAND:
             return 0.0
@@ -957,6 +966,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
 
     def valve_apply(self, now: float, hass) -> None:
         """One tick of the valve-direct closed loop (rate-limited)."""
+        if self._valve_exercising:
+            return   # the anti-stick sweep owns the valve for its duration
         if not self.valve_direct_active() or self._hvac_mode != HVACMode.HEAT:
             return
         want = self.valve_want_pct()
@@ -965,9 +976,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             return
         if self._window_open or self._hvac_mode != HVACMode.HEAT:
             want = 0.0  # paused: shut the valve regardless of demand
+        closing = want <= 0.0   # safety closure: bypass the rate limiter
         if (
             abs(want - cur) < VALVE_HYST_PCT
-            or now - self._valve_last_write < VALVE_WRITE_INTERVAL_S
+            or (not closing and now - self._valve_last_write < VALVE_WRITE_INTERVAL_S)
         ):
             return
         self._valve_last_write = now
@@ -984,12 +996,12 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         )
 
     async def force_valve_exercise(self) -> None:
-        """Manual 'run valve maintenance now' action (panel button/WS)."""
-        import time as _t
+        """Manual 'run valve maintenance now' action (panel button/WS).
 
+        Bypasses the 7-day cooldown — it exists to run NOW.
+        """
         self._valve_last_exercise = 0.0
-        self._valve_last_exercise = _t.time()
-        await self.valve_exercise()
+        await self.valve_exercise(force=True)
 
     async def maybe_exercise(self, now: float = None) -> None:
         """Cheap per-tick entry: run valve_exercise only when the 7-day
@@ -1009,21 +1021,26 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
     async def _exercise_sleep(self, seconds: float) -> None:
         await __import__("asyncio").sleep(seconds)
 
-    async def valve_exercise(self) -> None:
+    async def valve_exercise(self, force: bool = False) -> None:
         """Anti-stick valve exercise: a full travel sweep (min -> max -> min)
         while heating is IDLE -- that is exactly when mechanical valves
         seize. Returns the valve to the drive position afterwards, and
         suspends the drive loop for the duration so nothing fights the sweep.
-        Rate-limited to one run per 7 days per room."""
-        if not self.valve_direct_active() or self._valve_exercising:
+        Rate-limited to one run per 7 days per room (skipped when force)."""
+        if not self.valve_direct_active():
             return
-        # Never fight active heating: only exercise while the room is idle.
-        if self._hvac_mode != HVACMode.HEAT or self.wants_heat():
+        if self._valve_exercising:
+            return
+        # Never fight active heating: only exercise while the room is idle
+        # (an open window counts as "busy" — no blasts into open air).
+        if self._hvac_mode != HVACMode.HEAT or self._window_open:
+            return
+        if self.wants_heat():
             return
         import asyncio
         import time as _t
 
-        if _t.time() - self._valve_last_exercise < 7 * 86400.0:
+        if not force and _t.time() - self._valve_last_exercise < 7 * 86400.0:
             return
         self._valve_exercising = True
         self._valve_last_exercise = _t.time()
@@ -1032,6 +1049,11 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         steps = ((100.0, 45.0), (0.0, 45.0), (restore, 0.0))
         try:
             for step, wait in steps:
+                # re-check per step: demand or a window event mid-sweep must
+                # abort straight to the restore position
+                if self._window_open or self._demand > 0.05:
+                    restore = 0.0
+                    break
                 await self._hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": self._trv_position_entity,
@@ -1072,6 +1094,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             want_sp = round(float(want_sp), 1)
         except (TypeError, ValueError):
             want_sp = None
+        if want_sp is None:
+            return   # unusable setpoint this tick — don't veto the drive loop
         if mode_ok and isinstance(cur_sp, (int, float)) and (
             abs(float(cur_sp) - want_sp) < 0.6
         ):

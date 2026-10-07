@@ -19,7 +19,9 @@ def schedule_store_save(
         try:
             await store.async_save(payload)
         except Exception:  # noqa: BLE001
-            logger.debug("%s persist failed", tag, exc_info=True)
+            # learned state is weeks in the making; a failed save must be
+            # visible so data loss is never silent
+            logger.warning("%s persist failed", tag, exc_info=True)
 
     if hass is not None and hasattr(hass, "async_create_task"):
         hass.async_create_task(_save())

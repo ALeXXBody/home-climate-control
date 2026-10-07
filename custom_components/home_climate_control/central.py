@@ -263,10 +263,22 @@ class CentralController:
     def register_zone(self, zone) -> None:
         if zone not in self.zones:
             self.zones.append(zone)
+            self._sync_known_rooms()
             ensure = getattr(self.backend, "ensure_room", None)
             if callable(ensure):
                 name = getattr(zone, "name", None) or "Zone"
                 ensure(name, getattr(zone, "current_temperature", None) or 18.0)
+
+    def _sync_known_rooms(self) -> None:
+        """Feed the learner the current room names so ghost keys from old
+        corpus rows / renamed rooms can be pruned on the next retrain."""
+        if getattr(self, "learner", None) is not None:
+            try:
+                self.learner.known_rooms = {
+                    z.name for z in self.zones
+                } or None
+            except (AttributeError, TypeError):
+                pass
 
     def _ha_outdoor(self) -> float | None:
         """Read optional HA outdoor sensor entity (sensor.* or weather.*)."""
@@ -319,6 +331,26 @@ class CentralController:
         return None
 
     # ---------------------------------------------------------- zone admin
+    def forget_zone_learning(self, name: str) -> None:
+        """A removed room's learned history must not resurrect later if the
+        same name is re-added: purge every per-room store key now."""
+        for store in (self.setbacks, self.deadtime, self.insulation):
+            if store is None:
+                continue
+            rooms = getattr(store, "rooms", None)
+            if rooms and rooms.pop(name, None) is not None:
+                persist = getattr(store, "_persist", None)
+                if callable(persist):
+                    persist()
+        if self.health is not None:
+            self.health.rooms.pop(name, None)
+        if getattr(self, "learner", None) is not None:
+            try:
+                self.learner.forget_room(name)
+            except Exception:  # noqa: BLE001
+                pass
+        self._sync_known_rooms()
+
     def rename_zone_learning(self, old: str, new: str) -> None:
         """Carry every learned coefficient over when a room is renamed.
 
@@ -341,11 +373,6 @@ class CentralController:
             self.deadtime._persist()
         if old in self.health.rooms and new not in self.health.rooms:
             self.health.rooms[new] = self.health.rooms.pop(old)
-        if getattr(self, "learner", None) is not None:
-            # The self-learning model follows the same per-room schema as
-            # every other learned coefficient: it must migrate on rename,
-            # never orphan the old key.
-            self.learner.rename_room(old, new)
         if self.calibration.active_zone == old:
             # A session cannot survive the entity reload anyway.
             self.calibration.cancel()

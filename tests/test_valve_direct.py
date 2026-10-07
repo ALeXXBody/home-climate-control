@@ -27,6 +27,8 @@ def _zone(heat_control="valve", valve_entity="number.office_trv_valve_opening_de
     z.demand_level = lambda: demand
     z._valve_last_write = 0.0
     z._valve_pin_at = 0.0
+    z._valve_exercising = False
+    z._demand = 0.0
     z._zone_name = lambda: "Office"
     z.effective_setpoint = lambda: 21.0
     z._trv_state = lambda: None

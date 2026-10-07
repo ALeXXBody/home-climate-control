@@ -1408,10 +1408,32 @@ async def ws_remove_zone(
         )
         return
     new_options = {**entry.options, CONF_ZONES: new_zones}
+    # A removed room's learned history must not resurrect if the name is
+    # ever reused: purge per-room stores BEFORE the reload. Tolerates a
+    # not-loaded controller (the options update is what matters).
+    for data in (hass.data.get(DOMAIN) or {}).values():
+        if isinstance(data, dict) and data.get("controller"):
+            data["controller"].forget_zone_learning(msg["zone"])
+    await _remove_balance_store(hass, entry, msg["zone"])
     hass.config_entries.async_update_entry(entry, options=new_options)
     ZonesBackup(hass).save(new_zones, hass)
     await hass.config_entries.async_reload(entry.entry_id)
     connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+
+
+async def _remove_balance_store(
+    hass: HomeAssistant, entry, old: str
+) -> None:
+    """Delete the removed room's balance store so re-adding the name starts
+    fresh instead of resurrecting stale auto-cap cooldowns (mirror of the
+    rename migration)."""
+    from homeassistant.helpers.storage import Store
+
+    try:
+        store = Store(hass, 1, f"{entry.entry_id}_room_{old}_balance")
+        await store.async_remove()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("balance-store removal failed", exc_info=True)
 
 
 def _stats_controller(hass: HomeAssistant):
@@ -1746,6 +1768,7 @@ async def ws_set_boiler_info(
     connection.send_result(msg["id"], {"ok": True, "info": bi.as_dict()})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {vol.Required("type"): f"{DOMAIN}/check_updates"}
 )

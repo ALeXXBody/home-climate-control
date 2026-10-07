@@ -141,11 +141,15 @@ class TrainingDataLogger:
 
     def _write_meta(self) -> None:
         try:
+            import uuid as _uuid
+
             assert self._dir is not None
-            (self._dir / "meta.json").write_text(
-                json.dumps({"rows_total": self.rows_total}),
-                encoding="utf-8",
+            path = self._dir / "meta.json"
+            tmp = path.with_suffix(f".tmp{_uuid.uuid4().hex}")
+            tmp.write_text(
+                json.dumps({"rows_total": self.rows_total}), encoding="utf-8"
             )
+            tmp.replace(path)   # torn meta.json after a crash resets the counter
         except Exception:  # noqa: BLE001
             pass
 

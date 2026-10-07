@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import ipaddress
 import logging
+import math
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -547,15 +548,13 @@ class FirmwareManager:
         if not dev:
             return {"ok": False, "error": "unknown device"}
         try:
-            # Firmware expects CSV: "<ref>,<design>,<fmax>,<fmin>"
-            body = (
-                f"{round(float(curve['wc_ref']), 1)},"
-                f"{round(float(curve['wc_design']), 1)},"
-                f"{round(float(curve['wc_fmax']), 1)},"
-                f"{round(float(curve['wc_fmin']), 1)}"
-            )
+            vals = [float(curve[k]) for k in ("wc_ref", "wc_design", "wc_fmax", "wc_fmin")]
         except (KeyError, TypeError, ValueError):
             return {"ok": False, "error": "curve needs wc_ref/wc_design/wc_fmax/wc_fmin"}
+        # NaN/inf and absurd magnitudes must never reach heating hardware
+        if not all(math.isfinite(v) and abs(v) <= 200.0 for v in vals):
+            return {"ok": False, "error": "curve values out of range"}
+        body = ",".join(f"{round(v, 1)}" for v in vals)
         await mqtt.async_publish(
             self.hass, f"hcs/{node_id}/set/weather_comp_cfg", body, 0, False
         )

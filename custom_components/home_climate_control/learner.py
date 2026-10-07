@@ -118,6 +118,9 @@ class RoomLearner:
         self.last_error: str | None = None
         self.skip_reason: str | None = None
         self.tick_count: int = 0
+        # settable by the controller: current room names, used to prune
+        # model.json keys whose room was renamed long ago (old corpus rows)
+        self.known_rooms: set | None = None
         self._task_initial = None
         self._task_watch = None
         # rotating debug of one prediction-vs-actual per tick
@@ -298,6 +301,19 @@ class RoomLearner:
         _LOGGER.info("Learner: room model migrated %r -> %r", old, new)
         return True
 
+    def forget_room(self, name: str) -> None:
+        """Drop a removed room's model key (persisted through the standard
+        atomic write) — re-adding the name must start fresh."""
+        if name in self.model:
+            self.model.pop(name, None)
+            if self.hass is not None and hasattr(self.hass, "async_create_task"):
+                self.hass.async_create_task(
+                    self.hass.async_add_executor_job(self._persist_model_sync)
+                )
+            else:
+                self._persist_model_sync()
+            _LOGGER.info("Learner: room model forgotten %r", name)
+
     def _persist_model_sync(self) -> None:
         """Atomically write the CURRENT model state to model.json."""
         assert self._dir is not None
@@ -347,6 +363,13 @@ class RoomLearner:
                     merged[name] = old
                     kept_prev += 1
             model = merged
+            known = getattr(self, "known_rooms", None)
+            if known is not None and isinstance(known, (set, list, tuple)):
+                ghosts = sorted(set(model) - set(known))
+                for g in ghosts:
+                    del model[g]
+                if ghosts:
+                    coverage["dropped_ghosts"] = ghosts
             coverage = {**(coverage or {}), "kept_prev": kept_prev,
                         "replaced": replaced, "scale_change": scale_change}
             # sanity: never write an empty/garbage model
@@ -393,6 +416,9 @@ class RoomLearner:
         hist: dict[str, list[tuple[float, float, float, float | None, bool]]] = {}
         xs: dict[str, list[list[float]]] = {}
         ys: dict[str, list[float]] = {}
+        # per-room weights, index-aligned with xs/ys (they were misaligned
+        # against demand-only lists when outdoor data was intermittent)
+        xw: dict[str, list[float]] = {}
         heat_rows: dict[str, int] = {}
         # demand-only windows (houses without an outdoor sensor)
         xs0_all: dict[str, list[tuple[float, float]]] = {}
@@ -411,7 +437,7 @@ class RoomLearner:
                             continue
                         self._absorb(
                             row, hist, xs, ys, heat_rows, days, outdoor_seen,
-                            xs0_all, ys0_all,
+                            xs0_all, ys0_all, xw,
                         )
                         if sum(len(v) for v in xs.values()) > MAX_ROWS:
                             break
@@ -457,8 +483,9 @@ class RoomLearner:
                     "scale_s": WINDOW_S,
                 }
                 continue
-            wts = [w for (_, _, w) in xs0_all.get(name) or []][:n]
-            wts = (wts + [1.0] * n)[:n]
+            wts = (xw.get(name) or [])
+            if len(wts) != n:
+                wts = [1.0] * n
             try:
                 coef = _solve_ols(xs_r, ys[name], len(xs_r[0]), weights=wts)
             except Exception:  # noqa: BLE001
@@ -551,7 +578,7 @@ class RoomLearner:
 
     # ------------------------------------------------------------- absorber
     def _absorb(self, row, hist, xs, ys, heat_rows, days, outdoor_seen,
-                xs0_all, ys0_all):
+                xs0_all, ys0_all, xw):
         """One corpus row → ~10-minute training windows.
 
         A 1-minute ΔT is mostly sensor noise; a 10-minute window carries
@@ -626,6 +653,7 @@ class RoomLearner:
             gap = float(outdoor) - temp0
             xs.setdefault(name, []).append([avg_demand, gap])
             ys.setdefault(name, []).append(y)
+            xw.setdefault(name, []).append(w)
 
     @staticmethod
     def _fit_room(demand_rows, target_deltas):
