@@ -872,6 +872,10 @@ class CentralController:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("learner tick failed", exc_info=True)
 
+        # Solar fallback: rooms without a lux sensor take HA's sun
+        # position as a conservative proxy.
+        self._solar_sun_tick()
+
         # Demo physics + push simulated room temps into zones.
         simulate = getattr(self.backend, "simulate_step", None)
         if callable(simulate):
@@ -916,6 +920,26 @@ class CentralController:
         )
         if line:
             self._debug("learner", line)
+
+    def _solar_sun_tick(self) -> None:
+        """Feed HA's sun elevation to rooms that have no lux sensor."""
+        try:
+            st = self.hass.states.get("sun.sun")
+            elev = (st.attributes or {}).get("elevation") if st else None
+        except (AttributeError, TypeError):
+            return
+        if not isinstance(elev, (int, float)):
+            return
+        for z in self.zones:
+            if getattr(z, "_lux_sensor", None):
+                continue
+            solar = getattr(z, "solar", None)
+            upd = getattr(solar, "update_sun", None) if solar else None
+            if callable(upd):
+                try:
+                    upd(float(elev))
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _training_row(self) -> dict:
         """Flat, ML-friendly snapshot of the whole system for this tick."""
