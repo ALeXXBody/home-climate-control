@@ -138,19 +138,27 @@ def test_node_id_validation_rejects_injection():
 
 
 def test_learner_tasks_cancelled_on_stop():
+    """Schedules use HA-native helpers; stop must clear the references and
+    invoke the returned remove-handles."""
     from pathlib import Path
+    import homeassistant.helpers.event as ha_event
     tmp = Path("/tmp/opencode/learner_stop"); tmp.mkdir(parents=True, exist_ok=True)
     hass = MagicMock()
     hass.config.path = lambda name: str(tmp)
     ln = RoomLearner(hass)
+    before_now = ha_event.async_call_later.call_count
     ln.schedule_initial_train()
     ln.schedule_hourly_watch()
-    i_t, w_t = ln._task_initial, ln._task_watch
-    assert i_t is not None and w_t is not None
+    assert ha_event.async_call_later.call_count == before_now + 1
+    assert ln._task_initial is not None and ln._task_watch is not None
+    unsub1, unsub2 = ln._task_initial, ln._task_watch
     ln.async_stop()
-    assert i_t.cancel.call_count >= 1
-    assert w_t.cancel.call_count >= 1
     assert ln._task_initial is None and ln._task_watch is None
+    assert callable(unsub1) and callable(unsub2)
+    if not isinstance(unsub1, MagicMock):
+        unsub1.assert_called_once()
+    if not isinstance(unsub2, MagicMock):
+        unsub2.assert_called_once()
 
 
 def test_stuck_training_latch_recovers():

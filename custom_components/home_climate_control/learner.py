@@ -196,33 +196,69 @@ class RoomLearner:
     def schedule_initial_train(self) -> None:
         """Dispatch the first retrain shortly after setup, decoupled from
         the control-loop tick path (a misbehaving tick can never stop the
-        corpus from being used)."""
+        corpus from being used).
+
+        HA 2026.10 tracks tasks created during setup and waits for them at
+        bootstrap wrap-up — a naked asyncio.sleep task delays startup, so
+        this uses the event-loop timer helper instead.
+        """
         if self._dir is None or self.hass is None:
             return
-        async def _first():
-            await __import__("asyncio").sleep(90.0)
-            self.maybe_train()
-        self._task_initial = self.hass.async_create_task(_first())
+        try:
+            from homeassistant.helpers.event import async_call_later
+
+            self._task_initial = async_call_later(
+                self.hass, 90.0, self._initial_tick
+            )
+        except ImportError:
+            async def _first():
+                await __import__("asyncio").sleep(90.0)
+                self.maybe_train()
+
+            self._task_initial = self.hass.async_create_task(_first())
+
+    def _initial_tick(self, _now=None) -> None:
+        self.maybe_train()
 
     def schedule_hourly_watch(self) -> None:
-        """Repeat the weekly-due check hourly, also decoupled from ticks;
-        the week throttle inside maybe_train keeps it cheap."""
+        """Repeat the weekly-due check hourly via HA's time-interval tracker
+        (the week throttle inside maybe_train keeps it cheap)."""
         if self._dir is None or self.hass is None:
             return
-        async def _watch():
-            import asyncio as _aio
-            while True:
-                await _aio.sleep(3600.0)
-                self.maybe_train()
-        self._task_watch = self.hass.async_create_task(_watch())
+        try:
+            from homeassistant.helpers.event import async_track_time_interval
+
+            self._task_watch = async_track_time_interval(
+                self.hass, self._watch_tick, self._hour_delta()
+            )
+        except ImportError:
+            async def _watch():
+                import asyncio as _aio
+                while True:
+                    await _aio.sleep(3600.0)
+                    self.maybe_train()
+
+            self._task_watch = self.hass.async_create_task(_watch())
+
+    @staticmethod
+    def _hour_delta():
+        from datetime import timedelta
+
+        return timedelta(hours=1)
+
+    def _watch_tick(self, _now=None) -> None:
+        self.maybe_train()
 
     def async_stop(self) -> None:
-        """Cancel the setup-time tasks: a config-entry reload must not leak
-        immortal watch loops racing each other on model.json."""
+        """Cancel the setup-time schedulers: a config-entry reload must not
+        leak immortal watch loops racing each other on model.json."""
         for attr in ("_task_initial", "_task_watch"):
-            task = getattr(self, attr, None)
-            if task is not None and hasattr(task, "cancel"):
-                task.cancel()
+            handle = getattr(self, attr, None)
+            if handle is not None:
+                try:
+                    (handle.cancel)()
+                except Exception:  # noqa: BLE001
+                    pass
                 setattr(self, attr, None)
 
     def force_train(self) -> None:

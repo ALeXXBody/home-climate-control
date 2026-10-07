@@ -46,9 +46,12 @@ async def async_setup_entry(
     fs_sensor = FailsafeSensor(entry.entry_id, node_hint)
     hass.data[DOMAIN][entry.entry_id]["boiler_diag_sensor"] = sensor
     hass.data[DOMAIN][entry.entry_id]["failsafe_sensor"] = fs_sensor
+    data = hass.data[DOMAIN][entry.entry_id]
     room_entities = []
     zones = (entry.options.get(CONF_ZONES, []) or [])
     for zc in zones:
+        if not isinstance(zc, dict):
+            continue
         name = (zc.get("name") or "").strip()
         if not name:
             continue
@@ -59,7 +62,6 @@ async def async_setup_entry(
         async_add_entities(room_entities)
     async_add_entities([sensor, fs_sensor])
     # Dynamic custom 1-Wire probes (role=custom on the gateway)
-    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
     backend = data.get("backend") or getattr(data.get("controller"), "backend", None)
     if backend is not None:
         mgr = ProbeManager(hass, entry, backend, async_add_entities)

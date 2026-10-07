@@ -71,7 +71,8 @@ def install_ha_stubs() -> None:
     # helpers
     helpers = _mod("homeassistant.helpers")
     event = _mod("homeassistant.helpers.event")
-    event.async_track_time_interval = MagicMock(return_value=lambda: None)
+    event.async_track_time_interval = MagicMock(name='track_ti', return_value=MagicMock(name='unsub2'))
+    event.async_call_later = MagicMock(name='async_call_later', return_value=MagicMock(name='unsub'))
     event.async_track_state_change_event = MagicMock(return_value=lambda: None)
     selector = _mod("homeassistant.helpers.selector")
     selector.EntitySelector = lambda *a, **k: str
