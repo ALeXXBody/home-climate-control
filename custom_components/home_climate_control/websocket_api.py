@@ -1878,8 +1878,15 @@ async def ws_get_debug_log(
     for data in (hass.data.get(DOMAIN, {}) or {}).values():
         controller = data.get("controller") if isinstance(data, dict) else None
         log = getattr(controller, "_debug_log", None)
+        ring = getattr(controller, "_learner_ring", None)
         if isinstance(log, list) and log:
-            events.extend(log)
+            # The AI's shadow trail lives in its own ring so control-tick
+            # chatter can never bury it. Merge newest-first, no duplicates.
+            if isinstance(ring, list) and ring:
+                seen = {id(e) for e in ring}
+                events = [e for e in log if id(e) not in seen] + list(ring)
+            else:
+                events.extend(log)
             break  # one system per install; take the configured controller
     # Newest first for a log-screen read.
     events.reverse()

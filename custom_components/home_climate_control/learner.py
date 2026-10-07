@@ -42,8 +42,11 @@ MAX_ROWS = 200_000        # absolute cap; the corpus gets streamed anyway
 
 # Coverage gates — a house that just installed MUST NOT train yet.
 MIN_DAYS = 7
-MIN_ROOM_ROWS = 2_000     # heat-relevant rows (demand > 0 / CH on) per room
+MIN_ROOM_ROWS = 2_000     # heat-relevant minutes (demand > 0 / CH on) per room
+MIN_WINDOWS = 600         # ~10-min regression windows per room (~3.5 days)
 MIN_OUTDOOR_SPREAD = 8.0  # °C; mild-only weeks must not set the model
+WINDOW_S = 600            # training target: temperature change over ~10 min
+WINDOW_TOL_S = 180        # ...accept samples WINDOW_S ± this
 
 
 def _solve_ols(xs: list[list[float]], ys: list[float], k: int) -> list[float]:
@@ -323,12 +326,12 @@ class RoomLearner:
             return {}, {}
         days: set[str] = set()
         outdoor_seen: list[float] = []
-        # pending: room -> (prev_ts_seconds, prev_temp)
-        prev: dict[str, tuple[float, float]] = {}
+        # per-room rolling history: [(ts, temp, demand, outdoor|None), …]
+        hist: dict[str, list[tuple[float, float, float, float | None]]] = {}
         xs: dict[str, list[list[float]]] = {}
         ys: dict[str, list[float]] = {}
         heat_rows: dict[str, int] = {}
-        # demand-only pairs (houses without an outdoor sensor)
+        # demand-only windows (houses without an outdoor sensor)
         xs0_all: dict[str, list[tuple[float, float]]] = {}
         ys0_all: dict[str, list[float]] = {}
         for path in files:
@@ -344,7 +347,7 @@ class RoomLearner:
                         except (ValueError, TypeError):
                             continue
                         self._absorb(
-                            row, prev, xs, ys, heat_rows, days, outdoor_seen,
+                            row, hist, xs, ys, heat_rows, days, outdoor_seen,
                             xs0_all, ys0_all,
                         )
                         if sum(len(v) for v in xs.values()) > MAX_ROWS:
@@ -376,10 +379,10 @@ class RoomLearner:
         for name in room_names:
             xs_r = xs.get(name) or []
             n = len(ys.get(name) or [])
-            if n < MIN_ROOM_ROWS:
+            if n < MIN_WINDOWS:
                 # No-outdoor house: fall back to the demand-only pairs.
                 xs0, ys0 = xs0_all.get(name) or [], ys0_all.get(name) or []
-                if outdoor_seen or len(ys0) < MIN_ROOM_ROWS:
+                if outdoor_seen or len(ys0) < MIN_WINDOWS:
                     continue
                 coef, rmse, n = self._fit_room(xs0, ys0)
                 if coef is None:
@@ -434,20 +437,28 @@ class RoomLearner:
             return None
         prev_ts, prev_temp, prev_pred = prev
         dt = now - prev_ts
-        if not (10 < dt < 600) or prev_pred is None:
+        # The model speaks per-10-minutes; normalise reality to the same
+        # window when the revisit landed anywhere near that scale.
+        if not (240 < dt < 1200) or prev_pred is None:
             return None
-        actual = cur - prev_temp
+        actual = (cur - prev_temp) * (600.0 / dt)
         if abs(actual) > 5.0:
             return None
         return (
-            f"{room}: shadow ΔT predicted {prev_pred:+.2f} °C vs actual "
-            f"{actual:+.2f} °C over {dt:.0f}s"
+            f"{room}: shadow ΔT/10min predicted {prev_pred:+.2f} °C vs "
+            f"actual {actual:+.2f} °C over {dt:.0f}s"
         )
 
     # ------------------------------------------------------------- absorber
-    def _absorb(self, row, prev, xs, ys, heat_rows, days, outdoor_seen,
+    def _absorb(self, row, hist, xs, ys, heat_rows, days, outdoor_seen,
                 xs0_all, ys0_all):
-        """One corpus row → delta training pairs (linked to the previous)."""
+        """One corpus row → ~10-minute training windows.
+
+        A 1-minute ΔT is mostly sensor noise; a 10-minute window carries
+        real heating/cooling signal. Features are averaged over the window
+        (demand) and anchored at its start (gap); the target is the
+        temperature change across it.
+        """
         ts = row.get("ts")
         try:
             t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
@@ -476,23 +487,39 @@ class RoomLearner:
             demand = min(1.0, max(0.0, float(demand)))
             if ch_on and demand > 0.05:
                 heat_rows[name] = heat_rows.get(name, 0) + 1
-            old = prev.get(name)
-            prev[name] = (t_s, float(temp))
-            if old is None:
+
+            h = hist.setdefault(name, [])
+            # pair against the sample ~WINDOW_S ago
+            partner = None
+            for (ts0, temp0, dem0, out0) in reversed(h):
+                dt = t_s - ts0
+                if WINDOW_S - WINDOW_TOL_S <= dt <= WINDOW_S + WINDOW_TOL_S:
+                    partner = (ts0, temp0, dem0, out0)
+                    break
+                if dt > WINDOW_S + WINDOW_TOL_S:
+                    break
+            # append AFTER pairing so the current sample isn't its own partner
+            h.append((t_s, float(temp), demand,
+                      float(outdoor) if outdoor_ok else None))
+            # prune anything older than the pairing horizon
+            cutoff = t_s - (WINDOW_S + WINDOW_TOL_S)
+            while h and h[0][0] < cutoff:
+                h.pop(0)
+            if partner is None:
                 continue
-            prev_ts, prev_temp = old
-            dt = t_s - prev_ts
-            if dt <= 15 or dt > 150:
-                continue  # only true ~1-minute successive rows pair up
-            ys0_all.setdefault(name, []).append(float(temp) - prev_temp)
-            xs0_all.setdefault(name, []).append((demand, float(prev_temp)))
-            if not outdoor_ok:
+            ts0, temp0, dem0, out0 = partner
+            # average demand across the stored window samples
+            win = [d for (s, _, d, _) in h if ts0 <= s <= t_s]
+            avg_demand = sum(win) / len(win) if win else demand
+            y = float(temp) - temp0
+            ys0_all.setdefault(name, []).append(y)
+            xs0_all.setdefault(name, []).append((avg_demand, float(temp0)))
+            if not (outdoor_ok and out0 is not None):
                 continue
-            # feature row: (demand, outdoor-gap); target: ΔT over the pair
-            xs.setdefault(name, []).append(
-                [demand, float(outdoor) - float(prev_temp)]
-            )
-            ys.setdefault(name, []).append(float(temp) - prev_temp)
+            # gap anchored at the window START (the state being explained)
+            gap = float(outdoor) - temp0
+            xs.setdefault(name, []).append([avg_demand, gap])
+            ys.setdefault(name, []).append(y)
 
     @staticmethod
     def _fit_room(demand_rows, target_deltas):

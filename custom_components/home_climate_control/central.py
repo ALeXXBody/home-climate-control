@@ -169,19 +169,29 @@ class CentralController:
         # Secret debug screen: rolling in-memory event log (tail shown in the
         # panel). Kept small — plain dicts, newest last, trimmed to DEBUG_MAX.
         self._debug_log: list = []
+        self._learner_ring: list = []
 
     # ---------------------------------------------------------------- debug
     DEBUG_MAX = 400
+    LEARNER_RING_MAX = 120  # AI lines keep a dedicated ring — tick chatter
+                            # must not bury the shadow-comparison trail
 
     def debug_log(self, kind: str, text: str) -> None:
         """Append one line to the in-memory debug feed (secret panel screen)."""
         from datetime import datetime
 
-        self._debug_log.append(
-            {"t": datetime.now().isoformat(timespec="seconds"), "k": kind, "m": text}
-        )
+        entry = {
+            "t": datetime.now().isoformat(timespec="seconds"),
+            "k": kind,
+            "m": text,
+        }
+        self._debug_log.append(entry)
         if len(self._debug_log) > self.DEBUG_MAX:
             del self._debug_log[: len(self._debug_log) - self.DEBUG_MAX]
+        if kind == "learner":
+            self._learner_ring.append(entry)
+            if len(self._learner_ring) > self.LEARNER_RING_MAX:
+                del self._learner_ring[: len(self._learner_ring) - self.LEARNER_RING_MAX]
 
     def _debug_tick(self) -> None:
         def _f(v, nd=1):
