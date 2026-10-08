@@ -38,6 +38,7 @@ from .const import (
     DEFAULT_TARGET_STEP,
     DEFAULT_ZONE_SETPOINT,
     DEFAULT_PRESET_TEMPS,
+    HEAT_CONTROL_FLOOR,
     HEAT_CONTROL_VALVE,
     PID_INTEGRAL_CLAMP,
     PID_KI,
@@ -156,6 +157,24 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._lux_sensor = zone_cfg.get(CONF_ZONE_LUX_SENSOR) or None
         self._co2_sensor = zone_cfg.get(CONF_ZONE_CO2_SENSOR) or None
         self._humidity_sensor = zone_cfg.get(CONF_ZONE_HUMIDITY_SENSOR) or None
+
+        # ── Underfloor-heating room (heat_control="floor") ──────────────
+        self._floor_loop = zone_cfg.get("floor_loop_entity") or None
+        self._floor_mixer = zone_cfg.get("floor_mixer_entity") or None
+        self._floor_surface_sensor = zone_cfg.get("floor_surface_sensor") or None
+        self._floor_flow_sensor = zone_cfg.get("floor_flow_sensor") or None
+        self._floor_pump = zone_cfg.get("floor_pump_entity") or None
+        try:
+            self._floor_surface_max = float(
+                zone_cfg.get("floor_surface_max") or 29.0
+            )
+        except (TypeError, ValueError):
+            self._floor_surface_max = 29.0
+        if self.heater_control != HEAT_CONTROL_FLOOR:
+            self._floor_loop = None
+        self._floor_state: bool | None = None   # last commanded loop state
+        self._floor_last_flip: float = 0.0
+        self._floor_last_mixer: float | None = None
         self._humidity_pct: float | None = None
         self._humidity_from_trv: bool = False
         self._trv_position_entity = (
@@ -874,6 +893,141 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._current_temp = temp
             self._temp_from_trv = True
 
+    def floor_active(self) -> bool:
+        """True for underfloor-heating rooms with a controllable loop."""
+        return self.heater_control == HEAT_CONTROL_FLOOR and bool(
+            self._floor_loop
+        )
+
+    async def floor_tick(self, now: float, hass, outdoor: float | None) -> None:
+        """One pass of the underfloor-heating loop (beta).
+
+        Slow plant, slow control: a deep, asymmetric hysteresis on the
+        ROOM temperature drives the loop entity (switch on/off, or a
+        number written 0/100), a mixer valve — when the house has one —
+        gets a low flow target, and every safety gate is checked before
+        any "on" decision:
+          * no temperature reading → off,
+          * window open or HVAC not heat → off,
+          * slab surface above the cap → off until it drops 1 °C below,
+          * loop flow above 45 °C → off (protects pipes/floor),
+          * pump entity present and off → off (never heat a dry loop).
+        """
+        if not self.floor_active():
+            return
+        import time as _t
+
+        st = self.hass.states if self.hass else hass.states
+        cur = getattr(self, "_current_temp", None)
+        want = self.effective_setpoint()
+
+        pump_on = True
+        if self._floor_pump:
+            p = st.get(self._floor_pump)
+            pump_on = (p is not None and str(p.state) == "on")
+
+        surf = None
+        if self._floor_surface_sensor:
+            s = st.get(self._floor_surface_sensor)
+            if s is not None:
+                try:
+                    surf = float(s.state)
+                except (TypeError, ValueError):
+                    surf = None
+
+        flow = None
+        if self._floor_flow_sensor:
+            f = st.get(self._floor_flow_sensor)
+            if f is not None:
+                try:
+                    flow = float(f.state)
+                except (TypeError, ValueError):
+                    flow = None
+
+        # safety gates (off unless proven safe)
+        forced_off = None
+        if cur is None:
+            forced_off = "no room temperature"
+        elif self._hvac_mode != HVACMode.HEAT:
+            forced_off = "HVAC off"
+        elif self._window_open:
+            forced_off = "window open"
+        elif surf is not None and surf > self._floor_surface_max + 0.1:
+            forced_off = f"surface cap ({surf:.1f} > {self._floor_surface_max:.0f})"
+        elif flow is not None and flow > 45.0:
+            forced_off = f"flow cap ({flow:.1f} > 45)"
+        elif not pump_on:
+            forced_off = "pump off (interlock)"
+
+        # hysteresis (0.25 on / 0.35 off — a floor hates cycling)
+        if self._floor_state is True:
+            want_on = want - cur > -0.35
+        elif self._floor_state is False:
+            want_on = want - cur > 0.25
+        else:
+            want_on = want - cur > 0.25
+
+        if forced_off is not None:
+            want_on = False
+
+        state = self._floor_state
+        if state is None or want_on != state:
+            # deep dwell: unless a safety-gate change, flips are ≥5 min apart
+            cooling = (self._floor_state is True and want_on is False)
+            if (state is not None and not cooling
+                    and now - self._floor_last_flip < 300.0
+                    and forced_off is None):
+                return
+            await (self.hass or hass).services.async_call(
+                "switch" if (self._floor_loop or "").startswith("switch.")
+                else "number",
+                "turn_on" if (
+                    (self._floor_loop or "").startswith("switch.") and want_on
+                ) else ("turn_off" if (
+                    (self._floor_loop or "").startswith("switch.")
+                ) else "set_value"),
+                {"entity_id": self._floor_loop}
+                if (self._floor_loop or "").startswith("switch.")
+                else {"entity_id": self._floor_loop,
+                      "value": 100.0 if want_on else 0.0},
+                blocking=False,
+            )
+            self._floor_state = want_on
+            # `now` is the control tick's monotonic clock — same domain as
+            # every other rate limiter in this class.
+            self._floor_last_flip = now
+            self._debug(
+                "floor",
+                (f"{self._zone_name()}: floor loop "
+                 f"{'ON' if want_on else 'OFF'}"
+                 + (f" [{forced_off}]" if forced_off else "")),
+            )
+
+        # mixer: low flow target from the outdoor curve (beta heuristic)
+        if self._floor_mixer:
+            pct = None
+            if flow is not None:
+                # closed loop around 40 °C flow
+                base = self._floor_last_mixer if self._floor_last_mixer else 50.0
+                pct = base + (40.0 - flow) * 2.0
+            elif outdoor is not None:
+                pct = 25.0 + min(1.0, max(0.0, (20.0 - outdoor) / 30.0)) * 75.0
+            if pct is not None:
+                pct = max(0.0, min(100.0, pct))
+                if self._floor_last_mixer is None or abs(
+                    pct - self._floor_last_mixer
+                ) > 3.0:
+                    await (self.hass or hass).services.async_call(
+                        "number", "set_value",
+                        {"entity_id": self._floor_mixer, "value": round(pct, 1)},
+                        blocking=False,
+                    )
+                    self._floor_last_mixer = round(pct, 1)
+                    self._debug(
+                        "floor",
+                        f"{self._zone_name()}: mixer → {pct:.0f}%",
+                    )
+
     def valve_direct_active(self) -> bool:
         """True when HCC drives this room's valve opening degree directly.
 
@@ -1053,6 +1207,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             for step, wait in steps:
                 # re-check per step: demand or a window event mid-sweep must
                 # abort straight to the restore position
+                import time as _now_g
+
                 if self._window_open or self._demand > 0.05:
                     restore = 0.0
                     break
@@ -1070,7 +1226,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     await self._exercise_sleep(wait)
         finally:
             self._valve_exercising = False
-            self._valve_last_write = _t.monotonic()  # restart the rate window
+            self._valve_last_write = _now_g.monotonic()  # restart the rate window
             self._debug(
                 "valve-drive",
                 f"{self._zone_name()}: valve exercise done (back to {restore:.0f}%)",

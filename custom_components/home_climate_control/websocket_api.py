@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from .zones_backup import ZonesBackup
 from . import _dedupe_zones
 from .const import (
+    HEAT_CONTROL_FLOOR,
     CONF_OCCUPANCY_AWAY_PRESET,
     CONF_OCCUPANCY_ENABLED,
     CONF_OCCUPANCY_HOME_PRESET,
@@ -182,6 +183,14 @@ def _setup_health(hass, entry_id, controller, zones_out):
     except Exception:  # noqa: BLE001
         return []
 
+def _is_num(v: Any) -> bool:
+    try:
+        float(v)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
     store = hass.data.get(DOMAIN, {})
     boiler_info = None
@@ -268,6 +277,26 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         else None
                     ),
                     "state": state.state if state else None,
+                    # underfloor-heating room data (floor mode)
+                    "floor_loop_entity": (
+                        getattr(zone, "_floor_loop", None)
+                    ),
+                    "floor_loop_on": (
+                        getattr(zone, "_floor_state", None)
+                        if getattr(zone, "heater_control", "") == "floor"
+                        else None
+                    ),
+                    "floor_surface_entity": (
+                        getattr(zone, "_floor_surface_sensor", None)
+                    ),
+                    "floor_surface_temp": (
+                        float(st_surf.state)
+                        if (st_surf := hass.states.get(
+                                getattr(zone, "_floor_surface_sensor", "") or ""
+                            )) is not None
+                        and _is_num(st_surf.state)
+                        else None
+                    ),
                     # per-room self-learning model — keyed by the same room
                     # name schema; the learner migrates it on room rename.
                     "model": (
@@ -964,7 +993,7 @@ def validate_zone_name(names: list[str | None], new_name: str) -> str | None:
 
 
 FLOOR_MAX = 30
-HEAT_CONTROLS = ("smart", "valve", "manual")
+HEAT_CONTROLS = ("smart", "valve", "manual", "floor")
 
 
 def build_zone_config(
@@ -981,18 +1010,25 @@ def build_zone_config(
     co2_sensor: str | None = None,
     trv_position_entity: str | None = None,
     radiator_kw: float | None = None,
+    floor_loop_entity: str | None = None,
+    floor_mixer_entity: str | None = None,
+    floor_surface_sensor: str | None = None,
+    floor_flow_sensor: str | None = None,
+    floor_pump_entity: str | None = None,
+    floor_surface_max: float | None = None,
 ) -> dict[str, Any]:
     """Validate a new-room request; returns the zone dict or raises ValueError.
 
     Mirrors the config flow's zone step: a controlled (smart) room needs at
-    least one addressable TRV; a manual-radiator room legitimately has none.
+    least one addressable TRV; a manual-radiator room legitimately has none;
+    a floor room needs at least a loop entity.
     """
     name = (name or "").strip()
     err = validate_zone_name(names, name)
     if err:
         raise ValueError(err)
     if heat_control not in HEAT_CONTROLS:
-        raise ValueError("heat_control must be 'smart', 'valve' or 'manual'")
+        raise ValueError("heat_control must be 'smart', 'valve', 'manual' or 'floor'")
     floor = max(0, min(FLOOR_MAX, int(floor or 0)))
     trvs = [t.strip() for t in (trv_climates or []) if t and t.strip()]
     if heat_control == HEAT_CONTROL_SMART and not trvs:
@@ -1019,9 +1055,37 @@ def build_zone_config(
     co2 = (co2_sensor or "").strip() or None
     if co2 and not co2.startswith("sensor."):
         raise ValueError(f"'{co2}' is not a sensor entity")
-    valve = (trv_position_entity or "").strip() or None
-    if valve and not valve.startswith(("sensor.", "number.")):
-        raise ValueError(f"'{valve}' is not a sensor or number entity")
+    valve_entity = (trv_position_entity or "").strip() or None
+    if valve_entity and not valve_entity.startswith(("sensor.", "number.")):
+        raise ValueError(f"'{valve_entity}' is not a sensor or number entity")
+    # ── floor (underfloor heating) room fields ─────────────────────────
+    loop_e = (floor_loop_entity or "").strip() or None
+    mixer_e = (floor_mixer_entity or "").strip() or None
+    surf_e = (floor_surface_sensor or "").strip() or None
+    flow_e = (floor_flow_sensor or "").strip() or None
+    pump_e = (floor_pump_entity or "").strip() or None
+    if heat_control == HEAT_CONTROL_FLOOR:
+        if not loop_e:
+            raise ValueError(
+                "A floor room needs a loop entity (switch.* for on/off"
+                " thermal actuators, number.* for 0-100 opening)")
+        if not loop_e.startswith(("switch.", "number.")):
+            raise ValueError(
+                f"'{loop_e}' is not a switch or number entity")
+    for lbl, e in (("mixer", mixer_e), ("surface sensor", surf_e),
+                   ("flow sensor", flow_e), ("pump", pump_e)):
+        if e and not e.startswith(("switch.", "sensor.", "number.")):
+            raise ValueError(f"Floor {lbl} '{e}' is not a switch/sensor/number entity")
+    if pump_e and not (pump_e.startswith("switch.") or pump_e.startswith("number.")):
+        raise ValueError(f"Floor pump '{pump_e}' must be a switch or number")
+    surface_max = None
+    if floor_surface_max is not None:
+        try:
+            surface_max = float(floor_surface_max)
+        except (TypeError, ValueError):
+            raise ValueError("floor_surface_max must be a number")
+        if not 25.0 <= surface_max <= 35.0:
+            raise ValueError("floor_surface_max must be between 25 and 35 °C")
     if radiator_kw is not None:
         try:
             radiator_kw = float(radiator_kw)
@@ -1044,8 +1108,20 @@ def build_zone_config(
         cfg[CONF_ZONE_LUX_SENSOR] = lux
     if co2:
         cfg[CONF_ZONE_CO2_SENSOR] = co2
-    if valve:
-        cfg[CONF_ZONE_TRV_POSITION] = valve
+    if valve_entity:
+        cfg[CONF_ZONE_TRV_POSITION] = valve_entity
+    if loop_e:
+        cfg["floor_loop_entity"] = loop_e
+    if mixer_e:
+        cfg["floor_mixer_entity"] = mixer_e
+    if surf_e:
+        cfg["floor_surface_sensor"] = surf_e
+    if flow_e:
+        cfg["floor_flow_sensor"] = flow_e
+    if pump_e:
+        cfg["floor_pump_entity"] = pump_e
+    if surface_max is not None:
+        cfg["floor_surface_max"] = surface_max
     if radiator_kw:
         cfg[CONF_ZONE_RADIATOR_KW] = radiator_kw
     return cfg
@@ -1123,8 +1199,18 @@ async def ws_rename_zone(
     trv_position_entity = msg.get("trv_position_entity")
     radiator_kw = msg.get("radiator_kw")
     humidity_sensor = msg.get("humidity_sensor")
+    floor_fields = {
+        k: msg.get(k)
+        for k in (
+            "floor_loop_entity", "floor_mixer_entity",
+            "floor_surface_sensor", "floor_flow_sensor",
+            "floor_pump_entity", "floor_surface_max",
+        )
+        if k in msg
+    }
     device_fields = (
-        trv_climates is not None
+        bool(floor_fields)
+        or trv_climates is not None
         or "temp_sensor" in msg
         or "humidity_sensor" in msg
         or window_sensors is not None
@@ -1244,6 +1330,21 @@ async def ws_rename_zone(
                 z[CONF_ZONE_CO2_SENSOR] = co2
             else:
                 z.pop(CONF_ZONE_CO2_SENSOR, None)
+        FLOOR_KEYS = (
+            "floor_loop_entity", "floor_mixer_entity",
+            "floor_surface_sensor", "floor_flow_sensor",
+            "floor_pump_entity", "floor_surface_max",
+        )
+        for fk in FLOOR_KEYS:
+            if fk not in msg:
+                continue
+            fv = (msg.get(fk) or "")
+            if isinstance(fv, str):
+                fv = fv.strip() or None
+            if fv is None:
+                z.pop(fk, None)
+                continue
+            z[fk] = fv
         if "trv_position_entity" in msg:
             valve = (trv_position_entity or "").strip() or None
             if valve and not valve.startswith(("sensor.", "number.")):
@@ -1316,6 +1417,12 @@ async def ws_rename_zone(
         vol.Optional("co2_sensor"): str,
         vol.Optional("trv_position_entity"): str,
         vol.Optional("radiator_kw"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("floor_loop_entity"): str,
+        vol.Optional("floor_mixer_entity"): str,
+        vol.Optional("floor_surface_sensor"): str,
+        vol.Optional("floor_flow_sensor"): str,
+        vol.Optional("floor_pump_entity"): str,
+        vol.Optional("floor_surface_max"): vol.Any(vol.Coerce(float), None),
     }
 )
 @websocket_api.async_response
@@ -1365,6 +1472,12 @@ async def ws_add_zone(
             co2_sensor=msg.get("co2_sensor"),
             trv_position_entity=auto_valve,
             radiator_kw=msg.get("radiator_kw"),
+            floor_loop_entity=msg.get("floor_loop_entity"),
+            floor_mixer_entity=msg.get("floor_mixer_entity"),
+            floor_surface_sensor=msg.get("floor_surface_sensor"),
+            floor_flow_sensor=msg.get("floor_flow_sensor"),
+            floor_pump_entity=msg.get("floor_pump_entity"),
+            floor_surface_max=msg.get("floor_surface_max"),
         )
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_zone", str(err))

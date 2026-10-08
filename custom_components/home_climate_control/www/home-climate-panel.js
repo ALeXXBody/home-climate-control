@@ -49,8 +49,21 @@ class HomeClimatePanel extends HTMLElement {
   _wireOnce() {
     const root = this.shadowRoot;
 
-    root.addEventListener("click", (ev) => {
-      const t = ev.target;
+    root.addEventListener("change", (ev) => {
+      // Room system selector: swap the radiator/floor field blocks live
+      // (<select> widgets emit change, never click).
+      const ss = ev.target;
+      if (ss && ss.id && /-(system)$/.test(ss.id)) {
+        const isFloor = ss.value === "floor";
+        const pfx = ss.id.startsWith("nr-") ? "nr" : "er";
+        const rad = this.shadowRoot.getElementById(pfx + "-radiator-block");
+        const flr = this.shadowRoot.getElementById(pfx + "-floor-block");
+        const r2 = this.shadowRoot;
+        if (rad) rad.style.display = isFloor ? "none" : "";
+        if (flr) flr.style.display = isFloor ? "" : "none";
+      }
+    });
+    root.addEventListener("click", (ev) => {      const t = ev.target;
       // Settings switches are controls, never navigation. Stop the click at
       // the panel root so HA or another delegated handler cannot interpret it
       // as a dashboard navigation gesture.
@@ -72,6 +85,18 @@ class HomeClimatePanel extends HTMLElement {
         if (this._tab === "stats") this._fetchStats();
         if (this._tab === "debug") this._fetchDebugLog();
         this._render();
+        return;
+      }
+      const sysSel = t.closest && t.closest(`select[id$="-system"]`);
+      if (sysSel) {
+        // Room system chooser: swap the radiator/floor field blocks live.
+        const isFloor = sysSel.value === "floor";
+        const pfx = sysSel.id.startsWith("nr-") ? "nr" : "er";
+        const r = this.shadowRoot;
+        const rad = r.getElementById(pfx + "-radiator-block");
+        const flr = r.getElementById(pfx + "-floor-block");
+        if (rad) rad.style.display = isFloor ? "none" : "";
+        if (flr) flr.style.display = isFloor ? "" : "none";
         return;
       }
       if (t.closest('[data-action="stats-reset"]')) {
@@ -934,6 +959,7 @@ class HomeClimatePanel extends HTMLElement {
         }
         .mode-pill.smart { color: #4fc3f7; border-color: #4fc3f755; }
         .mode-pill.valve { color: #9fce6a; border-color: #9fce6a55; }
+        .mode-pill.floor { color: #ce93d8; border-color: #ce93d855; }
         .mode-pill.manual { color: #ffb74d; border-color: #ffb74d55; }
 
         /* 3-col: info | centered tall thermostat | rail under pill */
@@ -2045,7 +2071,8 @@ class HomeClimatePanel extends HTMLElement {
     set(s.prefix + "-radkw", s.radkw);
   }
 
-  _modeLabel(manual, valveMode) {
+  _modeLabel(manual, valveMode, floorMode) {
+    if (floorMode) return { cls: "floor", text: "⬛ floor" };
     if (manual) return { cls: "manual", text: "✋ manual" };
     if (valveMode) return { cls: "valve", text: "🎛 valve" };
     return { cls: "smart", text: "⚡ smart" };
@@ -2107,12 +2134,29 @@ class HomeClimatePanel extends HTMLElement {
         <h3>${isEdit ? "Edit room" : "New room"}</h3>
         ${isEdit ? "" : `<div class="row"><label>Name</label>
           <input id="${prefix}-name" type="text" placeholder="e.g. Kitchen" value="${this._esc(curName)}" style="flex:1"></div>`}
-        <div class="row"><label>Heater control</label>
+        <div class="row"><label>Heating system</label>
+          <select id="${prefix}-system" style="flex:1">
+            <option value="radiator" ${curControl !== "floor" ? "selected" : ""}>🔥 Radiators (TRV-driven)</option>
+            <option value="floor" ${curControl === "floor" ? "selected" : ""}>🔥 Underfloor heating (beta)</option>
+          </select></div>
+        <div class="row" id="${prefix}-radiator-block" style="${curControl === "floor" ? "display:none" : ""}"><label>Heater control</label>
           <select id="${prefix}-control" style="flex:1">
             <option value="smart" ${curControl === "smart" ? "selected" : ""}>⚡ Smart TRV (controlled)</option>
             <option value="valve" ${curControl === "valve" ? "selected" : ""}>🎛 Valve direct (HCC drives opening)</option>
             <option value="manual" ${curControl === "manual" ? "selected" : ""}>✋ Manual radiator (observed)</option>
           </select></div>
+        <div id="${prefix}-floor-block" style="${curControl === "floor" ? "" : "display:none"}">
+          <div class="row"><label>Floor loop entity<br><span style="font-weight:400">(required — switch.* on/off actuator, number.* 0-100)</span></label>
+            <input id="${prefix}-floor-loop" value="${this._esc(isEdit && z.floor_loop_entity || "")}" placeholder="switch.… / number.…" style="flex:1"></div>
+          <div class="row"><label>Mixing valve (optional)<br><span style="font-weight:400">(number.* 0-100, mixed-loop retrofits)</span></label>
+            <input id="${prefix}-floor-mixer" value="${this._esc(isEdit && z.floor_mixer_entity || "")}" placeholder="number.…" style="flex:1"></div>
+          <div class="row"><label>Floor surface sensor (optional)<br><span style="font-weight:400">(surface cap protection, default 29 °C)</span></label>
+            <input id="${prefix}-floor-surface" value="${this._esc(isEdit && z.floor_surface_sensor || "")}" placeholder="sensor.…" style="flex:1"></div>
+          <div class="row"><label>Floor flow sensor (optional)<br><span style="font-weight:400">(hard 45 °C flow cap)</span></label>
+            <input id="${prefix}-floor-flow" value="${this._esc(isEdit && z.floor_flow_sensor || "")}" placeholder="sensor.…" style="flex:1"></div>
+          <div class="row"><label>Pump entity (optional)<br><span style="font-weight:400">(interlock — never heat a dry loop)</span></label>
+            <input id="${prefix}-floor-pump" value="${this._esc(isEdit && z.floor_pump_entity || "")}" placeholder="switch.…" style="flex:1"></div>
+        </div>
         <div class="row"><label>Floor</label>
           <select id="${prefix}-floor" style="flex:1">
             ${[0, 1, 2, 3].map((f) => `<option value="${f}" ${curFloor === String(f) ? "selected" : ""}>${HomeClimatePanel.FLOOR_LABEL(f)}</option>`).join("")}
@@ -2186,7 +2230,7 @@ class HomeClimatePanel extends HTMLElement {
     if (compact) {
       return `
           <div class="card zone" style="position:relative">
-            <span class="mode-pill ${this._modeLabel(manual, z.heat_control === "valve").cls}">${this._modeLabel(manual, z.heat_control === "valve").text}</span>
+            <span class="mode-pill ${this._modeLabel(manual, z.heat_control === "valve", z.heat_control === "floor").cls}">${this._modeLabel(manual, z.heat_control === "valve", z.heat_control === "floor").text}</span>
             ${infoHtml}
           </div>`;
     }
@@ -2246,7 +2290,7 @@ class HomeClimatePanel extends HTMLElement {
               </div>`;
     return `
           <div class="card zone" style="position:relative">
-            <span class="mode-pill ${this._modeLabel(manual, z.heat_control === "valve").cls}">${this._modeLabel(manual, z.heat_control === "valve").text}</span>
+            <span class="mode-pill ${this._modeLabel(manual, z.heat_control === "valve", z.heat_control === "floor").cls}">${this._modeLabel(manual, z.heat_control === "valve", z.heat_control === "floor").text}</span>
             <div class="z-main">
               ${infoHtml}
               ${tempHtml}
@@ -3249,7 +3293,17 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "create") {
       const root = this.shadowRoot;
       const name = root.getElementById("nr-name")?.value?.trim();
-      const heat_control = root.getElementById("nr-control")?.value || "smart";
+      const system = root.getElementById("nr-system")?.value || "radiator";
+      const heat_control = system === "floor"
+        ? "floor"
+        : (root.getElementById("nr-control")?.value || "smart");
+      const floor_fields = system === "floor" ? {
+        floor_loop_entity: root.getElementById("nr-floor-loop")?.value?.trim(),
+        floor_mixer_entity: root.getElementById("nr-floor-mixer")?.value?.trim(),
+        floor_surface_sensor: root.getElementById("nr-floor-surface")?.value?.trim(),
+        floor_flow_sensor: root.getElementById("nr-floor-flow")?.value?.trim(),
+        floor_pump_entity: root.getElementById("nr-floor-pump")?.value?.trim() || undefined,
+      } : {};
       const floor = parseInt(root.getElementById("nr-floor")?.value || "0", 10);
       const trv = (root.getElementById("nr-trv")?.value || "")
         .split(",").map((x) => x.trim()).filter(Boolean);
@@ -3273,6 +3327,7 @@ class HomeClimatePanel extends HTMLElement {
         co2_sensor: co2 || undefined,
         trv_position_entity: valve || undefined,
         radiator_kw: radkw !== "" && radkw != null ? parseFloat(radkw) : undefined,
+        ...floor_fields,
       });
       return;
     }
@@ -3296,7 +3351,10 @@ class HomeClimatePanel extends HTMLElement {
       const zoneName = el.getAttribute("data-zone-name");
       if (!zoneName) return;
       const root = this.shadowRoot;
-      const heat_control = root.getElementById("er-control")?.value || "smart";
+      const system = root.getElementById("er-system")?.value || "radiator";
+      const heat_control = system === "floor"
+        ? "floor"
+        : (root.getElementById("er-control")?.value || "smart");
       const floor = parseInt(root.getElementById("er-floor")?.value || "0", 10);
       // Device fields are only sent when their input actually exists in the
       // rendered form. A half-rendered or stale form (cache race, older
@@ -3328,6 +3386,24 @@ class HomeClimatePanel extends HTMLElement {
         const radkw = rEl.value;
         payload.radiator_kw =
           radkw !== "" && radkw != null ? parseFloat(radkw) : null;
+      }
+      const fEl = root.getElementById("er-floor-loop");
+      if (fEl) {
+        // Edit form has floor fields when the system selector shows them;
+        // send only what's actually in the DOM (same preservation rule).
+        if (system === "floor" || fEl.value || fEl.parentElement) {
+          payload.heat_control = system === "floor"
+            ? "floor" : heat_control;
+          payload.floor_loop_entity = (fEl.value || "").trim() || null;
+          const fm = root.getElementById("er-floor-mixer");
+          if (fm) payload.floor_mixer_entity = (fm.value || "").trim() || null;
+          const fs = root.getElementById("er-floor-surface");
+          if (fs) payload.floor_surface_sensor = (fs.value || "").trim() || null;
+          const ff = root.getElementById("er-floor-flow");
+          if (ff) payload.floor_flow_sensor = (ff.value || "").trim() || null;
+          const fp = root.getElementById("er-floor-pump");
+          if (fp) payload.floor_pump_entity = (fp.value || "").trim() || null;
+        }
       }
       this._editingZone = null;
       this._adminZone("rename_zone", payload);

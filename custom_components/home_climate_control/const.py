@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.17.9"
+INTEGRATION_VERSION = "1.18.0"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
@@ -156,6 +156,7 @@ CONF_ZONE_FLOOR = "floor"  # int: 0 = ground floor, 1 = first floor, ...
 CONF_ZONE_HEAT_CONTROL = "heat_control"  # smart | valve | manual
 HEAT_CONTROL_SMART = "smart"    # addressable TRV: HCC commands it
 HEAT_CONTROL_VALVE = "valve"    # direct valve actuator: HCC drives the opening degree
+HEAT_CONTROL_FLOOR = "floor"    # underfloor heating: loop entity + optional mixer
 HEAT_CONTROL_MANUAL = "manual"  # hand-turned valve: HCC observes only
 
 # Valve-direct drive tuning (per-room writes to a number.* valve entity)
@@ -172,6 +173,12 @@ CONF_ZONE_LUX_SENSOR = "lux_sensor"          # solar gain (sensor.*)
 CONF_ZONE_CO2_SENSOR = "co2_sensor"           # air quality (sensor.*)
 CONF_ZONE_RADIATOR_KW = "radiator_kw"         # nominal kW @ ΔT50
 CONF_ZONE_TRV_POSITION = "trv_position_entity"  # valve 0-100 (sensor./number.*)
+CONF_ZONE_FLOOR_LOOP = "floor_loop_entity"      # loop/actuator (switch.*/number.*)
+CONF_ZONE_FLOOR_MIXER = "floor_mixer_entity"    # mixing valve (number. 0-100)
+CONF_ZONE_FLOOR_SURF = "floor_surface_sensor"   # slab/surface temp sensor
+CONF_ZONE_FLOOR_FLOW = "floor_flow_sensor"      # loop flow temp sensor
+CONF_ZONE_FLOOR_PUMP = "floor_pump_entity"      # pump/group (switch./number.)
+CONF_ZONE_FLOOR_SURF_MAX = "floor_surface_max"
 
 # Telemetry subjects on the native hcs/<node> bus (informational only):
 # (docs/api/MQTT.md "OpenTherm Numeric Values" + status flags).

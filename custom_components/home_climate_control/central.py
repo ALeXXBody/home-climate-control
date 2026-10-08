@@ -866,7 +866,16 @@ class CentralController:
                     and z.effective_setpoint() - z.current_temperature > 0.1
                 )
                 z.balance.sample(valve, below)
-            if getattr(z, "valve_direct_active", None) and callable(
+            if (getattr(z, "floor_active", None) and callable(
+                getattr(z, "floor_active")
+            ) and z.floor_active()):
+                # Underfloor rooms: slow, hysteresis-only loop on the loop
+                # entity + optional mixer. No TRV/valve involvement.
+                try:
+                    await z.floor_tick(now, self.hass, self.outdoor_temp())
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("floor tick failed", exc_info=True)
+            elif getattr(z, "valve_direct_active", None) and callable(
                 getattr(z, "valve_direct_active")
             ) and z.valve_direct_active():
                     # Valve-driving rooms ignore the auto-cap path (their

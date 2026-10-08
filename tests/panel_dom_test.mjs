@@ -822,6 +822,38 @@ if (failures.length) {
   el._render();
 }
 
+// ── Gate: room creation offers Radiator vs Underfloor system choice ──
+//
+{
+  const saved_zones_for_sys = JSON.parse(JSON.stringify(el._status.systems[0].zones));
+  el._tab = "rooms";
+  el._addingRoom = true;
+  el._render();
+  await new Promise((r) => setTimeout(r, 10));
+  const sysSel = el.shadowRoot.getElementById("nr-system");
+  check(!!sysSel, "Add-room popup missing the Heating system selector");
+  if (sysSel) {
+    check([...sysSel.options].map(o => o.value).join(",") === "radiator,floor",
+      "system selector lacks radiator/floor options");
+    check(!!el.shadowRoot.getElementById("nr-control"),
+      "radiator mode missing heater-control select");
+    check(el.shadowRoot.getElementById("nr-floor-block").style.display === "none",
+      "floor fields visible by default");
+    sysSel.value = "floor";
+    sysSel.dispatchEvent(new w.Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 10));
+    check(el.shadowRoot.getElementById("nr-radiator-block").style.display === "none",
+      "radiator block still visible in floor mode");
+    check(!!el.shadowRoot.getElementById("nr-floor-loop"),
+      "floor mode missing the loop entity field");
+    check(!!el.shadowRoot.getElementById("nr-floor-pump"),
+      "floor mode missing the pump interlock field");
+  }
+  el._addingRoom = false;
+  el._status.systems[0].zones = saved_zones_for_sys;
+  el._render();
+}
+
 if (failures.length) {
   console.error("FAILURES:\n - " + failures.join("\n - "));
   process.exit(1);
