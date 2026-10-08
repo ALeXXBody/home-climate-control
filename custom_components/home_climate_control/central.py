@@ -373,6 +373,11 @@ class CentralController:
             self.deadtime._persist()
         if old in self.health.rooms and new not in self.health.rooms:
             self.health.rooms[new] = self.health.rooms.pop(old)
+        if getattr(self, "learner", None) is not None:
+            # The self-learning model follows the same per-room schema as
+            # every other learned coefficient: it must migrate on rename,
+            # never orphan the old key.
+            self.learner.rename_room(old, new)
         if self.calibration.active_zone == old:
             # A session cannot survive the entity reload anyway.
             self.calibration.cancel()
@@ -724,7 +729,13 @@ class CentralController:
                 self.max_flow,
                 self.design_outdoor,
             )
-            worst_pid_extra = max(z.pid_flow_contribution() for z in demanding)
+            # Floor rooms don't drive the radiator flow curve — their loop
+            # is capped at 45 °C and a 48 °C radiator demand would fight it.
+            worst_pid_extra = max(
+                (z.pid_flow_contribution() for z in demanding
+                 if getattr(z, "heater_control", "smart") != "floor"),
+                default=0.0,
+            )
             target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
 
             # Curve chart ring (panel Diagnostics): 1 point per 5th tick.
@@ -872,9 +883,17 @@ class CentralController:
                 # Underfloor rooms: slow, hysteresis-only loop on the loop
                 # entity + optional mixer. No TRV/valve involvement.
                 try:
-                    await z.floor_tick(now, self.hass, self.outdoor_temp())
+                    await z.floor_tick(now, self.hass, outdoor)
                 except Exception:  # noqa: BLE001
-                    _LOGGER.debug("floor tick failed", exc_info=True)
+                    self._floor_warned_at = getattr(
+                        self, "_floor_warned_at", 0.0
+                    )
+                    if now - self._floor_warned_at > 3600.0:
+                        self._floor_warned_at = now
+                        _LOGGER.warning(
+                            "floor tick failed for %s", getattr(z, "name", "?"),
+                            exc_info=True,
+                        )
             elif getattr(z, "valve_direct_active", None) and callable(
                 getattr(z, "valve_direct_active")
             ) and z.valve_direct_active():
@@ -884,6 +903,7 @@ class CentralController:
                         await z.valve_pin_tick(now)
                         if healthy:
                             z.valve_apply(now, self.hass)
+                            await z.maybe_exercise(now)
                         else:
                             # Supervision lost (backend diagnostics down,
                             # device offline…): never leave a latched

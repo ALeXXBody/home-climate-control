@@ -23,8 +23,8 @@ EMA_ALPHA = 0.2
 # says nothing about clouds or shading, so a grey high-sun afternoon must
 # not trim heating aggressively.
 SUN_OFFSET_C = 0.3
-SUN_HIGH_SIN = 0.55   # sin(elevation) ≈ elevation ≥ ~33°
-SUN_LOW_SIN = 0.40    # ≈ ≥ 24° to keep, hysteresis between the two
+SUN_HIGH_SIN = 0.70   # sin(elevation) ≈ elevation ≥ ~44° (conservative)
+SUN_LOW_SIN = 0.55    # ≈ ≥ 33° to keep, hysteresis between the two
 
 
 def _sin_elev(elev: float) -> float:

@@ -1474,7 +1474,7 @@ class HomeClimatePanel extends HTMLElement {
       rows, key: "gas_kwh", unit: "kWh", color: "#ffb74d",
     });
     const rowsHtml = (d.rows || []).slice().reverse().slice(0, 21).map(r => `
-      <tr><td>${r.day}</td><td>${r.gas_kwh}</td>${price ? `<td>${r.cost != null ? r.cost : "—"}</td>` : ""}
+      <tr><td>${this._esc(r.day)}</td><td>${r.gas_kwh}</td>${price ? `<td>${r.cost != null ? r.cost : "—"}</td>` : ""}
       <td>${r.out_avg != null ? r.out_avg : "—"}/ ${r.out_min != null ? r.out_min : "—"}/${r.out_max != null ? r.out_max : "—"}</td>
       <td>${typeof r.heat_degmin === "number" ? (r.heat_degmin / 864).toFixed(1) : "—"}</td><td>${r.burner_h}</td><td>${r.flow_avg != null ? r.flow_avg : "—"}</td></tr>`).join("");
     return `
@@ -1537,7 +1537,7 @@ class HomeClimatePanel extends HTMLElement {
       const y = sy(v), h = (H - PBASE) - y;
       return `<rect x="${(sx(i) + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
         height="${Math.max(0, h).toFixed(1)}" rx="2" fill="${color}" opacity=".9">
-        <title>${r.day}: ${typeof r[key] === "number" ? r[key] : 0} ${unit.trim()}</title></rect>`;
+        <title>${this._esc(r.day)}: ${typeof r[key] === "number" ? r[key] : 0} ${this._esc(unit.trim())}</title></rect>`;
     }).join("");
     return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;background:#10151c;border-radius:10px" role="img">
         <text x="${PAD}" y="14" fill="#8ab" font-size="11">${title}</text>
@@ -2402,7 +2402,7 @@ class HomeClimatePanel extends HTMLElement {
     const bi = sys?.boiler_info || {};
     const o = sys?.options || {};
     const detected = bi.detected_make
-      ? `<p class="sub">Detected from boiler MemberID ${bi.member_id ?? "?"}: <strong>${this._esc(bi.detected_make)}</strong></p>`
+      ? `<p class="sub">Detected from boiler MemberID ${this._esc(String(bi.member_id ?? "?"))}: <strong>${this._esc(bi.detected_make)}</strong></p>`
       : `<p class="sub">No MemberID received yet — select manually.</p>`;
     const num = (v) => (v == null ? "" : this._esc(v));
     const optList = (domains, selected, placeholder) => {

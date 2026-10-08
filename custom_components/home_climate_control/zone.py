@@ -112,7 +112,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self.floor = 0
         control = str(zone_cfg.get("heat_control", "smart") or "smart").lower()
         self.heater_control: str = (
-            control if control in ("smart", "valve", "manual") else "smart"
+            control
+            if control in ("smart", "valve", "manual", HEAT_CONTROL_FLOOR)
+            else "smart"
         )
         # Valve-direct drive state (rate-limit + pin bookkeeping).
         self._valve_last_write: float = 0.0
@@ -173,8 +175,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if self.heater_control != HEAT_CONTROL_FLOOR:
             self._floor_loop = None
         self._floor_state: bool | None = None   # last commanded loop state
-        self._floor_last_flip: float = 0.0
+        self._floor_last_flip: float = -300.0  # first tick never dwell-limited
         self._floor_last_mixer: float | None = None
+        self._floor_surface_ok = True
         self._humidity_pct: float | None = None
         self._humidity_from_trv: bool = False
         self._trv_position_entity = (
@@ -446,10 +449,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     prev_target = self._target_temp
                     self._align_preset_to_manual(self._target_temp)
                     if self._preset in ("comfort", "eco", "away", "boost"):
-                        # A preset got auto-selected: restore the standing
-                        # comfort target. Overwriting it with the preset
-                        # temp erased the room's own setpoint (preheat
-                        # disarmed, room stuck at setback after 'none').
+                        # A preset got auto-selected: restore the MANUAL
+                        # target as the comfort setpoint (don't let the
+                        # preset overwrite the user's value with its own
+                        # temp — that erased preheat and setpoint integrity).
                         self._target_temp = prev_target
                     self._preset_source = "user"
                 await self._push_setpoint_to_trv("manual set")
@@ -671,6 +674,10 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # Prefer measured room error; fall back to TRV reporting heating.
         if self._current_temp is not None:
             return (self.effective_setpoint() - self._current_temp) > 0.1
+        # A floor room with no temperature reading still needs heat —
+        # the loop is its only control mechanism.
+        if self.heater_control == HEAT_CONTROL_FLOOR:
+            return True
         return self._trv_requests_heat()
 
     def demand_level(self) -> float:
@@ -915,7 +922,6 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         """
         if not self.floor_active():
             return
-        import time as _t
 
         st = self.hass.states if self.hass else hass.states
         cur = getattr(self, "_current_temp", None)
@@ -944,6 +950,14 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 except (TypeError, ValueError):
                     flow = None
 
+        # surface cap with recovery hysteresis: off above the cap, back on
+        # only 1 °C below it (no boundary cycling)
+        if surf is not None:
+            if surf > self._floor_surface_max + 0.1:
+                self._floor_surface_ok = False
+            elif surf <= self._floor_surface_max - 1.0:
+                self._floor_surface_ok = True
+
         # safety gates (off unless proven safe)
         forced_off = None
         if cur is None:
@@ -952,7 +966,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             forced_off = "HVAC off"
         elif self._window_open:
             forced_off = "window open"
-        elif surf is not None and surf > self._floor_surface_max + 0.1:
+        elif surf is not None and not self._floor_surface_ok:
             forced_off = f"surface cap ({surf:.1f} > {self._floor_surface_max:.0f})"
         elif flow is not None and flow > 45.0:
             forced_off = f"flow cap ({flow:.1f} > 45)"
@@ -962,8 +976,6 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # hysteresis (0.25 on / 0.35 off — a floor hates cycling)
         if self._floor_state is True:
             want_on = want - cur > -0.35
-        elif self._floor_state is False:
-            want_on = want - cur > 0.25
         else:
             want_on = want - cur > 0.25
 
@@ -978,20 +990,25 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     and now - self._floor_last_flip < 300.0
                     and forced_off is None):
                 return
-            await (self.hass or hass).services.async_call(
-                "switch" if (self._floor_loop or "").startswith("switch.")
-                else "number",
-                "turn_on" if (
-                    (self._floor_loop or "").startswith("switch.") and want_on
-                ) else ("turn_off" if (
-                    (self._floor_loop or "").startswith("switch.")
-                ) else "set_value"),
-                {"entity_id": self._floor_loop}
-                if (self._floor_loop or "").startswith("switch.")
-                else {"entity_id": self._floor_loop,
-                      "value": 100.0 if want_on else 0.0},
-                blocking=False,
-            )
+            try:
+                await (self.hass or hass).services.async_call(
+                    "switch" if (self._floor_loop or "").startswith("switch.")
+                    else "number",
+                    "turn_on" if (
+                        (self._floor_loop or "").startswith("switch.") and want_on
+                    ) else ("turn_off" if (
+                        (self._floor_loop or "").startswith("switch.")
+                    ) else "set_value"),
+                    {"entity_id": self._floor_loop}
+                    if (self._floor_loop or "").startswith("switch.")
+                    else {"entity_id": self._floor_loop,
+                          "value": 100.0 if want_on else 0.0},
+                    blocking=False,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("%s: floor loop write failed",
+                              self._zone_name(), exc_info=True)
+                return   # state stays as-is; next tick retries
             self._floor_state = want_on
             # `now` is the control tick's monotonic clock — same domain as
             # every other rate limiter in this class.
@@ -1003,12 +1020,14 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                  + (f" [{forced_off}]" if forced_off else "")),
             )
 
-        # mixer: low flow target from the outdoor curve (beta heuristic)
-        if self._floor_mixer:
+        # mixer: low flow target from the outdoor curve (beta heuristic).
+        # Only when the loop is actually on and no safety gate is active.
+        if self._floor_mixer and want_on and forced_off is None:
             pct = None
             if flow is not None:
                 # closed loop around 40 °C flow
-                base = self._floor_last_mixer if self._floor_last_mixer else 50.0
+                base = (self._floor_last_mixer
+                        if self._floor_last_mixer is not None else 50.0)
                 pct = base + (40.0 - flow) * 2.0
             elif outdoor is not None:
                 pct = 25.0 + min(1.0, max(0.0, (20.0 - outdoor) / 30.0)) * 75.0
@@ -1017,11 +1036,16 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 if self._floor_last_mixer is None or abs(
                     pct - self._floor_last_mixer
                 ) > 3.0:
-                    await (self.hass or hass).services.async_call(
-                        "number", "set_value",
-                        {"entity_id": self._floor_mixer, "value": round(pct, 1)},
-                        blocking=False,
-                    )
+                    try:
+                        await (self.hass or hass).services.async_call(
+                            "number", "set_value",
+                            {"entity_id": self._floor_mixer, "value": round(pct, 1)},
+                            blocking=False,
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("%s: mixer write failed",
+                                      self._zone_name(), exc_info=True)
+                        return
                     self._floor_last_mixer = round(pct, 1)
                     self._debug(
                         "floor",

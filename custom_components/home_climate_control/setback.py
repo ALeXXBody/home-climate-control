@@ -168,6 +168,8 @@ class SetbackLearner:
 
         if was == "recover":
             st.rec_samples.append((ts, temp))
+            # chatty sensors must not make this list grow for hours
+            st.rec_samples = st.rec_samples[-200:]
             t0 = st.seg_t0 or ts
             span = ts - t0
             gained = temp - (st.seg_temp0 if st.seg_temp0 is not None else temp)

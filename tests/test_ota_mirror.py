@@ -54,6 +54,17 @@ def _fake_session(payload: bytes, calls: list):
         async def read(self):
             return self._body
 
+        class _Content:
+            def __init__(self, body):
+                self._body = body
+
+            async def read(self, n=-1):
+                return self._body if n < 0 else self._body[:n]
+
+        @property
+        def content(self):
+            return _Resp._Content(self._body)
+
     class _CM:
         def __init__(self, body):
             self._body = body

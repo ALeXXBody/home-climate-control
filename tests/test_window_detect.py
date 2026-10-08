@@ -223,3 +223,25 @@ def test_sustained_escape_recovers_when_stable():
         temp += 0.3 * (60.0 / 3600.0)
         d.observe(t0 + i * M, round(temp, 3), 0.6)
     assert d.open is False
+
+
+def test_setpoint_drop_does_not_trip_cliff():
+    """A schedule setback cooling faster than the cliff threshold is not
+    an open window — the detector must be blind during the drop tail."""
+    import time as _t
+    from custom_components.home_climate_control.window_detect import (
+        SETPOINT_DROP_GUARD,
+    )
+    d = SlopeWindowDetector()
+    t0, M = 1000.0, 60.0
+    temp, sp = 21.0, 21.0
+    # 20 min stable at setpoint
+    for i in range(1, 21):
+        d.observe(t0 + i * M, round(temp, 3), 0.6, sp)
+    assert d.open is False
+    # schedule drops 3 °C → room cools ~2.5 °C/h (faster than the cliff yield)
+    sp = 18.0
+    for i in range(21, 45):
+        temp -= 0.05  # ≈3 °C/h — a fast setback tail, far below cliff rates
+        d.observe(t0 + i * M, round(temp, 3), 0.6, sp)
+    assert d.open is False, "setpoint drop triggered the cliff detector"

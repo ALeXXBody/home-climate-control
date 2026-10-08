@@ -40,6 +40,9 @@ MAX_PAUSE_S = 45 * 60      # hard cap on a *cliff*-detected pause
 ESCAPE_WINDOW_S = 30 * 60  # sustained-escape: heating vs falling, this horizon
 ESCAPE_DROP_MIN = 0.2      # °C net falling across the horizon that counts
 ESCAPE_DEMAND = 0.4        # ...while heating this hard (room demand share)
+ESCAPE_DEFICIT_C = 1.0     # ...and the room still ~at setpoint (not starving)
+SETPOINT_DROP_GUARD = 0.75 # a recent setpoint drop bigger than this suppresses
+                           # the cliff trigger (schedule setback ≠ window open)
 
 
 class SlopeWindowDetector:
@@ -52,16 +55,28 @@ class SlopeWindowDetector:
         self._opened_at: float | None = None
         self._last_drop_check: float | None = None
         self._escape_reason = None  # None | "cliff" | "escape"
+        self._last_setpoint: float | None = None
+        self._prev_setpoint: float | None = None  # setpoint-drop guard
+        self._sp_drop_ts: float | None = None   # when a drop was seen
 
     # ------------------------------------------------------------------ feed
-    def observe(self, ts: float, temp: float, demand: float | None = None) -> bool:
+    def observe(
+        self,
+        ts: float,
+        temp: float,
+        demand: float | None = None,
+        setpoint: float | None = None,
+    ) -> bool:
         """Feed one sample; returns True while the room counts as 'open'.
 
-        demand (0..1, the room's cached demand, never recomputed here) is
-        optional and only used by the sustained-escape detector.
+        demand (0..1, the room's cached demand, never recomputed here) and
+        setpoint (for the schedule-change guard) are optional.
         """
         if temp is None:
             return self.open
+        if setpoint is not None:
+            self._prev_setpoint = self._last_setpoint
+            self._last_setpoint = setpoint
 
         # Drop stale history so long sensor outages can't fake a cliff.
         # While open we deliberately keep a longer tail: the recovery check
@@ -74,7 +89,9 @@ class SlopeWindowDetector:
             self.samples = self.samples[-256:]
 
         if not self.open:
-            self._check_for_drop(ts)
+            self._check_setpoint_drop(ts)
+            if not self._recent_setpoint_drop(ts):
+                self._check_for_drop(ts)
             if not self.open:
                 self._check_for_escape(ts)
         else:
@@ -82,6 +99,22 @@ class SlopeWindowDetector:
         return self.open
 
     # --------------------------------------------------------------- phases
+    def _recent_setpoint_drop(self, ts: float = None) -> bool:
+        """A schedule/manual setpoint drop cools the room faster than
+        structural losses — not an open window. The suppression stays
+        active for half an hour after the drop (the cooling tail)."""
+        if self._sp_drop_ts is not None and ts is not None:
+            return ts - self._sp_drop_ts < 1800.0
+        return False
+
+    def _check_setpoint_drop(self, ts: float) -> None:
+        """Latch the timestamp of any significant setpoint drop."""
+        sp = self._last_setpoint
+        if sp is None or self._prev_setpoint is None:
+            return
+        if self._prev_setpoint - sp > SETPOINT_DROP_GUARD:
+            self._sp_drop_ts = ts
+
     def _check_for_drop(self, ts: float) -> None:
         """Closed phase: hunt for an abnormally fast temperature fall.
 
@@ -175,6 +208,15 @@ class SlopeWindowDetector:
         avg_demand = sum(dems) / len(dems) if dems else 0.0
         if avg_demand < ESCAPE_DEMAND:
             return
+        # Setpoint guard: a room falling toward its NEW (lower) setpoint is
+        # exactly the setback cooling tail. Escape only applies when the
+        # room sits AT/BELOW its target and still falls.
+        if self._last_setpoint is not None and newest[1] > self._last_setpoint:
+            return
+        if self._last_setpoint is not None and (
+            self._last_setpoint - newest[1] > ESCAPE_DEFICIT_C
+        ):
+            return
         self.open = True
         self._opened_at = ts
         self._escape_reason = "escape"
@@ -197,6 +239,7 @@ class SlopeWindowDetector:
             "reason": self._escape_reason,
             "since": self._opened_at,
             "samples": len(self.samples),
+            "setpoint_guard": self._recent_setpoint_drop(0.0) if self._sp_drop_ts is not None else False,
         }
 
 

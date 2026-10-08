@@ -80,3 +80,31 @@ def test_manual_temp_outside_range_is_clamped():
     z, _, _ = _manual_zone(preset="none")
     asyncio.run(z.async_set_temperature(temperature=99.0))
     assert z._target_temp == 30.0
+
+
+def test_rename_learning_migrates_learner_model():
+    """Rename must carry the AI model like every other learned store."""
+    from unittest.mock import MagicMock
+    from custom_components.home_climate_control.central import (
+        CentralController,
+    )
+    ctrl = object.__new__(CentralController)
+    ctrl.learner = MagicMock()
+    ctrl.learner.rename_room = MagicMock()
+    ctrl.setbacks = MagicMock();
+    ctrl.setbacks.rooms = {"Old": {"warm_ema": 1.0}}
+    ctrl.setbacks._persist = lambda: None
+    ctrl.deadtime = MagicMock()
+    ctrl.deadtime.estimates = {}
+    ctrl.deadtime._persist = lambda: None
+    ctrl.insulation = MagicMock()
+    ctrl.insulation.rooms = {}
+    ctrl.insulation._persist = lambda: None
+    ctrl.health = MagicMock()
+    ctrl.health.rooms = {"Old": "ok"}
+    ctrl.calibration = MagicMock()
+    ctrl.calibration.active_zone = None
+    CentralController.rename_zone_learning(ctrl, "Old", "New")
+    assert ctrl.setbacks.rooms.get("Old") is None
+    renamed = ctrl.learner.rename_room.call_args_list
+    assert any(c.args == ("Old", "New") for c in renamed), renamed

@@ -1234,7 +1234,12 @@ class FirmwareManager:
             async with asyncio.timeout(180):
                 async with session.get(url) as resp:
                     resp.raise_for_status()
-                    data = await resp.read()
+                    data = await resp.content.read(10 * 1024 * 1024 + 1)
+                    if len(data) > 10 * 1024 * 1024:
+                        _LOGGER.error(
+                            "OTA mirror: %s exceeds the 10 MB cap", url
+                        )
+                        return None
             if len(data) < 65536:
                 raise ValueError(f"asset suspiciously small ({len(data)}B)")
             if want_sha and hashlib.sha256(data).hexdigest() != want_sha:
@@ -1265,7 +1270,12 @@ class FirmwareManager:
             async with asyncio.timeout(60):
                 async with session.get(url) as resp:
                     resp.raise_for_status()
-                    data = await resp.read()
+                    data = await resp.content.read(10 * 1024 * 1024 + 1)
+                    if len(data) > 10 * 1024 * 1024:
+                        _LOGGER.error(
+                            "OTA mirror: %s exceeds the 10 MB cap", url
+                        )
+                        return None
             if len(data) != 64:
                 raise ValueError(f"signature not 64 bytes ({len(data)}B)")
             tmp = local.with_name(local.name + ".tmp")

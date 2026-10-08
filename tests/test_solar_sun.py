@@ -16,12 +16,12 @@ def _elev_series(sg, elevs):
 
 def test_sun_fallback_activates_only_high_sun_sustained():
     sg = SolarGain()
-    _elev_series(sg, [40.0] * 8)
+    _elev_series(sg, [50.0] * 8)
     assert sg.active is True
     assert sg.lux_ema is None                     # purely sun-driven
     assert sg.as_dict()["source"] == "sun"
     # dropping to a low winter sun turns it back off (hysteresis)
-    _elev_series(sg, [10.0] * 20)
+    _elev_series(sg, [20.0] * 20)
     assert sg.active is False
 
 
@@ -33,7 +33,7 @@ def test_sun_fallback_never_fires_after_dusk():
 
 
 def test_sun_offset_weaker_than_lux_offset():
-    high = [40.0] * 8
+    high = [50.0] * 8
     sg_sun = SolarGain()
     _elev_series(sg_sun, high)
     sg_lux = SolarGain()
@@ -47,8 +47,8 @@ def test_sun_offset_weaker_than_lux_offset():
 
 def test_measured_lux_beats_sun_proxy():
     sg = SolarGain()
-    _elev_series(sg, [40.0] * 8)          # sun-detector active
-    sg.sun_elev = 40.0
+    _elev_series(sg, [50.0] * 8)          # sun-detector active
+    sg.sun_elev = 50.0
     sg.update(200.0)                      # lux says: indoor daylight only
     for _ in range(20):
         sg.update(200.0)

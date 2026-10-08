@@ -1668,6 +1668,7 @@ async def ws_forget_device(
     connection.send_result(msg["id"], {"ok": True, "devices": mgr.list_devices()})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/ping_devices"})
 @websocket_api.async_response
 async def ws_ping_devices(

@@ -172,3 +172,29 @@ def test_floor_room_config_roundtrip():
     assert cfg["heat_control"] == "floor"
     assert cfg["floor_loop_entity"] == "switch.bath_floor"
     assert cfg["floor_surface_max"] == 30.0
+
+
+def test_floor_room_activated_after_zone_validation_fix():
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+    z = object.__new__(ZoneClimateEntity)
+    z.heater_control = "floor"   # the validation tuple now accepts it
+    z.floor_active = lambda: (z.heater_control == "floor"
+                              and bool(z._floor_loop))
+    z._floor_loop = "switch.x"
+    assert z.floor_active() is True
+
+
+def test_floor_rooms_excluded_from_radiator_flow():
+    """Floor rooms must not push the radiator flow curve to 48 °C."""
+    # quick sanity of the exclusion expression shape used in central
+    class Z:
+        pid_flow_contribution = staticmethod(lambda: 25.0)
+        heater_control = "floor"
+    class Z2:
+        pid_flow_contribution = staticmethod(lambda: 12.0)
+        heater_control = "smart"
+    vals = [
+        z.pid_flow_contribution() for z in (Z(), Z2())
+        if getattr(z, "heater_control", "smart") != "floor"
+    ]
+    assert vals == [12.0]

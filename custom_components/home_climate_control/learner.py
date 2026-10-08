@@ -123,6 +123,9 @@ class RoomLearner:
         self.known_rooms: set | None = None
         self._task_initial = None
         self._task_watch = None
+        import threading as _threading
+
+        self._train_lock = _threading.Lock()
         # rotating debug of one prediction-vs-actual per tick
         self._shadow_state: dict[str, Any] = {}
         # per-room shadow scorecard: model RMSE vs the do-nothing baseline
@@ -133,6 +136,11 @@ class RoomLearner:
     def load(self) -> bool:
         """Load an existing model.json produced by a previous retrain."""
         assert self._dir is not None
+        try:
+            for tmp in self._dir.glob("model.json.tmp*"):
+                tmp.unlink(missing_ok=True)   # crash leftovers
+        except OSError:
+            pass
         try:
             path = self._dir / MODEL_FILE
             blob = json.loads(path.read_text(encoding="utf-8"))
@@ -309,9 +317,14 @@ class RoomLearner:
         # Dispatch on the event loop properly: a bare async_add_executor_job
         # call creates the coroutine but nobody awaits it — the job (and the
         # training) would never actually run.
-        self.hass.async_create_task(
-            self.hass.async_add_executor_job(self._train_sync)
-        )
+        try:
+            self.hass.async_create_task(
+                self.hass.async_add_executor_job(self._train_sync)
+            )
+        except Exception:  # noqa: BLE001 — shutting-down hass etc.
+            self.training = False
+            self.last_error = "training dispatch failed"
+            self.skip_reason = None
         return True
 
     # ------------------------------------------------------- same schema
@@ -372,6 +385,12 @@ class RoomLearner:
     def _train_sync(self) -> None:
         """Executor-side heavy lifting: stream corpus → fit → save."""
         assert self._dir is not None
+        import threading
+
+        with self._train_lock:
+            self._train_sync_locked()
+
+    def _train_sync_locked(self) -> None:
         try:
             model, coverage = self._fit_all()
             # Versioning + rollback: a room's fresh fit replaces the stored
@@ -446,7 +465,8 @@ class RoomLearner:
         if not files:
             return {}, {}
         days: set[str] = set()
-        outdoor_seen: list[float] = []
+        self._out_min = None
+        self._out_max = None
         # per-room rolling history:
         # [(ts, temp, demand, outdoor|None, ch_on), …]
         hist: dict[str, list[tuple[float, float, float, float | None, bool]]] = {}
@@ -459,6 +479,7 @@ class RoomLearner:
         # demand-only windows (houses without an outdoor sensor)
         xs0_all: dict[str, list[tuple[float, float]]] = {}
         ys0_all: dict[str, list[float]] = {}
+        rows_seen = 0
         for path in files:
             if path.stat().st_size > 200 * 1024 * 1024:
                 continue  # never read monster files whole
@@ -472,22 +493,30 @@ class RoomLearner:
                         except (ValueError, TypeError):
                             continue
                         self._absorb(
-                            row, hist, xs, ys, heat_rows, days, outdoor_seen,
+                            row, hist, xs, ys, heat_rows, days,
                             xs0_all, ys0_all, xw,
                         )
-                        if sum(len(v) for v in xs.values()) > MAX_ROWS:
+                        rows_seen += 1
+                        if rows_seen > MAX_ROWS:
                             break
             except OSError:
                 continue
+            if rows_seen > MAX_ROWS:
+                _LOGGER.info(
+                    "Learner: corpus cap %d rows reached; older months skipped",
+                    MAX_ROWS,
+                )
+                break
 
-        def spread(values: list[float]) -> float:
-            return (max(values) - min(values)) if values else 0.0
-
-        out_spread = spread(outdoor_seen)
+        out_spread = (
+            (self._out_max - self._out_min)
+            if self._out_min is not None and self._out_max is not None
+            else 0.0
+        )
         coverage = {
             "days": len(days),
             "outdoor_spread": round(out_spread, 1),
-            "outdoor_available": bool(outdoor_seen),
+            "outdoor_available": self._out_min is not None,
             "heat_rows": {k: v for k, v in heat_rows.items() if v},
         }
         if len(days) < MIN_DAYS:
@@ -495,7 +524,7 @@ class RoomLearner:
         # Outdoor is REQUIRED when the house provides it (its cooling signal
         # matters), optional when it does not — a house with no outdoor
         # sensor still deserves a demand-driven model.
-        outdoor_ok = not outdoor_seen or out_spread >= MIN_OUTDOOR_SPREAD
+        outdoor_ok = (self._out_min is None) or out_spread >= MIN_OUTDOOR_SPREAD
         if not outdoor_ok:
             return {}, coverage
 
@@ -507,7 +536,7 @@ class RoomLearner:
             if n < MIN_WINDOWS:
                 # No-outdoor house: fall back to the demand-only pairs.
                 xs0, ys0 = xs0_all.get(name) or [], ys0_all.get(name) or []
-                if outdoor_seen or len(ys0) < MIN_WINDOWS:
+                if self._out_min is not None or len(ys0) < MIN_WINDOWS:
                     continue
                 coef, rmse, n = self._fit_room(xs0, ys0)
                 if coef is None:
@@ -613,7 +642,7 @@ class RoomLearner:
         return out
 
     # ------------------------------------------------------------- absorber
-    def _absorb(self, row, hist, xs, ys, heat_rows, days, outdoor_seen,
+    def _absorb(self, row, hist, xs, ys, heat_rows, days,
                 xs0_all, ys0_all, xw):
         """One corpus row → ~10-minute training windows.
 
@@ -632,7 +661,9 @@ class RoomLearner:
         outdoor = row.get("outdoor")
         outdoor_ok = isinstance(outdoor, (int, float)) and -60 < outdoor < 60
         if outdoor_ok:
-            outdoor_seen.append(float(outdoor))
+            fv = float(outdoor)
+            self._out_min = fv if self._out_min is None else min(self._out_min, fv)
+            self._out_max = fv if self._out_max is None else max(self._out_max, fv)
         boiler = row.get("boiler") or {}
         ch_on = bool(row.get("ch_on") or boiler.get("flame"))
         for zr in row.get("zones") or []:
