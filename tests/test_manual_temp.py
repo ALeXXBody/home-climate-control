@@ -108,3 +108,85 @@ def test_rename_learning_migrates_learner_model():
     assert ctrl.setbacks.rooms.get("Old") is None
     renamed = ctrl.learner.rename_room.call_args_list
     assert any(c.args == ("Old", "New") for c in renamed), renamed
+
+
+def test_trv_echo_absorbed_not_adopted():
+    """Our own push coming back from the TRV is not a user change."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    z = object.__new__(ZoneClimateEntity)
+    z._trv_entity = "climate.x"
+    z.heater_control = "smart"
+    z._target_temp = 21.0
+    z._preset = "none"
+    z._preset_source = "user"
+    z._last_pushed_sp = 21.0
+    z.effective_setpoint = lambda: 21.0
+    z._zone_name = lambda: "X"
+    z._safe_write_ha_state = lambda: None
+    z._debug = MagicMock()
+    z._trv_state = lambda: MagicMock(
+        attributes={"temperature": 21.0, "target_temp_step": 0.5}
+    )
+    z.coordinator = MagicMock(); z.coordinator.debug_log = MagicMock()
+    z._sync_target_from_trv()
+    assert z._target_temp == 21.0          # unchanged (echo, not adoption)
+
+
+def test_trv_external_change_adopted():
+    """A target set ON the TRV is accepted as the room's manual target."""
+    z = object.__new__(ZoneClimateEntity)
+    z._trv_entity = "climate.x"
+    z.heater_control = "smart"
+    z._target_temp = 21.0
+    z._preset = "eco"
+    z._preset_source = "schedule"
+    z._last_pushed_sp = 19.0
+    z._valve_pct = None
+    z._trv_state = lambda: MagicMock(
+        attributes={"temperature": 22.0, "target_temp_step": 0.5}
+    )
+    z.effective_setpoint = lambda: 19.0
+    z._zone_name = lambda: "X"
+    z._safe_write_ha_state = lambda: None
+    z._debug = MagicMock()
+    z.coordinator = MagicMock(); z.coordinator.debug_log = MagicMock()
+    z._trv_climates = ["climate.x"]
+    z.heater_control = "smart"
+    z._align_preset_to_manual = lambda v: setattr(z, "_preset", "none")
+    z._sync_target_from_trv()
+    assert z._target_temp == 22.0          # adopted
+    assert z._preset == "none"             # preset overridden by user action
+    assert z._preset_source == "user"      # sticky
+
+
+def test_trv_change_equal_to_preset_temp_selects_it():
+    from unittest.mock import MagicMock
+    from custom_components.home_climate_control.zone import ZoneClimateEntity
+
+    z = object.__new__(ZoneClimateEntity)
+    z._trv_entity = "climate.x"
+    z.heater_control = "smart"
+    z._target_temp = 21.0
+    z._preset = "none"
+    z._preset_source = "user"
+    z._last_pushed_sp = None
+    z._trv_state = lambda: MagicMock(
+        attributes={"temperature": 19.0, "target_temp_step": 0.5}
+    )
+    z.effective_setpoint = lambda: 21.0
+    z._zone_name = lambda: "X"
+    z._safe_write_ha_state = lambda: None
+    z._debug = MagicMock()
+    z.coordinator = MagicMock(); z.coordinator.debug_log = MagicMock()
+    coord = z.coordinator
+    coord.preset_temps = {"comfort": 21.0, "eco": 19.0, "away": 15.0, "boost": 23.0}
+    prev = 21.0
+    z._align_preset_to_manual = lambda v: setattr(z, "_preset", "eco")
+    z._sync_target_from_trv()
+    assert z._preset == "eco"
+    assert z._target_temp == prev          # standing comfort target kept
+    assert z._preset_source == "user"

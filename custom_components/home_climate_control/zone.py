@@ -175,6 +175,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if self.heater_control != HEAT_CONTROL_FLOOR:
             self._floor_loop = None
         self._floor_state: bool | None = None   # last commanded loop state
+        # Echo of our own last TRV setpoint write — keeps the readback from
+        # adopting our own action as a user change.
+        self._last_pushed_sp: float | None = None
         self._floor_last_flip: float = -300.0  # first tick never dwell-limited
         self._floor_last_mixer: float | None = None
         self._floor_surface_ok = True
@@ -842,9 +845,51 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             self._refresh_temp_from_trv()
         if not self._humidity_sensor:
             self._refresh_humidity()
+        self._sync_target_from_trv()
         self._safe_write_ha_state()
         # setup-time safety lives in _trv_state(): it no-ops while hass is
         # None, so wire_zone_sensors() can call this before entities attach.
+
+    def _sync_target_from_trv(self) -> None:
+        """Accept a setpoint changed AT the TRV (bidirectional sync).
+
+        * An echo of our own push (value equals `_last_pushed_sp`) is
+          absorbed silently — that keeps the no-op suppression intact.
+        * A genuinely different target was set by a person on the TRV
+          itself: adopt it for the room (same manual-vs-preset semantics
+          as a panel change — grid-equal presets get auto-selected, other
+          values drop the preset and stick as user-manual until the next
+          schedule window).
+        """
+        st = self._trv_state()
+        if st is None:
+            return
+        trv_target = (st.attributes or {}).get("temperature")
+        if not isinstance(trv_target, (int, float)):
+            return
+        trv_target = float(trv_target)
+        # our own push echo?
+        pushed = getattr(self, "_last_pushed_sp", None)
+        if pushed is not None and abs(trv_target - pushed) <= 0.3:
+            return
+        # already in agreement?
+        try:
+            if abs(trv_target - float(self.effective_setpoint())) <= 0.3:
+                return
+        except (TypeError, ValueError):
+            return
+        prev_target = self._target_temp
+        self._target_temp = trv_target
+        self._align_preset_to_manual(trv_target)
+        if self._preset in ("comfort", "eco", "away", "boost"):
+            # a preset got auto-selected: keep the standing comfort target
+            self._target_temp = prev_target
+        self._preset_source = "user"   # sticky until the next schedule window
+        self._debug(
+            "trv",
+            f"{self._zone_name()}: TRV target change adopted — "
+            f"{trv_target:.1f} °C (Preset: {self._preset})",
+        )
 
     # ── Per-room optional sensor feeds ────────────────────────────────────────────
     @callback
@@ -1455,6 +1500,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                 f"{sp:.1f} °C{valve}"
                 + (f" ({reason})" if reason else ""),
             )
+            # Echo tracking: the TRV state change this write causes will be
+            # recognised as ours by the readback (no adoption of ourself).
+            self._last_pushed_sp = sp
         except Exception:  # noqa: BLE001
             _LOGGER.debug("TRV setpoint push failed for %s", self._trv_entity)
 
