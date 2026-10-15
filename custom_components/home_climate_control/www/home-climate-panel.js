@@ -2210,6 +2210,7 @@ class HomeClimatePanel extends HTMLElement {
                   ${!manual && z.preheat ? ' · <span class="badge heat" title="Optimal-start catch-up using dead-time + warm rate">pre-heat</span>' : ""}
                   ${z.window_open ? ' · <span class="badge heat">🪟 open</span>' : ""}
                   ${!manual && health[z.name]?.flag ? ' · <span class="badge heat" title="Demands heat at full flow for a long time without getting warm — check radiator size, bleeding, or TRV">⚠ struggling</span>' : ""}
+                  ${!manual && health[z.name]?.block ? ' · <span class="badge heat" title="The room is not warming while its TRV head already reads satisfied — warm air is probably streaming past or onto the TRV. The room won\'t be warm from this valve state." style="cursor:help">TRV satisfied, room cold?</span>' : ""}
                   ${!manual && calHere ? ' · <span class="badge heat">calibrating… keep the room closed</span>' : ""}
                 </div>
                 <details class="z-insights">

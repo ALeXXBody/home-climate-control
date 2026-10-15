@@ -833,7 +833,20 @@ class CentralController:
                 getattr(z, "current_temperature", None)
                 or getattr(z, "_current_temp", None)
             )
-            deficit = (z.effective_setpoint() - cur) if cur is not None else None
+            sp = z.effective_setpoint()
+            deficit = (sp - cur) if cur is not None else None
+            # TRV-head satisfaction signal for the airflow-blockage watch:
+            # the internal sensor reading ~ at target while the room is not.
+            trv_int = None
+            try:
+                trv_int = z._trv_current_temp()
+            except Exception:  # noqa: BLE001
+                trv_int = None
+            trv_near = (
+                trv_int is not None and sp is not None and (
+                    trv_int >= sp - 0.2
+                )
+            ) if sp is not None else False
             try:
                 self.health.feed(
                     z.name,
@@ -844,6 +857,7 @@ class CentralController:
                     tick_s=CONTROL_LOOP_SECONDS,
                     outdoor=outdoor,
                     design_outdoor=self.design_outdoor,
+                    trv_near_target=trv_near,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("health feed failed", exc_info=True)

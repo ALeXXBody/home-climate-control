@@ -146,6 +146,12 @@ def test_controller_immediate_off_with_no_history_unchanged():
         def paused(self):
             return False
 
+        def effective_setpoint(self):
+            return 21.0
+
+        def _trv_current_temp(self):
+            return None
+
     ctrl = CentralController(
         hass, backend, curve_coeff=1.2, design_outdoor=-10.0,
         min_flow=25.0, max_flow=75.0,

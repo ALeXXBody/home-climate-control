@@ -37,6 +37,11 @@ DESIGN_OUTDOOR_DEFAULT = -10.0
 COMFORT_REF_C = 20.0       # outdoor load reference (room-ish)
 
 FLAG_STRUGGLING = "struggling"
+FLAG_BLOCKED = "blocked_airflow"   # warm air short-circuits past the TRV
+
+BLOCK_STREAK_S = 45 * 60          # arm after 45 min of the exact pattern
+BLOCK_ARM_DEFICIT_C = 1.0         # room still lost while...
+BLOCK_DISARM_DEFICIT_C = 0.6      # ...recovers quickly once heat is applied
 
 
 def load_patience_s(
@@ -61,12 +66,18 @@ def load_patience_s(
 
 
 class _RoomState:
-    __slots__ = ("streak_s", "idle_s", "flag")
+    __slots__ = ("streak_s", "idle_s", "flag", "block_s", "block_flag")
 
     def __init__(self) -> None:
         self.streak_s = 0.0
         self.idle_s = 0.0
         self.flag: str | None = None
+        # airflow-blockage tracker:
+        # heating pushes while the TRV head already reads satisfied —
+        # something (curtain, furniture, direct airflow) is warming the
+        # head or steering hot air so the ROOM stays cold.
+        self.block_s = 0.0
+        self.block_flag: str | None = None
 
 
 class RoomHealthMonitor:
@@ -89,6 +100,7 @@ class RoomHealthMonitor:
         tick_s: float,
         outdoor: float | None = None,
         design_outdoor: float = DESIGN_OUTDOOR_DEFAULT,
+        trv_near_target: bool | None = None,
     ) -> bool:
         """One control-tick observation; returns True if currently flagged."""
         st = self._room(zone)
@@ -99,6 +111,11 @@ class RoomHealthMonitor:
             st.streak_s = 0.0
             if st.flag and st.idle_s >= CLEAR_AFTER_S:
                 self._clear(zone, "no longer calling for heat")
+            if st.block_flag:
+                # airflow-blockage needs active heat to be meaningful
+                st.block_flag = None
+                st.block_s = 0.0
+                _LOGGER.info("'%s': airflow-blockage watch cleared", zone)
             return bool(st.flag)
 
         st.idle_s = 0.0
@@ -122,6 +139,35 @@ class RoomHealthMonitor:
 
         if st.flag and deficit_c is not None and deficit_c <= RECOVER_ERROR_C:
             self._clear(zone, "reached its target again")
+
+        # ── airflow-blockage watch (diagnostic only — no control change) ──
+        #              demand + the TRV satisfied + the room starved
+        block_ok = (
+            trv_near_target is True
+            and demanding
+            and deficit_c is not None
+            and deficit_c >= BLOCK_ARM_DEFICIT_C
+        )
+        if block_ok:
+            st.block_s += tick_s
+            if not st.block_flag and st.block_s >= BLOCK_STREAK_S:
+                st.block_flag = FLAG_BLOCKED
+                _LOGGER.warning(
+                    "'%s': TRV head satisfied while the room stays %.1f °C "
+                    "short for %.0f min — warm air may be bypassing the "
+                    "TRV (curtains, furniture, airflow). Diagnostic only.",
+                    zone, deficit_c, st.block_s / 60.0,
+                )
+        else:
+            st.block_s = max(0.0, st.block_s - tick_s)
+        if st.block_flag and (
+            not demanding
+            or trv_near_target is False
+            or (deficit_c is not None and deficit_c <= BLOCK_DISARM_DEFICIT_C)
+        ):
+            st.block_flag = None
+            st.block_s = 0.0
+            _LOGGER.info("'%s': airflow-blockage watch cleared", zone)
         return bool(st.flag)
 
     def _clear(self, zone: str, why: str) -> None:
@@ -133,9 +179,13 @@ class RoomHealthMonitor:
     def flag_for(self, zone: str) -> str | None:
         return self.rooms.get(zone).flag if zone in self.rooms else None
 
+    def block_for(self, zone: str) -> str | None:
+        return self.rooms.get(zone).block_flag if zone in self.rooms else None
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "rooms": {
-                name: {"flag": st.flag} for name, st in sorted(self.rooms.items())
+                name: {"flag": st.flag, "block": st.block_flag}
+                for name, st in sorted(self.rooms.items())
             }
         }
