@@ -87,6 +87,78 @@ def _build_backend(hass: HomeAssistant, entry: ConfigEntry, opts: dict):
     raise ValueError(f"Unknown backend type: {backend_type!r}")
 
 
+_SANITIZE_KEYS = {
+    "name": str, "floor": int, "heat_control": str, "setpoint": (int, float),
+    "temp_sensor": (str, type(None)), "humidity_sensor": (str, type(None)),
+    "lux_sensor": (str, type(None)), "co2_sensor": (str, type(None)),
+    "trv_position_entity": (str, type(None)), "radiator_kw": (int, float, type(None)),
+    "floor_loop_entity": (str, type(None)),
+    "floor_mixer_entity": (str, type(None)),
+    "floor_surface_sensor": (str, type(None)),
+    "floor_flow_sensor": (str, type(None)),
+    "floor_pump_entity": (str, type(None)),
+    "floor_surface_max": (int, float, type(None)),
+}
+
+
+def _validate_restored_zones(zones):
+    """Drop anything the WS validation would never accept from a live save."""
+    from .const import (
+        CONF_ZONE_NAME, CONF_ZONE_HEAT_CONTROL, CONF_ZONE_TRV_CLIMATES,
+    )
+
+    def _entity_ok(v):
+        if v is None:
+            return True
+        if not isinstance(v, str) or len(v) > 64:
+            return False
+        return v.startswith(("switch.", "sensor.", "number.", "climate."))
+
+    out = []
+    for z in zones:
+        if not isinstance(z, dict):
+            continue
+        name = str(z.get(CONF_ZONE_NAME, "")).strip()[:40]
+        if not name:
+            continue
+        clean = {CONF_ZONE_NAME: name}
+        clean.setdefault(CONF_ZONE_TRV_CLIMATES, [])
+        trvs = z.get(CONF_ZONE_TRV_CLIMATES) or []
+        clean[CONF_ZONE_TRV_CLIMATES] = [
+            t for t in trvs if isinstance(t, str) and t.startswith("climate.")
+        ]
+        for key, types in _SANITIZE_KEYS.items():
+            if key not in z or key == CONF_ZONE_NAME:
+                continue
+            v = z.get(key)
+            if isinstance(v, bool) or not isinstance(v, types):
+                continue
+            if key.endswith("_sensor") and v is not None and not (
+                isinstance(v, str) and v.startswith("sensor.")
+            ):
+                continue
+            if key.endswith("_max"):
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if not 25.0 <= f <= 35.0:
+                    continue
+            clean[key] = v
+        hc_ok = {"smart", "valve", "manual", "floor"}
+        hc = str(z.get(CONF_ZONE_HEAT_CONTROL, "smart") or "smart")
+        clean[CONF_ZONE_HEAT_CONTROL] = hc if hc in hc_ok else "smart"
+        try:
+            clean["floor"] = max(0, min(30, int(z.get("floor", 0) or 0)))
+        except (TypeError, ValueError):
+            clean["floor"] = 0
+        # a floor room without a loop entity cannot control anything
+        if clean[CONF_ZONE_HEAT_CONTROL] == "floor" and not clean.get("floor_loop_entity"):
+            clean[CONF_ZONE_HEAT_CONTROL] = "manual"
+        out.append(clean)
+    return out
+
+
 def _dedupe_zones(zones: list) -> list:
     """Keep ONE entry per room name (last wins — the most recently saved).
 
@@ -156,6 +228,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     learner = RoomLearner(hass)
     # Blocking config-dir I/O must stay off the event loop.
     await hass.async_add_executor_job(learner.load)
+    # A setup failure mid-way must not leave the learner timers armed with
+    # no controller to stop them — tie everything to the entry's unload.
+    entry.async_on_unload(learner.async_stop)
     learner.schedule_initial_train()
     learner.schedule_hourly_watch()
     gas = GasMeter(
@@ -253,12 +328,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             pass
 
     # Zones backup: if options have no rooms but a backup exists,
-    # auto-restore from the last known-good copy.
+    # auto-restore from the last known-good copy. Restored entries are
+    # SANITIZED first: a corrupt or tampered backup must not be able to
+    # inject arbitrary config fields into the platform.
     if not zones:
         backup = ZonesBackup(hass)
         saved = await backup.async_load()
         if saved:
-            zones = _dedupe_zones(saved)
+            zones = _validate_restored_zones(_dedupe_zones(saved))
             _LOGGER.warning(
                 "Zone config was empty — restored %d rooms from backup",
                 len(zones),

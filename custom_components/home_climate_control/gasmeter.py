@@ -95,6 +95,17 @@ class GasMeter:
             return
         try:
             self.total_kwh = float(data.get("total_kwh", 0.0))
+            lt = data.get("last_t")
+            self._last_t = float(lt) if lt else None
+            if self._last_t is not None:
+                gap = time.time() - self._last_t
+                if gap > MAX_DT_S:
+                    _LOGGER.info(
+                        "Gas meter: %.0f min of downtime not counted "
+                        "(>%s s cap) — totals continue from now",
+                        gap / 60.0, int(MAX_DT_S),
+                    )
+                    self._last_t = None   # do not back-integrate the gap
             self.days = {
                 str(k): float(v)
                 for k, v in (data.get("days") or {}).items()
@@ -113,6 +124,7 @@ class GasMeter:
     def _payload(self) -> dict[str, Any]:
         return {
             "total_kwh": round(self.total_kwh, 4),
+            "last_t": round(self._last_t, 1) if self._last_t else None,
             "days": dict(sorted(self.days.items())[-KEEP_DAYS:]),
         }
 
@@ -226,6 +238,7 @@ class GasMeter:
         t = time.time() if now is None else float(now)
         dt = 0.0
         if self._last_t is not None:
+            # clamp: an unknown gap must not bill a whole night at one rate
             dt = min(max(t - self._last_t, 0.0), MAX_DT_S)
         self._last_t = t
         if dt <= 0.0:
