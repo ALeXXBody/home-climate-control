@@ -176,9 +176,12 @@ def test_corrupt_download_rejected_by_sha(env, monkeypatch):
     calls = []
     monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"E" * 70000, calls))
     url = asyncio.run(m._async_ota_url(GH))
-    assert calls == [GH, GHS]  # download attempted... (image + signature)
-    assert f.read_bytes() == b"keep" * 1000  # ...but rejected, cache kept
-    assert url.endswith("/firmware/firmware-d1_mini.bin")
+    # digest-mismatched download → the mirror pair is DROPPED (never left
+    # behind to be ECDSA-rejected by the board forever) and the ORIGINAL
+    # GitHub URL is served instead.
+    assert calls == [GH]                    # image fetched, sig skipped
+    assert not f.exists()                   # stale pair removed
+    assert url == GH                        # original URL served
 
 
 def test_no_request_context_still_mirrors(env, monkeypatch):

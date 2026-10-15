@@ -1262,11 +1262,28 @@ class FirmwareManager:
                         _LOGGER.error(
                             "OTA mirror: %s exceeds the 10 MB cap", url
                         )
+                        try:
+                            local.unlink(missing_ok=True)
+                        except OSError:
+                            pass
                         return None
             if len(data) < 65536:
                 raise ValueError(f"asset suspiciously small ({len(data)}B)")
             if want_sha and hashlib.sha256(data).hexdigest() != want_sha:
-                raise ValueError("downloaded asset fails sha256 verification")
+                # A mismatched download must NEVER leave the mirror serving
+                # a pair the board would ECDSA-reject (a retry then keeps
+                # pulling the same poison pair). Drop the local pair and
+                # serve the original source URL instead.
+                _LOGGER.warning(
+                    "OTA mirror: %s fails the catalog sha256 — dropping "
+                    "the cached pair", url,
+                )
+                try:
+                    local.unlink(missing_ok=True)
+                    (local.with_name(local.name + ".sig")).unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return
             tmp = local.with_name(local.name + ".tmp")
             tmp.write_bytes(data)
             tmp.replace(local)
@@ -1298,6 +1315,10 @@ class FirmwareManager:
                         _LOGGER.error(
                             "OTA mirror: %s exceeds the 10 MB cap", url
                         )
+                        try:
+                            local.unlink(missing_ok=True)
+                        except OSError:
+                            pass
                         return None
             if len(data) != 64:
                 raise ValueError(f"signature not 64 bytes ({len(data)}B)")
