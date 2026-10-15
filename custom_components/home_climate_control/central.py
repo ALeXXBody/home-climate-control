@@ -810,6 +810,12 @@ class CentralController:
             if self.autotune is not None:
                 errs = []
                 for z in demanding:
+                    # Floor rooms are loop-capped by design: their deficit
+                    # says "the loop is throttled", not "the curve is too
+                    # weak". Including them ratcheted the radiator curve
+                    # (and radiator gas) on every floor-heavy demand.
+                    if getattr(z, "heater_control", "smart") == "floor":
+                        continue
                     cur = snap[z][3]
                     if cur is not None:
                         errs.append(snap[z][2] - cur)

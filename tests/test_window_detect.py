@@ -245,3 +245,25 @@ def test_setpoint_drop_does_not_trip_cliff():
         temp -= 0.05  # ≈3 °C/h — a fast setback tail, far below cliff rates
         d.observe(t0 + i * M, round(temp, 3), 0.6, sp)
     assert d.open is False, "setpoint drop triggered the cliff detector"
+
+
+def test_sustained_escape_pause_hits_hard_cap():
+    """An escape pause must NEVER outlive the 3× cap — a misdiagnosed
+    escape must not become an indefinite cold-room lockout."""
+    d = SlopeWindowDetector()
+    M = 60.0
+    t0 = 1000.0
+    temp = 21.0
+    # trip sustained-escape
+    for i in range(1, 31):
+        temp -= 0.8 * (M / 3600.0)
+        d.observe(t0 + i * M, round(temp, 3), 0.6, 21.0)
+    assert d.open is True
+    # keep falling far beyond 3× MAX_PAUSE_S (135 min)
+    for i in range(31, 185):
+        temp -= 0.8 * (M / 3600.0)
+        r = d.observe(t0 + i * M, round(temp, 3), 0.6, 21.0)
+    # the cap now applies to escape reasons too
+    assert d.open is False and d._opened_at is None
+    # and once cleared the state machine re-arms cleanly
+    assert d._opened_at is None

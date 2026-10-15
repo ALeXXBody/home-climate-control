@@ -55,6 +55,7 @@ class SlopeWindowDetector:
         self._opened_at: float | None = None
         self._last_drop_check: float | None = None
         self._escape_reason = None  # None | "cliff" | "escape"
+        self._cap_norepeat_until: float = 0.0
         self._last_setpoint: float | None = None
         self._prev_setpoint: float | None = None  # setpoint-drop guard
         self._sp_drop_ts: float | None = None   # when a drop was seen
@@ -168,11 +169,25 @@ class SlopeWindowDetector:
             _LOGGER.info("Temperature stabilised (%.2f °C/h) — window pause ends", slope_cph)
             self._close(ts)
             return
-        if self._escape_reason != "escape" and ts - self._opened_at >= MAX_PAUSE_S:
-            _LOGGER.info("Slope-window pause hit %d min cap — clearing", MAX_PAUSE_S // 60)
+        # Cliff pauses cap at MAX_PAUSE_S; escape pauses get a LONGER but
+        # still finite cap — a misdiagnosed escape must never become an
+        # indefinite cold-room lockout (heat paused → keeps falling →
+        # stays paused).
+        escape_cap = 3 * MAX_PAUSE_S
+        cap = MAX_PAUSE_S if self._escape_reason != "escape" else escape_cap
+        if ts - self._opened_at >= cap:
+            _LOGGER.info(
+                "Slope-window pause hit the %d min cap — clearing",
+                cap // 60,
+            )
+            self._cap_norepeat_until = ts + 30 * 60.0
             self._close(ts)
 
     def _trip(self, ts: float, ref_temp: float, now_temp: float) -> None:
+        recent = getattr(self, "_cap_norepeat_until", 0)
+        if ts < recent:
+            _LOGGER.debug("Slope-window trip suppressed after a cap clear")
+            return
         self.open = True
         self._opened_at = ts
         self._escape_reason = "cliff"
