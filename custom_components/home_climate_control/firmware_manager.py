@@ -1228,6 +1228,29 @@ class FirmwareManager:
                 # same version" bug) was caused by assuming fresh here.
             if not stale:
                 return
+            # Trust gate: a GitHub release asset without a digest can no
+            # longer be mirrored at all (a tampered repo would otherwise
+            # swap the board's firmware tooling). Bundled, same-repo URLs
+            # and third-party URLs must provide sha256+size from the
+            # catalog. Without them the board gets the original GitHub URL
+            # instead of our mirror.
+            if want_sha is None:
+                parsed = urlparse(url)
+                allowed_hosts = {
+                    "github.com",
+                    "objects.githubusercontent.com",
+                    "raw.githubusercontent.com",
+                }
+                if parsed.netloc not in allowed_hosts:
+                    _LOGGER.warning(
+                        "OTA mirror: refusing %s (no sha256 in catalog)",
+                        url,
+                    )
+                    try:
+                        local.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    return
             import asyncio
 
             session = async_get_clientsession(self.hass)

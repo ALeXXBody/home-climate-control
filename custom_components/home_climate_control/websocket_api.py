@@ -1913,6 +1913,7 @@ async def ws_set_boiler_info(
 
 
 @websocket_api.require_admin
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {vol.Required("type"): f"{DOMAIN}/check_updates"}
 )
