@@ -11,5 +11,13 @@ def test_no_update_listener_that_double_reloads():
 
 
 def test_packaged_version_is_not_the_1_0_0_placeholder():
-    assert INTEGRATION_VERSION == "1.19.1"
+    # Guard against a stale pin: the version must track the const, and the
+    # manifest must agree with const (a mismatch once shipped 1.19.1 code
+    # labelled 1.0.0 in HA).
+    import json
+    from pathlib import Path
+    manifest = json.loads(
+        (Path(hcc.__file__).parent / "manifest.json").read_text()
+    )
+    assert INTEGRATION_VERSION == manifest["version"]
     assert websocket_api.INTEGRATION_VERSION != "1.0.0"
