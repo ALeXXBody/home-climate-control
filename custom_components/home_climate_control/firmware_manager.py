@@ -1235,22 +1235,22 @@ class FirmwareManager:
             # catalog. Without them the board gets the original GitHub URL
             # instead of our mirror.
             if want_sha is None:
-                parsed = urlparse(url)
-                allowed_hosts = {
-                    "github.com",
-                    "objects.githubusercontent.com",
-                    "raw.githubusercontent.com",
-                }
-                if parsed.netloc not in allowed_hosts:
-                    _LOGGER.warning(
-                        "OTA mirror: refusing %s (no sha256 in catalog)",
-                        url,
-                    )
-                    try:
-                        local.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-                    return
+                # Mirror engages only on catalog-verified assets: without a
+                # digest the mirror cannot prove the image fresh, and a
+                # mixed pair (stale image byte-for-byte different from the
+                # freshly signed one) made devices fail ECDSA on-device.
+                # Serving the ORIGINAL GitHub URL instead — the board then
+                # fetches a guaranteed-consistent image+sig pair directly.
+                _LOGGER.warning(
+                    "OTA mirror: refusing %s (no sha256 in catalog) — "
+                    "serve the original URL",
+                    url,
+                )
+                try:
+                    local.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return
             import asyncio
 
             session = async_get_clientsession(self.hass)
