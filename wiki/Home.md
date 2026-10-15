@@ -30,3 +30,5 @@ Unlike a basic on/off thermostat, HCC **learns your house**: how fast each room 
 ---
 
 *The combination of per-room TRV demand, condensing control, duty-cycling, learned setbacks, optimal start and curve auto-tuning is what keeps the house warm while spending less gas — all described in [Gas optimization](Gas-optimization).*
+
+- [How the app decides (control logic spec)](How-the-app-decides)
