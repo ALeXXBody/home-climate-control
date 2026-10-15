@@ -1187,171 +1187,152 @@ class FirmwareManager:
             return fname
         return None
 
-    def _expected_mirror_meta(self, url: str, fname: str) -> dict:
-        """Expected asset size/sha256 from the live catalog (newest wins)."""
+    # The ECDSA public key pinned in board firmware (ota_verify.h). The
+    # hub runs the board's exact check before serving anything, so a
+    # mirror-served image can no longer be ECDSA-rejected on-device.
+    OTA_PUBLIC_KEY_PEM = """-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE5bvkWKdqM7AkuYonK92bL/naJv1y
+a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
+-----END PUBLIC KEY-----"""
+
+    MIRROR_CAP = 10 * 1024 * 1024
+
+    def _catalog_meta_for(self, url: str, fname: str) -> dict | None:
+        """Catalog entry for this asset (newest release wins), if complete."""
         board = fname[len("firmware-"):-len(".bin")]
         for item in self.catalog:
             if item.get("url") == url or item.get("board") == board:
+                size = None
                 try:
                     size = int(item.get("size") or "")
                 except (TypeError, ValueError):
-                    size = None
+                    pass
                 sha = str(item.get("sha256") or "")
                 if sha.startswith("sha256:"):
                     sha = sha.split(":", 1)[1]
                 return {"size": size or None, "sha256": sha or None}
-        return {"size": None, "sha256": None}
+        return None
 
-    async def _async_refresh_mirror(
-        self, url: str, local: Path, meta: dict
-    ) -> None:
-        """Re-download the cached release image when stale/missing.
+    @staticmethod
+    def _purge_mirror_pair(fname: str) -> None:
+        base = FirmwareManager.MIRROR_DIR
+        for name in (fname, fname + ".sig", fname + ".tmp", fname + ".sig.tmp"):
+            try:
+                (base / name).unlink(missing_ok=True)
+            except OSError:
+                pass
 
-        Staleness is judged by sha256 when the release provides one,
-        falling back to byte size; a same-size rebuild can no longer
-        masquerade as fresh.
+    @staticmethod
+    def _verify_ecdsa(image: bytes, sig: bytes) -> None:
+        """Replay the board's signature check over the exact bytes we hold."""
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+        )
+        from cryptography.hazmat.primitives.serialization import (
+            load_pem_public_key,
+        )
+
+        if len(sig) != 64:
+            raise ValueError(f"signature not 64 bytes ({len(sig)}B)")
+        r = int.from_bytes(sig[:32], "big")
+        s = int.from_bytes(sig[32:], "big")
+        key = load_pem_public_key(FirmwareManager.OTA_PUBLIC_KEY_PEM.encode())
+        try:
+            key.verify(
+                encode_dss_signature(r, s), image, ec.ECDSA(hashes.SHA256())
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"ECDSA verification failed: {exc}") from exc
+
+    async def _async_verified_pair(self, url: str, fname: str) -> bool:
+        """Download + prove the image/signature pair; place it if valid.
+
+        Returns True when the mirror holds a fully verified pair. Every
+        failure path purges the local files — the mirror is never left
+        holding bytes that were not proven in this same pass.
         """
+        import asyncio
         import hashlib
 
-        try:
-            want_sha = meta.get("sha256")
-            want_size = meta.get("size")
-            stale = True
-            if local.is_file():
-                data = local.read_bytes()
-                if want_sha:
-                    stale = hashlib.sha256(data).hexdigest() != want_sha
-                elif want_size is not None:
-                    stale = len(data) != want_size
-                # else: no size/digest metadata → cannot prove freshness, so
-                # re-download. A stale cache (the "board rebooted onto the
-                # same version" bug) was caused by assuming fresh here.
-            if not stale:
-                return
-            # Trust gate: a GitHub release asset without a digest can no
-            # longer be mirrored at all (a tampered repo would otherwise
-            # swap the board's firmware tooling). Bundled, same-repo URLs
-            # and third-party URLs must provide sha256+size from the
-            # catalog. Without them the board gets the original GitHub URL
-            # instead of our mirror.
-            if want_sha is None:
-                # Mirror engages only on catalog-verified assets: without a
-                # digest the mirror cannot prove the image fresh, and a
-                # mixed pair (stale image byte-for-byte different from the
-                # freshly signed one) made devices fail ECDSA on-device.
-                # Serving the ORIGINAL GitHub URL instead — the board then
-                # fetches a guaranteed-consistent image+sig pair directly.
-                _LOGGER.warning(
-                    "OTA mirror: refusing %s (no sha256 in catalog) — "
-                    "serve the original URL",
-                    url,
-                )
-                try:
-                    local.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                return
-            import asyncio
+        meta = self._catalog_meta_for(url, fname)
+        if not meta or not meta["sha256"] or not meta["size"]:
+            _LOGGER.warning(
+                "OTA delivery: %s has no catalog sha256+size — no mirror",
+                url,
+            )
+            self._purge_mirror_pair(fname)
+            return False
 
-            session = async_get_clientsession(self.hass)
+        session = async_get_clientsession(self.hass)
+        try:
             async with asyncio.timeout(180):
                 async with session.get(url) as resp:
                     resp.raise_for_status()
-                    data = await resp.content.read(10 * 1024 * 1024 + 1)
-                    if len(data) > 10 * 1024 * 1024:
-                        _LOGGER.error(
-                            "OTA mirror: %s exceeds the 10 MB cap", url
-                        )
-                        try:
-                            local.unlink(missing_ok=True)
-                        except OSError:
-                            pass
-                        return None
-            if len(data) < 65536:
-                raise ValueError(f"asset suspiciously small ({len(data)}B)")
-            if want_sha and hashlib.sha256(data).hexdigest() != want_sha:
-                # A mismatched download must NEVER leave the mirror serving
-                # a pair the board would ECDSA-reject (a retry then keeps
-                # pulling the same poison pair). Drop the local pair and
-                # serve the original source URL instead.
-                _LOGGER.warning(
-                    "OTA mirror: %s fails the catalog sha256 — dropping "
-                    "the cached pair", url,
+                    image = await resp.content.read(self.MIRROR_CAP + 1)
+            if len(image) > self.MIRROR_CAP:
+                raise ValueError(f"image exceeds the {self.MIRROR_CAP}B cap")
+            if len(image) != meta["size"]:
+                raise ValueError(
+                    f"image size {len(image)}B != catalog {meta['size']}B"
                 )
-                try:
-                    local.unlink(missing_ok=True)
-                    (local.with_name(local.name + ".sig")).unlink(missing_ok=True)
-                except OSError:
-                    pass
-                return
-            tmp = local.with_name(local.name + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(local)
-            _LOGGER.warning(
-                "OTA mirror refreshed: %s (%d bytes)", local.name, len(data)
-            )
-        except Exception:  # noqa: BLE001
-            # Keep serving whatever cache exists — plain LAN HTTP is still
-            # the only reliable path for pre-TLS (ESP8266) boards.
-            _LOGGER.debug("OTA mirror refresh failed", exc_info=True)
-
-    async def _async_refresh_sig(self, url: str, local: Path) -> None:
-        """Mirror the 64-byte ECDSA signature next to the cached image.
-
-        The board fetches ``<image>.sig`` before flashing (ESP32). It is a
-        tiny sibling of the release asset; staleness only ever means "absent".
-        """
-        import asyncio
-
-        try:
-            if local.is_file() and local.stat().st_size == 64:
-                return
-            session = async_get_clientsession(self.hass)
+            if hashlib.sha256(image).hexdigest() != meta["sha256"]:
+                raise ValueError("image fails the catalog sha256")
             async with asyncio.timeout(60):
-                async with session.get(url) as resp:
+                async with session.get(url + ".sig") as resp:
                     resp.raise_for_status()
-                    data = await resp.content.read(10 * 1024 * 1024 + 1)
-                    if len(data) > 10 * 1024 * 1024:
-                        _LOGGER.error(
-                            "OTA mirror: %s exceeds the 10 MB cap", url
-                        )
-                        try:
-                            local.unlink(missing_ok=True)
-                        except OSError:
-                            pass
-                        return None
-            if len(data) != 64:
-                raise ValueError(f"signature not 64 bytes ({len(data)}B)")
-            tmp = local.with_name(local.name + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(local)
-            _LOGGER.warning("OTA signature mirrored: %s", local.name)
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("OTA signature mirror failed", exc_info=True)
+                    sig = await resp.content.read(512 + 1)
+            if len(sig) > 512:
+                raise ValueError("signature exceeds 512 bytes")
+            self._verify_ecdsa(image, sig)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "OTA delivery: %s could not be proven (%s) — no mirror",
+                url,
+                exc,
+            )
+            self._purge_mirror_pair(fname)
+            return False
+
+        local = self.MIRROR_DIR / fname
+        sig_local = local.with_name(local.name + ".sig")
+        try:
+            tmp_img = local.with_name(local.name + ".tmp")
+            tmp_sig = sig_local.with_name(sig_local.name + ".tmp")
+            tmp_img.write_bytes(image)
+            tmp_sig.write_bytes(sig)
+            tmp_sig.replace(sig_local)
+            tmp_img.replace(local)
+        except OSError as exc:
+            _LOGGER.error("OTA delivery: cannot write mirror files: %s", exc)
+            self._purge_mirror_pair(fname)
+            return False
+        _LOGGER.info(
+            "OTA delivery: verified pair placed for %s (%d bytes)",
+            fname,
+            len(image),
+        )
+        return True
 
     async def _async_ota_url(self, url: str) -> str:
-        """Serve GitHub release binaries over plain LAN HTTP when possible.
+        """Hand the board a LAN URL only over a proven image+signature pair.
 
-        The cached copy is checked against the release's asset size first;
-        a stale image used to be re-flashed verbatim, making updates look
-        like no-ops (board rebooted onto the same version).
+        Stateless by design: every flash re-downloads from the source and
+        re-verifies (catalog sha256+size, then the board's ECDSA check on
+        the exact bytes). There is no cached-staleness heuristic left to
+        disagree with reality.
         """
         fname = self._mirror_fname(url)
         if not fname:
             return url
-        local = self.MIRROR_DIR / fname
-        await self._async_refresh_mirror(url, local, self._expected_mirror_meta(url, fname))
-        if not local.is_file():
-            _LOGGER.warning(
-                "OTA mirror has no cached image for %s; handing board %s",
-                fname,
-                url,
-            )
-            return url  # nothing cached, let the board try GitHub itself
-
-        # Mirror the ECDSA signature too — the board fetches <image>.sig and
-        # refuses to flash (ESP32) without a valid one alongside the image.
-        await self._async_refresh_sig(url + ".sig", local.with_name(local.name + ".sig"))
+        # Verified-delivery: a fresh download is proven (catalog digest +
+        # the board's own ECDSA check) before it may be served at all.
+        # Anything unprovable — network, size, digest or signature — wipes
+        # the local files and hands the board the original URL, which by
+        # construction pairs its image with its own release signature.
+        if not await self._async_verified_pair(url, fname):
+            return url
 
         dev_ip = next(
             (d.ip for d in self.devices.values() if d.online and d.ip), None

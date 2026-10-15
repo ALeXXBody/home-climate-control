@@ -1,12 +1,22 @@
-"""Freshness-checked LAN mirror for release binaries (stale-image fix)."""
+"""Verified-pair OTA delivery (full rewrite of the LAN mirror).
+
+Contract under test: the hub never serves an image+signature pair it has
+not proven in the same pass — catalog sha256 + exact size, then the
+board's own ECDSA check over the exact bytes. Every failure purges the
+local files and hands the board the original release URL.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib as _hl
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
 from custom_components.home_climate_control import firmware_manager as fm
 from custom_components.home_climate_control.firmware_manager import (
@@ -14,21 +24,45 @@ from custom_components.home_climate_control.firmware_manager import (
     HcsDevice,
 )
 
-import hashlib as _hl
+# A dedicated ECDSA keypair for tests; the production key is pinned in
+# firmware_manager and never needed here.
+_TEST_SK = ec.generate_private_key(ec.SECP256R1())
+_TEST_KEY_PEM = _TEST_SK.public_key().public_bytes(
+    encoding=__import__(
+        "cryptography.hazmat.primitives.serialization",
+        fromlist=["serialization"],
+    ).Encoding.PEM,
+    format=__import__(
+        "cryptography.hazmat.primitives.serialization",
+        fromlist=["serialization"],
+    ).PublicFormat.SubjectPublicKeyInfo,
+).decode()
 
-GOOD_SHA = _hl.sha256(b"x" * 70000).hexdigest()
-BAD_SHA = "0" * 64
+
+def _sign(image: bytes) -> bytes:
+    sig = _TEST_SK.sign(image, ec.ECDSA(hashes.SHA256()))
+    from cryptography.hazmat.primitives.asymmetric.utils import (
+        decode_dss_signature,
+    )
+
+    r, s = decode_dss_signature(sig)
+    return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+
+IMG = b"x" * 70000
+GOOD_SHA = _hl.sha256(IMG).hexdigest()
 
 GH = (
     "https://github.com/ALeXXBody/home-climate-system/releases/download/"
     "v1.1.1/firmware-d1_mini.bin"
 )
-GHS = GH + ".sig"  # ECDSA signature sibling (ESP32 signed OTA)
+GHS = GH + ".sig"
 
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
     monkeypatch.setattr(FirmwareManager, "MIRROR_DIR", tmp_path)
+    monkeypatch.setattr(fm.FirmwareManager, "OTA_PUBLIC_KEY_PEM", _TEST_KEY_PEM)
     hass = MagicMock()
     m = FirmwareManager(hass)
     m.catalog = [
@@ -43,7 +77,14 @@ def env(tmp_path, monkeypatch):
     return m, tmp_path
 
 
-def _fake_session(payload: bytes, calls: list):
+def _fake_session(image: bytes, sig: bytes, calls: list):
+    class _Content:
+        def __init__(self, body):
+            self._body = body
+
+        async def read(self, n=-1):
+            return self._body if n < 0 else self._body[:n]
+
     class _Resp:
         def __init__(self, body):
             self._body = body
@@ -51,19 +92,9 @@ def _fake_session(payload: bytes, calls: list):
         def raise_for_status(self):
             pass
 
-        async def read(self):
-            return self._body
-
-        class _Content:
-            def __init__(self, body):
-                self._body = body
-
-            async def read(self, n=-1):
-                return self._body if n < 0 else self._body[:n]
-
         @property
         def content(self):
-            return _Resp._Content(self._body)
+            return _Content(self._body)
 
     class _CM:
         def __init__(self, body):
@@ -78,74 +109,73 @@ def _fake_session(payload: bytes, calls: list):
     class _Sess:
         def get(self, url):
             calls.append(url)
-            body = (b"\x00" * 64) if url.endswith(".sig") else payload
-            return _CM(body)
+            return _CM(sig if url.endswith(".sig") else image)
 
     return _Sess()
 
+
+# ----------------------------------------------------------------- pass-through
 
 def test_non_release_urls_pass_through(env):
     m, _ = env
     assert asyncio.run(m._async_ota_url("http://lan/fw.bin")) == "http://lan/fw.bin"
 
 
-def test_fresh_cache_not_redownloaded(env, monkeypatch):
-    m, tmp = env
-    f = tmp / "firmware-d1_mini.bin"
-    f.write_bytes(b"x" * 70000)  # hashes to the catalog digest
-    calls = []
-    monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"x" * 70000, calls))
-    url = asyncio.run(m._async_ota_url(GH))
-    assert calls == [GHS]  # only the signature is fetched; the image is fresh
-    assert url == "http://192.168.50.20:8123/home_climate_control_static/firmware/firmware-d1_mini.bin"
+# ----------------------------------------------------------------- happy path
 
-
-def test_stale_cache_is_refreshed_before_mirroring(env, monkeypatch):
-    """The v1.0.2-forever bug: old cached image was served verbatim."""
+def test_verified_pair_is_served_and_written(env, monkeypatch):
+    """A proven pair is atomically placed and the LAN mirror URL returned."""
     m, tmp = env
-    f = tmp / "firmware-d1_mini.bin"
-    f.write_bytes(b"old-image!")  # wrong size + wrong digest -> stale
+    # Pre-existing stale files must be replaced wholesale.
+    (tmp / "firmware-d1_mini.bin").write_bytes(b"stale-image")
+    (tmp / "firmware-d1_mini.bin.sig").write_bytes(b"z" * 64)
     calls = []
-    monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"x" * 70000, calls))
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(IMG, _sign(IMG), calls),
+    )
     url = asyncio.run(m._async_ota_url(GH))
-    assert calls == [GH, GHS]  # image refresh + signature mirror
-    assert f.read_bytes() == b"x" * 70000
+    assert calls == [GH, GHS]
+    assert (tmp / "firmware-d1_mini.bin").read_bytes() == IMG
+    # ECDSA is randomised — assert the stored signature VERIFIES over the
+    # stored image with the test key rather than comparing bytes.
+    stored_sig = (tmp / "firmware-d1_mini.bin.sig").read_bytes()
+    _TEST_SK.public_key().verify(
+        encode_dss_signature(
+            int.from_bytes(stored_sig[:32], "big"),
+            int.from_bytes(stored_sig[32:], "big"),
+        ),
+        IMG,
+        ec.ECDSA(hashes.SHA256()),
+    )
     assert url.endswith("/home_climate_control_static/firmware/firmware-d1_mini.bin")
 
 
-def test_missing_cache_downloads_and_serves(env, monkeypatch):
+def test_stateless_every_flash_redownloads(env, monkeypatch):
+    """No staleness heuristics: a second flash re-verifies from source."""
     m, tmp = env
     calls = []
-    monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"x" * 70000, calls))
-    url = asyncio.run(m._async_ota_url(GH))
-    assert (tmp / "firmware-d1_mini.bin").read_bytes() == b"x" * 70000
-    assert url.endswith("/firmware/firmware-d1_mini.bin")
-
-
-def test_failed_download_keeps_old_cache(env, monkeypatch):
-    m, tmp = env
-    f = tmp / "firmware-d1_mini.bin"
-    f.write_bytes(b"keep")
-
-    class _Boom:
-        def get(self, url):
-            raise TimeoutError()
-
-    monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _Boom())
-    url = asyncio.run(m._async_ota_url(GH))
-    assert f.read_bytes() == b"keep"  # old image still served
-    assert url.endswith("/firmware/firmware-d1_mini.bin")
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(IMG, _sign(IMG), calls),
+    )
+    asyncio.run(m._async_ota_url(GH))
+    asyncio.run(m._async_ota_url(GH))
+    assert calls.count(GH) == 2 and calls.count(GHS) == 2
 
 
 def test_trigger_publishes_mirrored_url(env, monkeypatch):
     """End-to-end: flash command must hand the board the LAN mirror URL."""
     from homeassistant.components import mqtt
 
-    m, tmp = env
+    m, _ = env
     dev = HcsDevice(node_id="hcs-x", board="d1_mini")
     m.devices["hcs-x"] = dev
-    f = tmp / "firmware-d1_mini.bin"
-    f.write_bytes(b"C" * 5)
+    calls = []
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(IMG, _sign(IMG), calls),
+    )
     res = asyncio.run(m.async_trigger_ota("hcs-x", GH, target_version="1.1.1"))
     assert res["ok"] is True
     args = mqtt.async_publish.call_args[0]
@@ -153,58 +183,128 @@ def test_trigger_publishes_mirrored_url(env, monkeypatch):
     assert dev.ota_target_version == "1.1.1"
 
 
-def test_same_size_rebuild_still_refreshes(env, monkeypatch):
-    """Size-collision hole: identical byte count must not pass as fresh."""
+# ------------------------------------------------- no-mirror failure modes
+
+def test_digest_mismatch_purges_and_serves_source(env, monkeypatch):
     m, tmp = env
-    f = tmp / "firmware-d1_mini.bin"
-    f.write_bytes(b"A" * 70000)  # right size, wrong content
+    (tmp / "firmware-d1_mini.bin").write_bytes(b"keep" * 1000)
+    (tmp / "firmware-d1_mini.bin.sig").write_bytes(b"keep-sig" * 8)
+    offered = b"E" * 70000
     calls = []
-    monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"x" * 70000, calls))
-    asyncio.run(m._async_ota_url(GH))
-    assert calls == [GH, GHS]
-    assert f.read_bytes() == b"x" * 70000
-
-
-def test_corrupt_download_rejected_by_sha(env, monkeypatch):
-    """A tampered/failed download must not replace the cache."""
-    m, tmp = env
-    f = tmp / "firmware-d1_mini.bin"
-    f.write_bytes(b"keep" * 1000)
-
-    # catalog expects GOOD_SHA; serve something else
-    m.catalog[0]["sha256"] = BAD_SHA.replace(BAD_SHA, _hl.sha256(b"evil").hexdigest())
-    calls = []
-    monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _fake_session(b"E" * 70000, calls))
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(offered, _sign(offered), calls),
+    )
     url = asyncio.run(m._async_ota_url(GH))
-    # digest-mismatched download → the mirror pair is DROPPED (never left
-    # behind to be ECDSA-rejected by the board forever) and the ORIGINAL
-    # GitHub URL is served instead.
-    assert calls == [GH]                    # image fetched, sig skipped
-    assert not f.exists()                   # stale pair removed
-    assert url == GH                        # original URL served
+    # digest fails although the ECDSA sig matches the offered bytes —
+    # catalog wins; nothing unverifiable survives on disk.
+    assert calls == [GH]
+    assert not (tmp / "firmware-d1_mini.bin").exists()
+    assert not (tmp / "firmware-d1_mini.bin.sig").exists()
+    assert url == GH
 
+
+def test_bad_signature_purges_and_serves_source(env, monkeypatch):
+    """Digest OK but the signature does not verify — the board would
+    reject it; the hub must reject it first."""
+    m, tmp = env
+    other = _sign(b"totally different firmware")
+    calls = []
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(IMG, other, calls),
+    )
+    url = asyncio.run(m._async_ota_url(GH))
+    assert calls == [GH, GHS]
+    assert not (tmp / "firmware-d1_mini.bin").exists()
+    assert not (tmp / "firmware-d1_mini.bin.sig").exists()
+    assert url == GH
+
+
+def test_no_catalog_digest_purges_and_serves_source(env, monkeypatch):
+    m, tmp = env
+    m.catalog[0]["sha256"] = ""
+    (tmp / "firmware-d1_mini.bin").write_bytes(b"old")
+    calls = []
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(IMG, _sign(IMG), calls),
+    )
+    url = asyncio.run(m._async_ota_url(GH))
+    assert calls == []  # nothing is even downloaded
+    assert not (tmp / "firmware-d1_mini.bin").exists()
+    assert url == GH
+
+
+def test_unknown_board_purges_nothing_but_serves_source(env, tmp_path):
+    m = env[0]
+    url = asyncio.run(m._async_ota_url(
+        "https://github.com/ALeXXBody/home-climate-system/releases/download/"
+        "v1.1.1/firmware-esp32_d1_mini.bin"
+    ))
+    assert url.endswith("firmware-esp32_d1_mini.bin")
+
+
+def test_size_mismatch_rejected(env, monkeypatch):
+    """Exact size enforcement: partial downloads can't masquerade."""
+    m, tmp = env
+    calls = []
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(b"x" * 6999, _sign(b"x" * 6999), calls),
+    )
+    url = asyncio.run(m._async_ota_url(GH))
+    assert not (tmp / "firmware-d1_mini.bin").exists()
+    assert url == GH
+
+
+def test_truncated_signature_rejected(env, monkeypatch):
+    m, tmp = env
+    calls = []
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(IMG, b"\x00" * 63, calls),
+    )
+    url = asyncio.run(m._async_ota_url(GH))
+    assert not (tmp / "firmware-d1_mini.bin").exists()
+    assert url == GH
+
+
+def test_download_failure_purges_and_serves_source(env, monkeypatch):
+    m, tmp = env
+    (tmp / "firmware-d1_mini.bin").write_bytes(b"keep")
+
+    class _Boom:
+        def get(self, url):
+            raise TimeoutError()
+
+    monkeypatch.setattr(fm, "async_get_clientsession", lambda h: _Boom())
+    url = asyncio.run(m._async_ota_url(GH))
+    assert not (tmp / "firmware-d1_mini.bin").exists()
+    assert url == GH
+
+
+# ------------------------------------------------- LAN URL construction
 
 def test_no_request_context_still_mirrors(env, monkeypatch):
     """Regression (v1.0.31 live finding): WS-triggered flashes have no HTTP
-    request context, so get_url() raises when internal_url is unset — the
-    old code silently handed the board the raw GitHub HTTPS URL, which
-    pre-TLS boards cannot pull (-104). Mirror must still engage by building
-    the base from the interface address toward the device."""
+    request context; the base must still be built toward the device."""
     from homeassistant.helpers import network as ha_network
 
-    m, tmp = env
+    m, _ = env
     dev = HcsDevice(node_id="hcs-x", board="d1_mini")
     dev.online = True
     dev.ip = "192.168.50.153"
     m.devices["hcs-x"] = dev
-    f = tmp / "firmware-d1_mini.bin"
-    f.write_bytes(b"x" * 70000)
+    calls = []
+    monkeypatch.setattr(
+        fm, "async_get_clientsession",
+        lambda h: _fake_session(IMG, _sign(IMG), calls),
+    )
 
     def _boom(*a, **k):
         raise RuntimeError("NoURLAvailableError stand-in")
 
-    # MagicMock.__int__ returns 1; pin a real port. Also make the executor
-    # awaitable so _async_lan_url's host swap works under MagicMock hass.
     m.hass.config.api.port = 8123
 
     async def _exec(fn, *a, **k):
