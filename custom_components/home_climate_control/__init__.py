@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING
 
 from .zones_backup import ZonesBackup
@@ -197,6 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
         duty_cycle_enabled=opts.get("duty_cycle_enabled", True),
     )
+    controller.entry_id = entry.entry_id   # room-sensor refresh key
     from .schedule import ScheduleFollower
 
     schedule = ScheduleFollower(

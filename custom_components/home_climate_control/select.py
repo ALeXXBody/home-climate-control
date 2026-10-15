@@ -59,9 +59,12 @@ class CentralModeSelect(SelectEntity):
                 continue
             if option == "auto":
                 # Return control to the schedule listener per room.
-                self.hass.async_create_task(
+                # apply_schedule_preset is sync — calling it directly
+                # (wrapping in async_create_task crashed on a bool).
+                try:
                     z.apply_schedule_preset(getattr(z, "_preset", "none"))
-                )
+                except Exception:  # noqa: BLE001
+                    pass
             else:
                 tasks.append(z.async_set_preset_mode(option))
         for t in tasks:

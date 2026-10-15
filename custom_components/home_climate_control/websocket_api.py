@@ -1344,6 +1344,36 @@ async def ws_rename_zone(
             if fv is None:
                 z.pop(fk, None)
                 continue
+            if fk == "floor_surface_max":
+                try:
+                    fnum = float(fv)
+                except (TypeError, ValueError):
+                    connection.send_error(
+                        msg["id"], "invalid_zone",
+                        "floor_surface_max must be a number",
+                    )
+                    return
+                if not 25.0 <= fnum <= 35.0:
+                    connection.send_error(
+                        msg["id"], "invalid_zone",
+                        "floor_surface_max must be between 25 and 35 °C",
+                    )
+                    return
+                z[fk] = fnum
+                continue
+            if not isinstance(fv, str) or not fv.startswith(
+                ("switch.", "sensor.", "number.")
+            ):
+                connection.send_error(
+                    msg["id"], "invalid_zone",
+                    f"floor {fk} must be a switch/sensor/number entity",
+                )
+                return
+            if len(fv) > 64:
+                connection.send_error(
+                    msg["id"], "invalid_zone", "entity id too long"
+                )
+                return
             z[fk] = fv
         if "trv_position_entity" in msg:
             valve = (trv_position_entity or "").strip() or None

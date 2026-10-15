@@ -128,6 +128,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             None if self._window_sensors else SlopeWindowDetector()
         )
 
+        self._last_temp_update: float | None = None
         start = zone_cfg.get("demo_start_temp")
         try:
             self._current_temp: float | None = (
@@ -322,9 +323,27 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # Final flush: a 2-hour verdict in progress survives update/reload.
         await self._async_persist_balance()
 
+    def _temp_current(self) -> float | None:
+        """Room temperature with a staleness guard: an external sensor that
+        stops updating must not silently pin demand at full while the room
+        is comfortably warm (or vice versa past a cold room's need)."""
+        cur = self._current_temp
+        if cur is None:
+            return None
+        import time as _t
+
+        last = getattr(self, "_last_temp_update", None)
+        if (
+            getattr(self, "_temp_from_trv", False) is False
+            and last is not None
+            and _t.time() - last > 90 * 60.0
+        ):
+            return None   # feed stale out; TRV fallback takes over
+        return cur
+
     @property
     def current_temperature(self) -> float | None:
-        return self._current_temp
+        return self._temp_current()
 
     @property
     def target_temperature(self) -> float:
@@ -506,7 +525,12 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             return False
         if self.heater_control == "manual":
             return False
-        if self._preset == preset_mode and self._preset_source == "schedule":
+        # occupancy's sticky source counts as schedule-applied too —
+        # otherwise occupancy-owned rooms re-push at every control tick
+        # (per-tick battery-waking TRV writes).
+        if self._preset == preset_mode and self._preset_source in (
+            "schedule", "occupancy"
+        ):
             return False
         self._preset = preset_mode
         self._preset_source = "schedule"
@@ -675,8 +699,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             return False
         self._update_preheat()
         # Prefer measured room error; fall back to TRV reporting heating.
-        if self._current_temp is not None:
-            return (self.effective_setpoint() - self._current_temp) > 0.1
+        cur = self._temp_current()
+        if cur is not None:
+            return (self.effective_setpoint() - cur) > 0.1
         # A floor room with no temperature reading still needs heat —
         # the loop is its only control mechanism.
         if self.heater_control == HEAT_CONTROL_FLOOR:
@@ -712,6 +737,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self, temperature: float | None, window_open: bool | None
     ) -> None:
         if temperature is not None:
+            import time as _t
+
+            self._last_temp_update = _t.time()
             self._current_temp = temperature
             self._temp_from_trv = False
         learner = getattr(self.coordinator, "setbacks", None)
@@ -803,7 +831,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
 
             try:
                 now_open = self._slope_detector.observe(
-                    _t.time(), temperature, self._demand
+                    _t.time(), temperature, self._demand,
+                    setpoint=self.effective_setpoint(),
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("window-slope detect failed", exc_info=True)
@@ -868,15 +897,51 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if not isinstance(trv_target, (int, float)):
             return
         trv_target = float(trv_target)
-        # our own push echo?
+        attrs = st.attributes or {}
+        try:
+            trv_min = float(attrs.get("min_temp"))
+            trv_max = float(attrs.get("max_temp"))
+        except (TypeError, ValueError):
+            trv_min = trv_max = None
+        # Our own push echo — or its clamp: many TRVs clamp the target to
+        # their own min/max (higher than our setback). Adopting a clamp
+        # would turn every eco/away night into a silent manual override.
         pushed = getattr(self, "_last_pushed_sp", None)
         if pushed is not None and abs(trv_target - pushed) <= 0.3:
             return
-        # already in agreement?
+        trv_min = (st.attributes or {}).get("min_temp")
+        trv_max = (st.attributes or {}).get("max_temp")
+        if pushed is not None and (
+            (isinstance(trv_min, (int, float))
+             and abs(trv_target - trv_min) <= 0.3
+             and pushed < float(trv_min))
+            or (isinstance(trv_max, (int, float))
+                and abs(trv_target - trv_max) <= 0.3
+                and pushed > float(trv_max))
+        ):
+            # the TRV clamped our own push — echo, not intent; update the
+            # echo anchor so the next push doesn't re-adopt the clamp
+            self._last_pushed_sp = trv_target
+            return
+        if pushed is not None and trv_min is not None and (
+            abs(trv_target - max(pushed, trv_min)) <= 0.3
+            or abs(trv_target - min(pushed, trv_max)) <= 0.3
+            or abs(pushed - trv_min) <= 0.3
+            or abs(pushed - trv_max) <= 0.3
+        ):
+            _LOGGER.debug(
+                "%s: TRV clamped %.1f (pushed %.1f) — echo, not a user change",
+                self._zone_name(), trv_target, pushed,
+            )
+            return
+        # already in agreement? (compare on the TRV grid: sub-step writes
+        # are how a clamp/report rounds — not a user action)
+        live_sp = self.effective_setpoint()
         try:
-            if abs(trv_target - float(self.effective_setpoint())) <= 0.3:
-                return
+            step = float((st.attributes or {}).get("target_temp_step", 0.5))
         except (TypeError, ValueError):
+            step = 0.5
+        if abs(trv_target - float(live_sp)) <= max(0.3, step * 0.9):
             return
         prev_target = self._target_temp
         self._target_temp = trv_target
@@ -910,9 +975,13 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if pct is None:
             return
         try:
-            self._valve_pct = max(0.0, min(100.0, float(pct)))
+            v = float(pct)
         except (TypeError, ValueError):
             return
+        import math as _m
+        if not _m.isfinite(v):
+            return
+        self._valve_pct = max(0.0, min(100.0, v))
         # Valve report for the debug screen: meaningful moves (≥1%) show
         # opened/closed; a FIRST reading has no direction to compare, so it
         # gets neutral wording ("opened → 0%" on a first read was just wrong).
@@ -1181,6 +1250,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             v = float(st.state)
         except (TypeError, ValueError):
             return None
+        import math as _m
+        if not _m.isfinite(v):
+            return None   # NaN clamp maps to 100% — poison, not truth
         v = max(0.0, min(100.0, v))
         return (100.0 - v) if self._valve_entity_inverted() else v
 
@@ -1267,21 +1339,20 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
 
         if not force and _t.time() - self._valve_last_exercise < 7 * 86400.0:
             return
-        self._valve_exercising = True
         self._valve_last_exercise = _t.time()
-        saved = self.valve_current_pct(self._hass)
-        restore = float(saved) if saved is not None else 0.0
-        steps = ((100.0, 45.0), (0.0, 45.0), (restore, 0.0))
+        saved = None
         try:
+            saved = self.valve_current_pct(self.hass)
+            self._valve_exercising = True
+            restore = float(saved) if saved is not None else 0.0
+            steps = ((100.0, 45.0), (0.0, 45.0), (restore, 0.0))
             for step, wait in steps:
                 # re-check per step: demand or a window event mid-sweep must
                 # abort straight to the restore position
-                import time as _now_g
-
                 if self._window_open or self._demand > 0.05:
                     restore = 0.0
                     break
-                await self._hass.services.async_call(
+                await self.hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": self._trv_position_entity,
                      "value": self._valve_write_pct(step)},
@@ -1295,7 +1366,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     await self._exercise_sleep(wait)
         finally:
             self._valve_exercising = False
-            self._valve_last_write = _now_g.monotonic()  # restart the rate window
+            self._valve_last_write = _t.monotonic()  # restart the rate window
             self._debug(
                 "valve-drive",
                 f"{self._zone_name()}: valve exercise done (back to {restore:.0f}%)",
@@ -1309,7 +1380,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             return
         if now - self._valve_pin_at < VALVE_PIN_INTERVAL_S:
             return
-        st = self._hass.states.get(self._trv_entity) if self._hass else None
+        st = self.hass.states.get(self._trv_entity) if self.hass else None
         if st is None:
             return
         mode_ok = getattr(st, "state", None) == str(

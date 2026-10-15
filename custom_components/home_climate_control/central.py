@@ -28,6 +28,7 @@ def _as_unix(now) -> float:
 from .boiler.base import BoilerBackend
 from .calibrate import RoomCalibrator
 from .const import (
+    UNDERFLOOR_MAX_FLOW_DEFAULT,
     BALANCE_AUTOCAP_INTERVAL_S,
     BALANCE_AUTOCAP_MIN_PCT,
     CONTROL_LOOP_SECONDS,
@@ -94,6 +95,7 @@ class CentralController:
         self.autotune = autotune
         self.outdoor_sensor = (outdoor_sensor or "").strip() or None
         self.outdoor_stale_s = float(outdoor_stale_s)
+        self._stopping = False
         self.setbacks = None
         self.gas = None
         self.stats = None
@@ -237,6 +239,9 @@ class CentralController:
         _LOGGER.info("Central controller started (%d zones)", len(self.zones))
 
     async def async_stop(self) -> None:
+        # Gate the control loop: a tick in flight must not issue boiler
+        # commands after the controller is stopped (reload races).
+        self._stopping = True
         if self._unsub_loop:
             self._unsub_loop()
             self._unsub_loop = None
@@ -512,6 +517,8 @@ class CentralController:
     async def _async_control_step_locked(self) -> None:
         import time as _time
 
+        if getattr(self, "_stopping", False):
+            return
         now = _time.monotonic()
 
         # Calibration sessions can time out; check on every tick.
@@ -705,7 +712,19 @@ class CentralController:
             # target. (If demand vanished mid-min-on-floor we deliberately
             # keep the previous setpoint: the burner finishes its short
             # minimum burn at low fire while TRVs throttle.)
-            max_setpoint = max(snap[z][2] for z in demanding)
+            # Floor rooms must not drive the radiator flow curve: their loops
+            # are capped at 45 C and a 58 C radiator demand would trip the
+            # floor flow cap over and over while the boiler stays hot. Use the
+            # non-floor setpoints when any exist; a floor-only house demands at
+            # the 45 C loop cap instead.
+            non_floor = [
+                z for z in demanding
+                if getattr(z, "heater_control", "smart") != "floor"
+            ]
+            if non_floor:
+                max_setpoint = max(snap[z][2] for z in non_floor)
+            else:
+                max_setpoint = UNDERFLOOR_MAX_FLOW_DEFAULT
             if outdoor is None:
                 # No outdoor data at all: a dead sensor must not silently run
                 # the curve at design outdoor (-10 °C → full load) all day.
@@ -1000,7 +1019,7 @@ class CentralController:
             name, demand, float(outdoor) - float(cur), float(cur), now
         )
         if line:
-            self._debug("learner", line)
+            self.debug_log("learner", line)
 
     def _solar_sun_tick(self) -> None:
         """Feed HA's sun elevation to rooms that have no lux sensor."""

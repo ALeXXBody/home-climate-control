@@ -344,26 +344,20 @@ class RoomControlSensor(SensorEntity):
             getattr(zone, "_temp_sensor", None) is not None
             or getattr(zone, "current_temperature", None) is not None
         )
-        valve_ok = getattr(zone, "valve_direct_active", None) and callable(
-            getattr(zone, "valve_direct_active")
-        )
-        if rc_valve := getattr(zone, "valve_direct_active", False):
-            has_valve = bool(
-                getattr(zone, "_trv_position_entity", None) or ""
-            ).startswith("number.")
-        else:
-            has_trv_valve = False
         value = "healthy"
-        if rc_valve == "valve" or (
-            getattr(zone, "heater_control", None) == HEAT_CONTROL_VALVE
-            and not has_trv_valve
+        if rc == "valve" and not (
+            getattr(zone, "valve_direct_active", lambda: False)()
         ):
             value = "degraded:no_writable_valve"
-        elif getattr(zone, "heater_control", None) == HEAT_CONTROL_SMART and not has_trv:
+        elif rc == HEAT_CONTROL_FLOOR and not getattr(
+            zone, "floor_active", lambda: False
+        )():
+            value = "degraded:no_floor_loop"
+        elif rc == HEAT_CONTROL_SMART and not has_trv:
             value = "degraded:no_trv"
         elif not has_temp:
             value = "degraded:no_temperature_source"
-        elif getattr(zone, "window_open", False):
+        elif getattr(zone, "paused", lambda: False)():
             value = "paused:window"
         learner = getattr(getattr(zone, "coordinator", None), "setbacks", None)
         cycles = getattr(
