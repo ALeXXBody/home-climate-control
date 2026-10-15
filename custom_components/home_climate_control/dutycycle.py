@@ -89,11 +89,17 @@ class DutyCycler:
         want_heat: bool,
         total_demand: float,
         now: float,
+        required_mod_pct: float | None = None,
     ) -> tuple[bool, str]:
         """Gate *want_heat* through the low-load PWM.
 
         Returns (desired_ch, reason). When load ≥ min modulation or there is
         no demand, passes through unchanged and leaves duty mode.
+
+        required_mod_pct overrides the demand→% map when the caller can
+        compute a load in physical units — the flow-curve path estimates kW
+        from configured radiator sizes, which tracks the boiler's actual
+        range far better than a flat "1 room = 100 %".
         """
         if not self.enabled or not want_heat:
             if self.active:
@@ -102,7 +108,10 @@ class DutyCycler:
             self.last_reason = "off" if not want_heat else "disabled"
             return want_heat, self.last_reason
 
-        req = self.required_mod_from_demand(total_demand)
+        if required_mod_pct is not None:
+            req = max(0.0, min(100.0, float(required_mod_pct)))
+        else:
+            req = self.required_mod_from_demand(total_demand)
         self.required_mod_pct = req
 
         if req >= self.min_mod_pct - 0.5:

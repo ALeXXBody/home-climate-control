@@ -85,10 +85,12 @@ class CentralController:
         balance_autocap: bool = False,
         auto_master: bool = True,
         auto_flowcap: bool = True,
+        rated_power_kw: float = 24.0,
     ) -> None:
         self.hass = hass
         self.backend = backend
         self.curve_coeff = curve_coeff
+        self.rated_power_kw = max(1.0, float(rated_power_kw))
         self.design_outdoor = design_outdoor
         self.min_flow = min_flow
         self.max_flow = max_flow
@@ -602,11 +604,26 @@ class CentralController:
 
         # Low-load duty cycle: when aggregate demand would need less than the
         # boiler's min modulation, PWM CH with long on/off slices instead of
-        # letting the boiler short-cycle or overshoot at its floor.
+        # letting the boiler short-cycle or overshoot at its floor. When the
+        # demanding rooms have radiator sizes configured, compute required
+        # modulation in kW (water temp intentionally excluded — the curve
+        # already tracks it and duty only needs the load fraction).
+        total_kw = 0.0
+        kw_rooms = 0
+        for z in demanding:
+            kw = getattr(z, "radiator_kw", None)
+            if isinstance(kw, (int, float)) and kw > 0:
+                total_kw += float(kw) * min(1.0, (snap[z][1] or 0.0) * 3.0)
+                kw_rooms += 1
+        kw_mod = (
+            min(100.0, total_kw / max(1.0, self.rated_power_kw) * 100.0)
+            if kw_rooms and kw_rooms == len(demanding) else None
+        )
         duty_want, duty_reason = self.dutycycle.apply(
             want_heat=bool(demanding),
             total_demand=raw_demand,
             now=now,
+            required_mod_pct=kw_mod,
         )
 
         # CycleGuard owns the final CH on/off decision: min burn length +
@@ -809,6 +826,7 @@ class CentralController:
             # suggestion it would have applied.
             if self.autotune is not None:
                 errs = []
+                weights = []
                 for z in demanding:
                     # Floor rooms are loop-capped by design: their deficit
                     # says "the loop is throttled", not "the curve is too
@@ -819,8 +837,15 @@ class CentralController:
                     cur = snap[z][3]
                     if cur is not None:
                         errs.append(snap[z][2] - cur)
+                        kw = getattr(z, "radiator_kw", None)
+                        weights.append(float(kw) if isinstance(kw, (int, float)) and kw > 0 else 1.0)
                 if errs:
-                    self.autotune.observe(sum(errs) / len(errs), True)
+                    total_w = sum(weights)
+                    if total_w > 0 and total_w != len(errs):
+                        mean_err = sum(e * w for e, w in zip(errs, weights)) / total_w
+                    else:
+                        mean_err = sum(errs) / len(errs)
+                    self.autotune.observe(mean_err, True)
                     if self.auto_master and getattr(self.autotune, "enabled", False):
                         learned = self.autotune.step()
                         if learned is not None and learned != self.curve_coeff:

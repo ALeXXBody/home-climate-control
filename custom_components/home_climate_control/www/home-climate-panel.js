@@ -2451,6 +2451,8 @@ class HomeClimatePanel extends HTMLElement {
         <h3>Curve &amp; flow limits</h3>
         <label>Heating curve coefficient</label>
         <input type="number" id="so-curve" step="0.1" min="0.2" max="3" value="${num(o.curve_coeff)}" ${numCls}>
+        <label>Design outdoor temperature (°C)</label>
+        <input type="number" id="so-design-outdoor" step="1" min="-35" max="15" value="${num(o.design_outdoor ?? -10)}" ${numCls}>
         <label style="margin-top:6px">Min flow °C</label>
         <input type="number" id="so-minflow" step="1" min="10" max="90" value="${num(o.min_flow_temp)}" ${numCls}>
         <label style="margin-top:6px">Max flow °C</label>
@@ -3523,6 +3525,8 @@ class HomeClimatePanel extends HTMLElement {
         if (curve != null) patch.curve_coeff = curve;
         if (mn != null) patch.min_flow_temp = mn;
         if (mx != null) patch.max_flow_temp = mx;
+        const do_ = this._soptNum("so-design-outdoor");
+        if (do_ != null) patch.design_outdoor = do_;
         break;
       }
       case "outdoor": {

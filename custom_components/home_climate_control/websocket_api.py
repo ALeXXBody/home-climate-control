@@ -712,6 +712,7 @@ _OPTION_RANGES: dict[str, tuple[float, float]] = {
     "nomod_duty_factor": (0.1, 1.0),
     "gas_calibration": (0.2, 5.0),
     "gas_price_per_kwh": (0.0, 100.0),
+    "design_outdoor": (-35.0, 15.0),
 }
 _OPTION_BOOLS = (
     "auto_master",
@@ -804,6 +805,12 @@ def _hot_apply_bools(hass: HomeAssistant, entry, options: dict) -> None:
     controller.auto_master = bool(options.get("auto_master", True))
     controller.balance_autocap = bool(options.get("balance_autocap", False))
     controller.auto_flowcap = bool(options.get("auto_flowcap", True))
+    try:
+        do = float(options.get("design_outdoor"))
+    except (TypeError, ValueError):
+        do = None
+    if do is not None and -35.0 <= do <= 15.0:
+        controller.design_outdoor = do   # hot-applied: the curve reads it per tick
     occupancy = getattr(controller, "occupancy", None)
     if occupancy is not None and hasattr(occupancy, "enabled"):
         was_enabled = bool(occupancy.enabled)
