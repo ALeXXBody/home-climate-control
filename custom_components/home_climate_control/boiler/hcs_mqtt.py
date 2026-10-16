@@ -212,6 +212,26 @@ class HcsMqttBackend(BoilerBackend):
             st.tset_cap = _f(text)
             self._notify_sensors()
             return
+        if key == "ctl" and text.startswith("{"):
+            # Retained control-state mirror (publishCtl JSON). Carries the
+            # learned tset_cap for consumers that gather per-node control
+            # state wholesale — this is the retained, guaranteed-delivered
+            # channel; the per-leaf q0 topic above is the live one.
+            try:
+                data = json.loads(text)
+            except ValueError:
+                return
+            raw = data.get("tset_cap")
+            v: float | None = None
+            if raw not in (None, "null"):
+                try:
+                    v = float(raw)
+                except (TypeError, ValueError):
+                    v = None
+            if st.tset_cap != v:
+                st.tset_cap = v
+                self._notify_sensors()
+            return
         if key == "outdoor_temp":
             st.outdoor_temp = _f(text)
             if st.outdoor_temp is not None:

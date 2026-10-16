@@ -332,6 +332,13 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
     async def async_will_remove_from_hass(self) -> None:
         # Final flush: a 2-hour verdict in progress survives update/reload.
         await self._async_persist_balance()
+        # Bind the valve sweep to the entity: a mid-sweep removal/reload
+        # must not leave a fire-and-forget task writing a departed room's
+        # valve for minutes afterwards (leak the latch sweep-owned valve).
+        task = getattr(self, "_valve_exercise_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+        self._valve_exercise_task = None
 
     def _temp_current(self) -> float | None:
         """Room temperature with a staleness guard: an external sensor that
@@ -1471,7 +1478,15 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if self._hvac_mode != HVACMode.HEAT or self.wants_heat():
             return
         self._valve_last_exercise = _t.time()         # start the cooldown
-        self.hass.async_create_task(self.valve_exercise())
+        self._start_exercise_task(self.valve_exercise())
+
+    def _start_exercise_task(self, coro) -> None:
+        """One live sweep task per room: a new one supersedes a running one
+        (the coroutine's finally clears the sweep latch either way)."""
+        prev = getattr(self, "_valve_exercise_task", None)
+        if prev is not None and not prev.done():
+            prev.cancel()
+        self._valve_exercise_task = self.hass.async_create_task(coro)
 
     async def _exercise_sleep(self, seconds: float) -> None:
         await __import__("asyncio").sleep(seconds)

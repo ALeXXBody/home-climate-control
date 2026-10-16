@@ -67,3 +67,18 @@ def test_central_cap_below_min_flow_is_ignored():
     eff = cap if cap >= min_flow else None
     assert eff is None
     _ = flow_for_outdoor(20.0, 7.8, 3.0, min_flow, 75.0, -10.0)  # unaffected
+
+
+def test_tset_cap_flows_through_retained_ctl_mirror(backend):
+    """The guaranteed channel: hcs/<node>/ctl retained JSON (change-gated at
+    the board). The v1.20.1 field bug — the q0 leaf never arriving while
+    /api/status showed the cap — closed at both ends here."""
+    backend._on_topic("hcs/hcs-a/ctl", '{"ch_enable":true,"tset_cap":55.0}')
+    assert backend.tset_cap == 55.0
+    backend._on_topic("hcs/hcs-a/ctl", '{"ch_enable":true,"tset_cap":null}')
+    assert backend.tset_cap is None
+    # a malformed mirror must not throw or corrupt the previous value
+    backend._on_topic("hcs/hcs-a/ctl", "{broken")
+    assert backend.tset_cap is None
+    backend._on_topic("hcs/hcs-a/ctl", '{"tset_cap":"65.0"}')
+    assert backend.tset_cap == 65.0
