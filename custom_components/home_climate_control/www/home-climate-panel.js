@@ -1677,7 +1677,7 @@ class HomeClimatePanel extends HTMLElement {
         ? "TRV internal"
         : (z.temp_sensor ? this._esc(String(z.temp_sensor)) : "—");
       const valve = (z.valve_pct != null && !Number.isNaN(z.valve_pct))
-        ? `${Math.round(z.valve_pct)}%`
+        ? `${Math.round(z.valve_pct)}%${z.valve_failover ? " ⚡failover" : ""}`
         : "—";
       const trv = z.trv ? this._esc(String(z.trv)) : "—";
       const demand = (!manual && z.demand_level != null)

@@ -966,14 +966,18 @@ class CentralController:
                             "floor tick failed for %s", getattr(z, "name", "?"),
                             exc_info=True,
                         )
-            elif getattr(z, "valve_direct_active", None) and callable(
-                getattr(z, "valve_direct_active")
-            ) and z.valve_direct_active():
-                    # Valve-driving rooms ignore the auto-cap path (their
-                    # valve is owned by HCC already) — run pin + drive.
+            elif (
+                (getattr(z, "valve_direct_active", lambda: False)()
+                 and z.valve_direct_active())
+                or getattr(z, "valve_failover_eligible", lambda: False)()
+            ):
+                    # Valve-driving rooms and stuck-valve failover candidates
+                    # (smart rooms with a writable position) ignore the
+                    # auto-cap path — run pin + failover + drive.
                     try:
                         await z.valve_pin_tick(now)
                         if healthy:
+                            await z.valve_failover_tick(now, self.hass)
                             z.valve_apply(now, self.hass)
                             await z.maybe_exercise(now)
                         else:

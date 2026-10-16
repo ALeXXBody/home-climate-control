@@ -118,6 +118,16 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         )
         # Valve-direct drive state (rate-limit + pin bookkeeping).
         self._valve_last_write: float = 0.0
+        # Stuck-valve failover (smart rooms): when the TRV's own loop holds
+        # the valve shut against real demand, HCC drives the opening directly
+        # and hands the valve back the moment the TRV resumes modulating.
+        self._valve_failover: bool = False
+        self._valve_stuck_since: float | None = None
+        self._valve_failover_rearm_until: float = 0.0
+        self._valve_failover_notified: bool = False
+        self._valve_failover_cmd: float | None = None
+        self._valve_failover_cmd_at: float = 0.0
+        self._valve_failover_idle_since: float | None = None
         self._valve_pin_at: float = 0.0
         self._valve_last_exercise: float = 0.0
         self._valve_exercising = False
@@ -399,6 +409,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             ),
             "needs_ventilation": self.co2.needs_ventilation,
             "valve_pct": self._valve_pct,
+            "valve_failover": bool(getattr(self, "_valve_failover", False)),
             "balance": self.balance.report(),
             "radiator_kw": self.radiator_kw,
             "radiator_kw_est": self._radiator_kw_est,
@@ -490,7 +501,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             # Valve-direct rooms must PHYSICALLY close: the last commanded
             # opening latches on the number entity otherwise, and the room
             # keeps receiving hot water while other zones run.
-            if self.valve_direct_active():
+            if self.valve_direct_active() or getattr(
+                self, "_valve_failover", False
+            ):
                 try:
                     await self.hass.services.async_call(
                         "number", "set_value",
@@ -1166,6 +1179,127 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                         f"{self._zone_name()}: mixer → {pct:.0f}%",
                     )
 
+    def valve_failover_eligible(self) -> bool:
+        """Honestly-observable stuck-valve failover candidates: any room
+        with a writable valve position the TRV under-supervises (smart
+        rooms; valve rooms are always owned already)."""
+        return self.heater_control not in (HEAT_CONTROL_FLOOR, HEAT_CONTROL_VALVE) \
+            and str(self._trv_position_entity or "").startswith("number.")
+
+    def valve_failover_active(self) -> bool:
+        return bool(getattr(self, "_valve_failover", False))
+
+    def _valve_failover_stop(self, now: float, reason: str) -> None:
+        if not self._valve_failover:
+            return
+        was_cmd = self._valve_failover_cmd
+        self._valve_failover = False
+        self._valve_failover_cmd = None
+        self._valve_failover_idle_since = None
+        self._valve_stuck_since = None
+        self._valve_failover_rearm_until = now + 1800.0
+        self._debug(
+            "valve",
+            f"{self._zone_name()}: valve failover hand-back ({reason}) — "
+            "the TRV owns its valve again"
+            + (f" (left at {was_cmd:.0f}%)" if was_cmd else ""),
+        )
+
+    async def valve_failover_tick(self, now: float, hass) -> None:
+        """Engage/hand-back for the stuck-valve failover.
+
+        Field case (v1.20.1 live): a vendor-quirk broke the rooms' TRV
+        temperature-source config; their onboard loops held the valve shut
+        (flat 0% for days) while the rooms demanded heat and the boiler
+        short-cycled. Gates to engage: smart room, valve position reported
+        0%, real demand for 15 minutes, no window, heat mode. While
+        engaged ``valve_apply`` drives the opening on the closed loop; HCC
+        stands down when the TRV's own loop proves alive (hvac_action
+        heating), when demand ends, or when supervision drops.
+        """
+        if not self.valve_failover_eligible():
+            return
+        if self._hvac_mode != HVACMode.HEAT or self._window_open:
+            self._valve_failover_stop(now, "paused")
+            return
+        cur = self.valve_current_pct(hass)
+        if cur is None:
+            self._valve_stuck_since = None
+            return
+
+        if not self._valve_failover:
+            if now < self._valve_failover_rearm_until:
+                self._valve_stuck_since = None
+                return
+            st = self._trv_state()
+            action = (getattr(st, "attributes", {}) or {}).get("hvac_action")
+            eligible = (
+                self._current_temp is not None
+                and self.demand_level() > VALVE_OPEN_DEMAND
+                and action != "heating"   # already on the enemy's side
+            )
+            if cur <= 0.0 and eligible:
+                if self._valve_stuck_since is None:
+                    self._valve_stuck_since = now
+                elif now - self._valve_stuck_since >= 900.0:
+                    self._valve_failover = True
+                    self._valve_stuck_since = None
+                    self._valve_failover_cmd = None
+                    self._valve_failover_idle_since = None
+                    self._debug(
+                        "valve",
+                        f"{self._zone_name()}: valve failover ENGAGED — the "
+                        "TRV holds 0% against demand; HCC drives the opening",
+                    )
+                    if not self._valve_failover_notified:
+                        self._valve_failover_notified = True
+                        try:
+                            await hass.services.async_call(
+                                "persistent_notification", "create",
+                                {
+                                    "title": "Valve failover — "
+                                             f"{self._zone_name()}",
+                                    "message": "The TRV held its valve at 0% "
+                                        "while the room demanded heat. HCC "
+                                        "is driving the valve opening "
+                                        "directly and hands it back when "
+                                        "the TRV resumes modulating. If "
+                                        "this keeps happening, set this "
+                                        "room's heat control to valve.",
+                                    "notification_id": (
+                                        "home_climate_control_valve_failover_"
+                                        + (getattr(self, "entity_id", None)
+                                           or self._trv_entity)
+                                    ),
+                                },
+                                blocking=False,
+                            )
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "%s: failover notification failed",
+                                self._zone_name(), exc_info=True,
+                            )
+            else:
+                self._valve_stuck_since = None
+            return
+
+        # ── engaged: hand-back management ──
+        if self.demand_level() <= VALVE_OPEN_DEMAND:
+            if self._valve_failover_idle_since is None:
+                self._valve_failover_idle_since = now
+        else:
+            self._valve_failover_idle_since = None
+        if (self._valve_failover_idle_since is not None
+                and now - self._valve_failover_idle_since >= 300.0):
+            self._valve_failover_stop(now, "demand ended")
+            return
+        # The TRV's own loop proves alive when it reports "heating" — its
+        # actuator is running; stop fighting it.
+        st = self._trv_state()
+        action = (getattr(st, "attributes", {}) or {}).get("hvac_action")
+        if action == "heating":
+            self._valve_failover_stop(now, "TRV resumed control")
+
     def valve_direct_active(self) -> bool:
         """True when HCC drives this room's valve opening degree directly.
 
@@ -1180,7 +1314,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         """Write 0% once when supervision is lost, so a latched opening
         cannot serve an unsupervised room. Idempotent per outage: re-runs
         stay no-ops while the valve actually reads closed."""
-        if not self.valve_direct_active():
+        if not self.valve_direct_active() and not getattr(
+            self, "_valve_failover", False
+        ):
             return
         try:
             cur = self.valve_current_pct(self.hass)
@@ -1262,10 +1398,19 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         return (100.0 - opening) if self._valve_entity_inverted() else opening
 
     def valve_apply(self, now: float, hass) -> None:
-        """One tick of the valve-direct closed loop (rate-limited)."""
+        """One tick of the valve-direct closed loop (rate-limited).
+
+        Also owns the valve for smart rooms under stuck-valve failover
+        (``_valve_failover``) so a TRV that refuses to open cannot starve
+        its radiator while the room demands heat.
+        """
         if self._valve_exercising:
             return   # the anti-stick sweep owns the valve for its duration
-        if not self.valve_direct_active() or self._hvac_mode != HVACMode.HEAT:
+        if getattr(self, "_valve_failover", False) or self.valve_direct_active():
+            pass   # HCC owns the opening this tick
+        else:
+            return
+        if self._hvac_mode != HVACMode.HEAT:
             return
         want = self.valve_want_pct()
         cur = self.valve_current_pct(hass)
@@ -1274,12 +1419,25 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         if self._window_open or self._hvac_mode != HVACMode.HEAT:
             want = 0.0  # paused: shut the valve regardless of demand
         closing = want <= 0.0   # safety closure: bypass the rate limiter
+        # Under failover the position entity may publish coarsely; re-assert
+        # an unchanged target at a slower cadence instead of every tick.
+        if (
+            getattr(self, "_valve_failover", False)
+            and not closing
+            and want == self._valve_failover_cmd
+            and now - self._valve_failover_cmd_at < 180.0
+        ):
+            return
         if (
             abs(want - cur) < VALVE_HYST_PCT
-            or (not closing and now - self._valve_last_write < VALVE_WRITE_INTERVAL_S)
+            or (not closing and not getattr(self, "_valve_failover", False)
+                and now - self._valve_last_write < VALVE_WRITE_INTERVAL_S)
         ):
             return
         self._valve_last_write = now
+        if getattr(self, "_valve_failover", False):
+            self._valve_failover_cmd = want
+            self._valve_failover_cmd_at = now
         self.hass.async_create_task(hass.services.async_call(
             "number", "set_value",
             {"entity_id": self._trv_position_entity,
