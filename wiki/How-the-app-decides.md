@@ -72,6 +72,18 @@ Table 3). `demand` = 0..1 = how far below setpoint the room is, clamped to
 | 7 | A smart room demands heat but its TRV valve stands at 0% for 15 minutes (no window, heat mode, TRV not already heating) | **stuck-valve failover**: HCC writes the valve opening directly (demand-proportional, rate-limited); one HA notification explains it |
 | 8 | The TRV resumes its own modulation (reports heating), or demand ends, or supervision drops | HCC hands the valve back and stands down 30 min |
 
+## Table 5a — The TRV external-temperature keeper (smart rooms)
+
+Generator of truth: Zigbee2MQTT #29650 (TRVZB flaps its source select; closed unfixed upstream) and firmware 1.4.x silently falling back to the internal sensor when the feed stalls.
+
+| # | Condition | Then |
+|---|---|---|
+| 1 | 60 s cadence, room temp alive, moved ≥ 0.1 K, external input exists | HCC writes the room's temperature to the TRV's external-temperature input (user automations for this become optional) |
+| 2 | Stale room sensor | HCC never feeds — no frozen rooms from a dead sensor |
+| 3 | select drifted to a dead state (unknown / retired option names) | re-assert remote_temperature, one notification per episode — never fights a valid user choice (local_temperature stays local) |
+| 4 | select drifted → healthy again | episode closed; next episode may notify again |
+| 5 | TRV's temp ≥ 2 K from the room for 15 min | flagged (drift watch): the TRV is running on its own sensor — visible instead of silent |
+
 ## Table 5a — The valve failover ladder (smart rooms with a writable valve position)
 
 | # | Condition | Duration / gate |
