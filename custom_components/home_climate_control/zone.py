@@ -128,6 +128,19 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._valve_failover_cmd: float | None = None
         self._valve_failover_cmd_at: float = 0.0
         self._valve_failover_idle_since: float | None = None
+        # TRV external-temperature keeper (smart rooms; see trv_keeper_tick):
+        # HCC owns the feed, the select re-assert and the drift watch, so a
+        # TRV whose vendor integration keeps flapping its source still runs
+        # on the room's real temperature.
+        self._trv_keep_feed_at: float = 0.0
+        self._trv_keep_feed_val: float | None = None
+        self._trv_keep_select_at: float = 0.0
+        self._trv_keep_select_notified: bool = False
+        self._trv_drift_since: float | None = None
+        self._trv_drift: bool = False
+        self._trv_drift_notified: bool = False
+        self._trv_keep_feed_entity: str | None = None
+        self._trv_keep_select_entity: str | None = None
         self._valve_pin_at: float = 0.0
         self._valve_last_exercise: float = 0.0
         self._valve_exercising = False
@@ -417,6 +430,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             "needs_ventilation": self.co2.needs_ventilation,
             "valve_pct": self._valve_pct,
             "valve_failover": bool(getattr(self, "_valve_failover", False)),
+            "trv_drift": bool(getattr(self, "_trv_drift", False)),
             "balance": self.balance.report(),
             "radiator_kw": self.radiator_kw,
             "radiator_kw_est": self._radiator_kw_est,
@@ -1306,6 +1320,210 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         action = (getattr(st, "attributes", {}) or {}).get("hvac_action")
         if action == "heating":
             self._valve_failover_stop(now, "TRV resumed control")
+
+    # ── TRV external-temperature keeper ────────────────────────────────
+    # Field basis (Zigbee2MQTT #29650, closed unfixed): Sonoff TRVZB keeps
+    # flapping its temperature_sensor_select on its own (unknown / externals
+    # of old naming), so the valve algorithm silently loses the room sensor;
+    # and firmware 1.4.x falls back to the internal sensor whenever the
+    # external feed stops — non-sense readings included. HCC therefore owns
+    # the feed + select re-assert + drift watch itself.
+
+    TRV_KEEP_FEED_MIN_S = 60.0        # feed write cadence
+    TRV_KEEP_FEED_DELTA = 0.1         # only when the value moves ≥ this
+    TRV_KEEP_SELECT_MIN_S = 600.0     # select guardian cadence
+    TRV_KEEP_DRIFT_C = 2.0            # TRV-vs-room divergence that matters
+    TRV_KEEP_DRIFT_S = 900.0          # ...sustained this long → flag
+
+    _KEEP_SELECT_VALID = frozenset(
+        {"remote_temperature", "local_temperature", "remote_source_offline"}
+    )
+
+    def _trv_keep_entities(self) -> "tuple[str | None, str | None]":
+        """(external-temperature input number, temperature-source select).
+
+        Derived from the room's TRV slug (climate.<room>_trv →
+        <room>_trv); cached after entities are confirmed to exist once.
+        """
+        imp = getattr(self, "_trv_keep_feed_entity", None)
+        sel = getattr(self, "_trv_keep_select_entity", None)
+        if imp and sel:
+            return imp, sel
+        slug = (self._trv_entity or "").split(".", 1)[-1]
+        if not slug:
+            return None, None
+        if not imp:
+            guess = f"number.{slug}_external_temperature_input"
+            if self.hass.states.get(guess) is not None:
+                self._trv_keep_feed_entity = imp = guess
+        if not sel:
+            guess = f"select.{slug}_temperature_sensor_select"
+            if self.hass.states.get(guess) is not None:
+                self._trv_keep_select_entity = sel = guess
+        return imp, sel
+
+    @staticmethod
+    def trv_select_offends(state: str | None) -> bool:
+        """States the guardian must correct: the vendor-quirk signature
+        (unknown) plus every retired option name. Valid user choices and
+        'unavailable' (device offline) are left alone."""
+        s = (state or "").strip().lower()
+        if s in ("unavailable",):
+            return False
+        return s not in ZoneClimateEntity._KEEP_SELECT_VALID
+
+    def trv_feed_wants_write(self, fed: float | None, room: float | None,
+                             now: float) -> bool:
+        if room is None:
+            return False
+        if fed is not None and abs(room - fed) < self.TRV_KEEP_FEED_DELTA:
+            return False
+        return now - self._trv_keep_feed_at >= self.TRV_KEEP_FEED_MIN_S
+
+    async def trv_keeper_tick(self, now: float, hass) -> None:
+        """Feed + guardian + drift watch for the room's TRV (smart only)."""
+        if self.heater_control != "smart":
+            return
+        imp, sel = self._trv_keep_entities()
+        room = self._temp_current()
+
+        # 1) feed the external temperature input from the room sensor.
+        if imp is not None and room is not None:
+            fed = None
+            st = hass.states.get(imp)
+            try:
+                fed = float(st.state) if st else None
+            except (TypeError, ValueError):
+                fed = None
+            if (self._trv_keep_feed_val is None
+                    and fed is not None):
+                self._trv_keep_feed_val = fed
+            if self.trv_feed_wants_write(fed, room, now):
+                self._trv_keep_feed_at = now
+                self._trv_keep_feed_val = round(float(room), 2)
+                try:
+                    await hass.services.async_call(
+                        "number", "set_value",
+                        {"entity_id": imp, "value": float(room)},
+                        blocking=False,
+                    )
+                    self._debug(
+                        "trv-keep",
+                        f"{self._zone_name()}: external temp fed → "
+                        f"{float(room):.1f} °C",
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "%s: trv external feed failed",
+                        self._zone_name(), exc_info=True,
+                    )
+
+        # 2) guardian: re-assert the select when it drifted to a dead option.
+        if sel is not None and (
+            now - self._trv_keep_select_at >= self.TRV_KEEP_SELECT_MIN_S
+        ):
+            self._trv_keep_select_at = now
+            st = hass.states.get(sel)
+            state = st.state if st else None
+            if self.trv_select_offends(state):
+                try:
+                    await hass.services.async_call(
+                        "select", "select_option",
+                        {"entity_id": sel,
+                         "option": "remote_temperature"},
+                        blocking=False,
+                    )
+                    self._debug(
+                        "trv-keep",
+                        f"{self._zone_name()}: temperature source re-asserted "
+                        f"(was {state!r})",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                if not self._trv_keep_select_notified:
+                    self._trv_keep_select_notified = True
+                    try:
+                        await hass.services.async_call(
+                            "persistent_notification", "create",
+                            {
+                                "title": "TRV temperature source held — "
+                                         f"{self._zone_name()}",
+                                "message": "The TRV's temperature-source "
+                                    "select drifted off remote_temperature "
+                                    f"(was {state!r}). HCC re-asserted it — "
+                                    "the room runs on the real temperature "
+                                    "again.",
+                                "notification_id": (
+                                    "home_climate_control_trv_keep_"
+                                    + (sel or imp or self._trv_entity or "?")
+                                ),
+                            },
+                            blocking=False,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+            elif state in ("remote_temperature", "local_temperature",
+                           "remote_source_offline"):
+                self._trv_keep_select_notified = False  # healthy again
+
+        # 3) drift watch: the TRV running on its own sensor is not the
+        # room truth — flag it (covers the 1.4.x internal-fallback hazard).
+        trv_st = self._trv_state()
+        trv_cur = None
+        if trv_st is not None:
+            try:
+                trv_cur = float(
+                    (getattr(trv_st, "attributes", {}) or {}).get(
+                        "current_temperature")
+                )
+            except (TypeError, ValueError):
+                trv_cur = None
+        fading = not (isinstance(trv_cur, (int, float))
+                      and isinstance(room, (int, float))
+                      and abs(trv_cur - room) >= self.TRV_KEEP_DRIFT_C)
+        if fading:
+            self._trv_drift_since = None
+            if self._trv_drift:
+                self._trv_drift = False
+                self._trv_drift_notified = False
+                self._debug(
+                    "trv-keep",
+                    f"{self._zone_name()}: TRV temperature back on track",
+                )
+        else:
+            if self._trv_drift_since is None:
+                self._trv_drift_since = now
+            elif (not self._trv_drift
+                  and now - self._trv_drift_since >= self.TRV_KEEP_DRIFT_S):
+                self._trv_drift = True
+                self._debug(
+                    "trv-keep",
+                    f"{self._zone_name()}: TRV temperature δ="
+                    f"{abs(trv_cur - room):.1f} K — controlling on its own "
+                    "sensor",
+                )
+                if not self._trv_drift_notified:
+                    self._trv_drift_notified = True
+                    try:
+                        await hass.services.async_call(
+                            "persistent_notification", "create",
+                            {
+                                "title": "TRV off its external source — "
+                                         f"{self._zone_name()}",
+                                "message": "This TRV is controlling on its "
+                                    "own sensor while the room sensor reads "
+                                    f"elsewhere (Δ={abs(trv_cur - room):.1f}"
+                                    " K). Heating may be wrong until its "
+                                    "temperature source is restored.",
+                                "notification_id": (
+                                    "home_climate_control_trv_drift_"
+                                    + (imp or sel or self._trv_entity or "?")
+                                ),
+                            },
+                            blocking=False,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
 
     def valve_direct_active(self) -> bool:
         """True when HCC drives this room's valve opening degree directly.

@@ -978,6 +978,7 @@ class CentralController:
                         await z.valve_pin_tick(now)
                         if healthy:
                             await z.valve_failover_tick(now, self.hass)
+                            await z.trv_keeper_tick(now, self.hass)
                             z.valve_apply(now, self.hass)
                             await z.maybe_exercise(now)
                         else:
