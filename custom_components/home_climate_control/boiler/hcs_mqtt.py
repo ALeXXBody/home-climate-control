@@ -49,7 +49,7 @@ class _NodeState:
         "node_id", "last_rx", "online", "ot_valid", "outdoor_temp",
         "outdoor_rx", "flow_temp", "return_temp", "modulation", "pressure",
         "flame", "ch_active", "fault_text", "commanded_setpoint",
-        "custom", "sensors_snapshot",
+        "custom", "sensors_snapshot", "tset_cap",
     )
 
     def __init__(self, node_id: str) -> None:
@@ -69,6 +69,7 @@ class _NodeState:
         self.commanded_setpoint: float | None = None
         self.custom: dict[str, float] = {}
         self.sensors_snapshot: list = []
+        self.tset_cap: float | None = None  # learned boiler CH ceiling
 
 
 class HcsMqttBackend(BoilerBackend):
@@ -205,6 +206,12 @@ class HcsMqttBackend(BoilerBackend):
         if key == "ot_valid":
             st.ot_valid = _onoff(text)
             return
+        if key == "tset_cap":
+            # Learned CH ceiling from TSet W-ACK echoes ("off" = unknown:
+            # the boiler ACKs every request unchanged).
+            st.tset_cap = _f(text)
+            self._notify_sensors()
+            return
         if key == "outdoor_temp":
             st.outdoor_temp = _f(text)
             if st.outdoor_temp is not None:
@@ -303,6 +310,13 @@ class HcsMqttBackend(BoilerBackend):
         await self._publish_cmd("max_modulation", f"{int(percent)}")
 
     # --- telemetry properties (active board) ---------------------------------
+    @property
+    def tset_cap(self):
+        """Boiler's real max CH flow setpoint as learned by the board
+        (None while the boiler ACKs every request unchanged)."""
+        st = self._state()
+        return st.tset_cap if st else None
+
     @property
     def outdoor_temp(self):
         st = self._state()

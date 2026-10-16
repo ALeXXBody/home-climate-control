@@ -757,12 +757,21 @@ class CentralController:
                 outdoor = NO_OUTDOOR_FALLBACK_C
             else:
                 self._warned_no_outdoor = False
+            # The board learns the boiler's real CH ceiling from TSet
+            # write-ACK echoes and publishes it as tset_cap. The curve must
+            # never plan beyond what the boiler actually stores — a 75 °C
+            # plan on a 55 °C boiler dead-ends and starves the autotune.
+            cap = getattr(self.backend, "tset_cap", None)
+            flow_max_eff = self.max_flow
+            if cap is not None and float(cap) >= self.min_flow:
+                flow_max_eff = min(self.max_flow, float(cap))
+            self.flow_max_eff = flow_max_eff
             base_flow = flow_for_outdoor(
                 max_setpoint,
                 outdoor,
                 self.curve_coeff,
                 self.min_flow,
-                self.max_flow,
+                flow_max_eff,
                 self.design_outdoor,
             )
             # Floor rooms don't drive the radiator flow curve — their loop
@@ -772,7 +781,7 @@ class CentralController:
                  if getattr(z, "heater_control", "smart") != "floor"),
                 default=0.0,
             )
-            target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
+            target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, flow_max_eff)
 
             # Curve chart ring (panel Diagnostics): 1 point per 5th tick.
             self._curve_i += 1
@@ -875,7 +884,7 @@ class CentralController:
         sat = bool(
             self._ch_on
             and flow_now is not None
-            and flow_now >= self.max_flow - FLOW_NEAR_MAX_K
+            and flow_now >= getattr(self, "flow_max_eff", self.max_flow) - FLOW_NEAR_MAX_K
         )
         for z in self.zones:
             dem = bool(z.wants_heat() and not z.paused())
@@ -1159,7 +1168,8 @@ class CentralController:
             line.append({
                 "o": round(o, 1),
                 "f": round(flow_for_outdoor(
-                    ref, o, self.curve_coeff, self.min_flow, self.max_flow,
+                    ref, o, self.curve_coeff, self.min_flow,
+                    getattr(self, "flow_max_eff", self.max_flow),
                     self.design_outdoor,
                 ), 2),
             })
@@ -1168,7 +1178,7 @@ class CentralController:
                 "coeff": round(self.curve_coeff, 3),
                 "design": self.design_outdoor,
                 "min_flow": self.min_flow,
-                "max_flow": self.max_flow,
+                "max_flow": getattr(self, "flow_max_eff", self.max_flow),
                 "ref_setpoint": round(float(ref), 2),
             },
             "line": line,
@@ -1324,6 +1334,9 @@ class CentralController:
             "min_flow": self.min_flow,
             "max_flow": self.max_flow,
         }
+        cap = getattr(self.backend, "tset_cap", None)
+        if cap is not None:
+            data["tset_cap"] = float(cap)
         if self.autotune is not None:
             data["autotune"] = self.autotune.as_dict()
         if self._flowcap_suggestion:
