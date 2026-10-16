@@ -22,7 +22,6 @@ across restarts via the HA Store.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 from homeassistant.helpers.storage import Store
@@ -34,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_KEY = "home_climate_control_setbacks"
 STORAGE_VERSION = 1
 
-from .preheat import RECOVERY_TARGET_H, setback_depth_c
+from .preheat import setback_depth_c
 
 SETBACK_PRESETS = ("away", "eco")
 RECOVERY_WATCH_S = 2 * 3600 # give up measuring after 2 h of recovery

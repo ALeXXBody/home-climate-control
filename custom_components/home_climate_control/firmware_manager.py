@@ -160,7 +160,6 @@ def catalog_from_releases(
         ver = tag.lstrip("vV")
         if not ver:
             continue
-        title_name = rel.get("name") or tag
         published = str(rel.get("published_at") or "")
         for asset in rel.get("assets") or []:
             name = str(asset.get("name") or "")

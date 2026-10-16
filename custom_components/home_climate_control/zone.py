@@ -1334,7 +1334,6 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             return
         if self.wants_heat():
             return
-        import asyncio
         import time as _t
 
         if not force and _t.time() - self._valve_last_exercise < 7 * 86400.0:

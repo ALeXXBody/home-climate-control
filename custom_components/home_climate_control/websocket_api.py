@@ -10,24 +10,15 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 
 from .zones_backup import ZonesBackup
 from . import _dedupe_zones
 from .const import (
-    HEAT_CONTROL_FLOOR,
-    CONF_OCCUPANCY_AWAY_PRESET,
-    CONF_OCCUPANCY_ENABLED,
-    CONF_OCCUPANCY_HOME_PRESET,
-    CONF_OCCUPANCY_TRACKERS,
-    CONF_OUTDOOR_SENSOR,
-    CONF_PRESET_TEMPS,
-    CONF_SCHEDULE_ENTITY,
-    CONF_SCHEDULE_OFF_PRESET,
-    CONF_SCHEDULE_ON_PRESET,
     CONF_WIND_ENABLED,
     CONF_WIND_ENTITY,
-    CONF_WIND_MAX_DELTA,
+    HEAT_CONTROL_FLOOR,
+    CONF_PRESET_TEMPS,
     CONF_ZONE_CO2_SENSOR,
     CONF_ZONE_FLOOR,
     CONF_ZONE_HUMIDITY_SENSOR,

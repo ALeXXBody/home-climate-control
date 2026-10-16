@@ -385,8 +385,6 @@ class RoomLearner:
     def _train_sync(self) -> None:
         """Executor-side heavy lifting: stream corpus → fit → save."""
         assert self._dir is not None
-        import threading
-
         with self._train_lock:
             self._train_sync_locked()
 

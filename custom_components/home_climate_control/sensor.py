@@ -20,9 +20,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_ZONES,
     DOMAIN,
+    HEAT_CONTROL_FLOOR,
     HEAT_CONTROL_SMART,
-    HEAT_CONTROL_VALVE,
-)
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
