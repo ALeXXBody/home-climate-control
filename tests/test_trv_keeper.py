@@ -92,6 +92,20 @@ def test_feed_skips_when_close_and_recent():
     assert _calls(hass, "number") == []
 
 
+def test_keepalive_rewrite_even_when_stable():
+    """A stable room must still be re-written ≤ every 5 min — a silent feed
+    is exactly what triggers the TRVZB's internal-sensor fallback (the daily
+    Δ=5.5 K alarm class)."""
+    z, hass, _ = _zone(cur=18.4, ext=18.4)   # no movement at all
+    z._trv_keep_feed_entity = INPUT
+    z._trv_keep_select_entity = SELECT
+    z._trv_keep_feed_at = NOW - 301.0        # feed silent for 5 min
+    asyncio.run(z.trv_keeper_tick(NOW, hass))
+    calls = _calls(hass, "number")
+    assert len(calls) == 1
+    assert calls[0][0][2]["value"] == 18.4
+
+
 def test_feed_skips_when_room_unmeasured():
     z, hass, _ = _zone(cur=None, ext=18.2)
     asyncio.run(z.trv_keeper_tick(NOW, hass))

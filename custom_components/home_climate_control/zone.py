@@ -1329,8 +1329,9 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
     # external feed stops — non-sense readings included. HCC therefore owns
     # the feed + select re-assert + drift watch itself.
 
-    TRV_KEEP_FEED_MIN_S = 60.0        # feed write cadence
+    TRV_KEEP_FEED_MIN_S = 60.0        # feed write cadence (on movement)
     TRV_KEEP_FEED_DELTA = 0.1         # only when the value moves ≥ this
+    TRV_KEEP_FEED_KEEPALIVE_S = 300.0  # re-write even when stable ≤ every 5 min
     TRV_KEEP_SELECT_MIN_S = 600.0     # select guardian cadence
     TRV_KEEP_DRIFT_C = 2.0            # TRV-vs-room divergence that matters
     TRV_KEEP_DRIFT_S = 900.0          # ...sustained this long → flag
@@ -1376,9 +1377,18 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                              now: float) -> bool:
         if room is None:
             return False
-        if fed is not None and abs(room - fed) < self.TRV_KEEP_FEED_DELTA:
-            return False
-        return now - self._trv_keep_feed_at >= self.TRV_KEEP_FEED_MIN_S
+        aged = now - self._trv_keep_feed_at >= self.TRV_KEEP_FEED_KEEPALIVE_S
+        moved = fed is not None and abs(room - fed) >= self.TRV_KEEP_FEED_DELTA
+        fresh_write = now - self._trv_keep_feed_at < self.TRV_KEEP_FEED_MIN_S
+        # The TRVZB times its external source out and silently reverts to
+        # its internal sensor when the input stops being written — including
+        # perfectly stable nights. So a stable room is RE-WRITTEN on a slow
+        # cadence (the community's keep-alive pattern), movement writes fast.
+        if aged:
+            return True
+        if moved and not fresh_write:
+            return True
+        return False
 
     async def trv_keeper_tick(self, now: float, hass) -> None:
         """Feed + guardian + drift watch for the room's TRV (smart only)."""
