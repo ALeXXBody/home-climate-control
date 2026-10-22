@@ -1709,7 +1709,7 @@ class HomeClimatePanel extends HTMLElement {
               <tr style="text-align:left;opacity:.7">
                 <th>Room</th><th>Control</th><th>TRV</th><th>Mode</th>
                 <th>Room °C</th><th>Target</th><th>Demand</th>
-                <th>Valve</th><th>Temp source</th><th>Window</th>
+                <th>Valve cap</th><th>Temp source</th><th>Window</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>

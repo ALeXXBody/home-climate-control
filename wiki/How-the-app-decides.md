@@ -72,6 +72,8 @@ Table 3). `demand` = 0..1 = how far below setpoint the room is, clamped to
 | 7 | A smart room demands heat but its TRV valve stands at 0% for 15 minutes (no window, heat mode, TRV not already heating) | **stuck-valve failover**: HCC writes the valve opening directly (demand-proportional, rate-limited); one HA notification explains it |
 | 8 | The TRV resumes its own modulation (reports heating), or demand ends, or supervision drops | HCC hands the valve back and stands down 30 min |
 
+> Note on Sonoff TRVZB semantics: the `valve_opening_degree` number it publishes is a **cap** ("the position the valve may reach when it opens"), not the live physical position — the Debug tab labels it honestly as *Valve cap*. The TRV's own loop (with its configurable control band, factory 1 °C hysteresis) decides when the valve actually moves.
+
 ## Table 5a — The TRV external-temperature keeper (smart rooms)
 
 Generator of truth: Zigbee2MQTT #29650 (TRVZB flaps its source select; closed unfixed upstream) and firmware 1.4.x silently falling back to the internal sensor when the feed stalls.
