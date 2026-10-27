@@ -128,6 +128,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         self._valve_failover_cmd: float | None = None
         self._valve_failover_cmd_at: float = 0.0
         self._valve_failover_idle_since: float | None = None
+        self._valve_failover_saved_cap: float | None = None
         # TRV external-temperature keeper (smart rooms; see trv_keeper_tick):
         # HCC owns the feed, the select re-assert and the drift watch, so a
         # TRV whose vendor integration keeps flapping its source still runs
@@ -431,6 +432,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
             "valve_pct": self._valve_pct,
             "valve_failover": bool(getattr(self, "_valve_failover", False)),
             "trv_drift": bool(getattr(self, "_trv_drift", False)),
+            "trv_action": (getattr(self._trv_state(), "attributes", {})
+                           or {}).get("hvac_action"),
             "balance": self.balance.report(),
             "radiator_kw": self.radiator_kw,
             "radiator_kw_est": self._radiator_kw_est,
@@ -1213,17 +1216,32 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
     def _valve_failover_stop(self, now: float, reason: str) -> None:
         if not self._valve_failover:
             return
-        was_cmd = self._valve_failover_cmd
         self._valve_failover = False
         self._valve_failover_cmd = None
         self._valve_failover_idle_since = None
         self._valve_stuck_since = None
         self._valve_failover_rearm_until = now + 1800.0
+        saved = getattr(self, "_valve_failover_saved_cap", None)
+        self._valve_failover_saved_cap = None
+        restore = 100.0   # vendor-neutral: fully open "when it decides to"
+        if saved is not None and saved > 5.0:
+            restore = saved   # the room's own configured cap (never a 0-latch)
+        self._valve_failover_cmd = restore   # keep-alive cadence is idle now
+        try:
+            self.hass.async_create_task(
+                self.hass.services.async_call(
+                    "number", "set_value",
+                    {"entity_id": self._trv_position_entity,
+                     "value": restore},
+                    blocking=False,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            pass
         self._debug(
             "valve",
             f"{self._zone_name()}: valve failover hand-back ({reason}) — "
-            "the TRV owns its valve again"
-            + (f" (left at {was_cmd:.0f}%)" if was_cmd else ""),
+            f"the TRV owns its valve again (cap restored to {restore:.0f}%)",
         )
 
     async def valve_failover_tick(self, now: float, hass) -> None:
@@ -1267,6 +1285,8 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
                     self._valve_stuck_since = None
                     self._valve_failover_cmd = None
                     self._valve_failover_idle_since = None
+                    # remember the room's cap so hand-back can restore it
+                    self._valve_failover_saved_cap = cur
                     self._debug(
                         "valve",
                         f"{self._zone_name()}: valve failover ENGAGED — the "

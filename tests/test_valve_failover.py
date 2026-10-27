@@ -161,3 +161,43 @@ def test_apply_drives_valve_when_engaged():
     args = hass.services.async_call.call_args[0]
     assert args[0] == "number" and args[1] == "set_value"
     assert args[2]["value"] > 0
+
+
+def test_handback_restores_the_room_cap():
+    """Stand-down writes the room's pre-failover cap back (vendor-neutral
+    100% when the latch was the zero-stuck state — never re-create that)."""
+    z, _ = _failover_fields(_zone(trv_action="heating"), engaged=True)
+    z._valve_failover_saved_cap = 59.0
+    import asyncio
+    asyncio.run(z.valve_failover_tick(NOW, z.hass))
+    assert z._valve_failover_cmd == 59.0
+    calls = [c for c in z.hass.services.async_call.call_args_list
+             if c[0][:2] == ("number", "set_value")]
+    assert calls and calls[-1][0][2]["value"] == 59.0
+
+
+def test_handback_never_restores_a_zero_latch():
+    z, _ = _failover_fields(_zone(trv_action="heating"), engaged=True)
+    z._valve_failover_saved_cap = 0.0    # the stuck-at-zero curse
+    import asyncio
+    asyncio.run(z.valve_failover_tick(NOW, z.hass))
+    calls = [c for c in z.hass.services.async_call.call_args_list
+             if c[0][:2] == ("number", "set_value")]
+    assert calls and calls[-1][0][2]["value"] == 100.0
+
+
+def test_handback_without_saved_cap_is_factory_neutral():
+    z, _ = _failover_fields(_zone(trv_action="heating"), engaged=True)
+    import asyncio
+    asyncio.run(z.valve_failover_tick(NOW, z.hass))
+    calls = [c for c in z.hass.services.async_call.call_args_list
+             if c[0][:2] == ("number", "set_value")]
+    assert calls and calls[-1][0][2]["value"] == 100.0
+
+
+def test_engage_remembers_the_cap():
+    z, hass = _failover_fields(_zone(cur_pct=0.0))
+    z._valve_stuck_since = NOW - 901.0
+    import asyncio
+    asyncio.run(z.valve_failover_tick(NOW, hass))
+    assert z._valve_failover_saved_cap == 0.0

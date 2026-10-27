@@ -1694,7 +1694,7 @@ class HomeClimatePanel extends HTMLElement {
         <td>${this._fmt(z.current_temperature)}°C</td>
         <td>${target}</td>
         <td>${demand}</td>
-        <td>${valve}</td>
+        <td>${valve}${z.trv_action ? `<span class="sub" style="margin-left:.35rem">· ${this._esc(String(z.trv_action))}</span>` : ""}</td>
         <td>${src}</td>
         <td>${z.window_open ? "🪟" : ""}</td>
       </tr>`;

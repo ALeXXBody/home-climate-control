@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.22.1"
+INTEGRATION_VERSION = "1.22.2"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
