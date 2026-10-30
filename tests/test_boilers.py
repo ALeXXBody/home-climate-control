@@ -83,6 +83,10 @@ def test_update_checker_fetch_path():
 
     hass = MagicMock()
     uc = UpdateChecker(hass)
+    # deterministic "long since the last check": on a fresh CI container the
+    # monotonic clock starts below MIN_CHECK_INTERVAL_S and the cached
+    # early-out would own the call.
+    uc._last_fetch = -1e9
     uc._outdated_devices = lambda latest: [
         {"node_id": "n1", "version": "1.0.0"}
     ]
@@ -93,7 +97,6 @@ def test_update_checker_fetch_path():
         ac.async_get_clientsession.return_value = session
         info = asyncio.run(uc.async_check())
 
-    print("CHECKER-PROBE", info, flush=True)
     assert info["available"] is True
     assert info["latest_version"] == "1.0.2"
     assert info["outdated_devices"][0]["node_id"] == "n1"

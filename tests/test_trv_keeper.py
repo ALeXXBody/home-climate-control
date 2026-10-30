@@ -77,27 +77,7 @@ def test_item_entities_derived_from_slug():
 
 def test_feed_writes_room_temp():
     z, hass, _ = _zone(cur=18.4, ext=18.2)
-    import sys, traceback
-    imp, sel = z._trv_keep_entities()
-    room = z._temp_current()
-    try:
-        asyncio.run(z.trv_keeper_tick(NOW, hass))
-    except Exception:
-        traceback.print_exc()
-        raise
-    st = hass.states.get(INPUT)
-    fed = None
-    try:
-        fed = float(st.state) if st else None
-    except (TypeError, ValueError):
-        fed = None
-    want = z.trv_feed_wants_write(fed, room, NOW)
-    print("KEEPER-PROBE imp=%r sel=%r room=%r fed=%r feed_entity=%r "
-          "select_entity=%r at=%r want=%r heater=%r" % (
-              imp, sel, room, fed, z._trv_keep_feed_entity,
-              z._trv_keep_select_entity, z._trv_keep_feed_at, want,
-              z.heater_control),
-          file=sys.stderr, flush=True)
+    asyncio.run(z.trv_keeper_tick(NOW, hass))
     calls = _calls(hass, "number")
     assert len(calls) == 1
     assert calls[0][0][2]["value"] == 18.4
