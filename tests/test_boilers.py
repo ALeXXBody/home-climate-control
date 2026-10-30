@@ -93,6 +93,7 @@ def test_update_checker_fetch_path():
         ac.async_get_clientsession.return_value = session
         info = asyncio.run(uc.async_check())
 
+    print("CHECKER-PROBE", info, flush=True)
     assert info["available"] is True
     assert info["latest_version"] == "1.0.2"
     assert info["outdated_devices"][0]["node_id"] == "n1"

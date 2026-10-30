@@ -16,7 +16,8 @@ import pytest
 from homeassistant.components.climate import HVACMode
 from custom_components.home_climate_control.zone import ZoneClimateEntity
 
-NOW = time.monotonic()
+NOW = 4_000_000.0  # deterministic aged clock: threshold arithmetic
+                       # must not depend on the runner's monotonic uptime
 INPUT = "number.office_trv_external_temperature_input"
 SELECT = "select.office_trv_temperature_sensor_select"
 CLIMATE = "climate.office_trv"

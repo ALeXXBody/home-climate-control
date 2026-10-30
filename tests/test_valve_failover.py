@@ -48,7 +48,8 @@ def _zone(heat_control="smart", demand=0.6, cur_pct=0.0,
     return z, hass
 
 
-NOW = time.monotonic()
+NOW = 4_000_000.0  # deterministic aged clock: threshold arithmetic
+                       # must not depend on the runner's monotonic uptime
 VALVE_EID = "number.office_trv_valve_opening_degree"
 
 
