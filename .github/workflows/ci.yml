@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test deps
-        run: pip install pytest pyflakes aiohttp cryptography
+        run: pip install pytest pyflakes aiohttp cryptography voluptuous
       - name: Static analysis (pyflakes)
         run: pyflakes custom_components/home_climate_control/
       - name: Unit + import smoke tests
