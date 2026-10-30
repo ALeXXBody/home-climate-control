@@ -1341,6 +1341,12 @@ class CentralController:
         cap = getattr(self.backend, "tset_cap", None)
         if cap is not None:
             data["tset_cap"] = float(cap)
+        nodes = getattr(self.backend, "diagnostics", None)
+        if callable(nodes):
+            try:
+                data["backend_nodes"] = nodes()
+            except Exception:  # noqa: BLE001
+                pass
         if self.autotune is not None:
             data["autotune"] = self.autotune.as_dict()
         if self._flowcap_suggestion:

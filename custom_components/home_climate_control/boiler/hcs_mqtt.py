@@ -137,6 +137,24 @@ class HcsMqttBackend(BoilerBackend):
             unsub()
         self._unsubs.clear()
 
+    def diagnostics(self) -> dict:
+        """Per-node raw view — the get_status surface shows it so a live
+        hub/board disagreement (e.g. tset_cap never surfacing while the
+        board holds it) is visible from the panel, not guessed at."""
+        return {
+            "nodes": {
+                nid: {
+                    "online": st.online,
+                    "ot_valid": st.ot_valid,
+                    "tset_cap": st.tset_cap,
+                    "last_rx": (
+                        round(st.last_rx, 1) if st.last_rx is not None else None
+                    ),
+                }
+                for nid, st in self._nodes.items()
+            }
+        }
+
     # --- dispatch ------------------------------------------------------------
     @callback
     def _on_topic(self, topic: str, payload) -> None:
