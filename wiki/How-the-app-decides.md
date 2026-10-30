@@ -334,10 +334,15 @@ sensors, learner scorecards, gas stats. All bounded.
   gate (third-party release assets without digest), CO2/wind/solar/valve NaN
   boundaries, gas gap under-count *documented* (fix planned), stale-restore
   validation (documented).
-- **[OPEN — planned]** ZonesBackup restore validation (1.4/11.2), setup-window
-  scheduler cleanup (1.2), gas gap bridging (7.2), post-cap balancing
-  verification pass, insulation-k setback depth, exercise-task evidence
-  improvements, AIpromotion criteria (after shadow winters).
+- **[OPEN — planned]** Post-cap balancing verification pass (needs steady
+  winter data), insulation-k setback depth (mid-winter change needs its own
+  review), floor preheat (needs a floor pilot house), AI promotion criteria
+  (after shadow winters), hub-side tset_cap ingestion trace (live anomaly
+  under diagnosis; the board clamps correctly regardless).
+- **[CLOSED — previously open]** ZonesBackup restore sanitization (v1.18.5),
+  setup-window scheduler cleanup (v1.17.6), gas last-t bridging (v1.18.4),
+  exercise task bound to entity lifetime (v1.21.0), escape-pause cap
+  (v1.19.0), TRVZB keeper family (v1.22.x).
 - **[CLOSED since v1.19–1.21]** ESP8266 OTA signing, MQTT gw_override clamp,
   TSet clamp (board, learned echo ceiling), OTA delivery rewrite
   (verified-pair serving), stuck-valve failover (hub takeover + hand-back).
