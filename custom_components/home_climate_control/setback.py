@@ -33,6 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_KEY = "home_climate_control_setbacks"
 STORAGE_VERSION = 1
 
+from .insulation import depth_scale_for_k
 from .preheat import setback_depth_c
 
 SETBACK_PRESETS = ("away", "eco")
@@ -62,6 +63,8 @@ class _RoomState:
 
 class SetbackLearner:
     """Tracks per-room thermal behaviour around away/eco periods."""
+
+    _insulation_k = None   # optional (zone) -> loss factor accessor
 
     def __init__(self, hass, *, enabled: bool = True) -> None:
         self.hass = hass
@@ -187,6 +190,14 @@ class SetbackLearner:
                 self._persist()
 
     # --------------------------------------------------------------- output
+    def set_insulation_lookup(self, fn) -> None:
+        """Inject the room loss-factor accessor (InsulationScorer.k_for).
+
+        Feeds the setback-depth scaling: poorly insulated rooms get a
+        shallower learned setback, tight envelopes can afford deeper.
+        """
+        self._insulation_k = fn
+
     def inject_warm_rate(self, zone: str, rate_cph: float) -> None:
         """Seed a measured warm-up rate from a calibration session.
 
@@ -235,6 +246,8 @@ class SetbackLearner:
         ):
             return fallback
         depth = setback_depth_c(st.warm_ema, dead_time_s)
+        if self._insulation_k is not None:
+            depth *= depth_scale_for_k(self._insulation_k(zone))
         return max(LEARNED_MIN_C, min(LEARNED_MAX_C, -depth))
 
     def as_dict(self) -> dict[str, Any]:

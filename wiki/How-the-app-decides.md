@@ -133,6 +133,19 @@ Generator of truth: Zigbee2MQTT #29650 (TRVZB flaps its source select; closed un
 | 2 | A fit is worse than the stored one | keep the previous model (rollback) |
 | 3 | The model predicts | logged next to reality by the control loop — never influence control |
 
+## Table 5b — Learned setback depth and the insulation factor
+
+The setback learner sizes each room's depth as recoverable-within-target (warm rate × recovery window, clamped 1–5 °C). The room's weather-normalized loss factor k (see the insulation scoring card) now modulates that depth once it is mature:
+
+| Room envelope | k band | Learned depth multiplier |
+|---|---|---|
+| excellent | k < 0.04 | ×1.15 (deeper allowed) |
+| good | 0.04–0.08 | ×1.00 (unchanged) |
+| fair | 0.08–0.14 | ×0.90 |
+| poor | k ≥ 0.14 | ×0.80 (shallower) |
+
+Rationale: a leaky room surrenders heat faster inside the setback — the same absolute drop costs more recovery; a tight envelope gives it up cheaply. The final clamps (1–5 °C) still apply; k is ignored until its EMA is mature, and its absence changes nothing.
+
 ## Table 10 — The schedule / occupancy / central-mode ladder
 
 | # | When | Then |
@@ -335,14 +348,14 @@ sensors, learner scorecards, gas stats. All bounded.
   boundaries, gas gap under-count *documented* (fix planned), stale-restore
   validation (documented).
 - **[OPEN — planned]** Post-cap balancing verification pass (needs steady
-  winter data), insulation-k setback depth (mid-winter change needs its own
-  review), floor preheat (needs a floor pilot house), AI promotion criteria
+  winter data), floor preheat (needs a floor pilot house), AI promotion criteria
   (after shadow winters), hub-side tset_cap ingestion trace (live anomaly
   under diagnosis; the board clamps correctly regardless).
 - **[CLOSED — previously open]** ZonesBackup restore sanitization (v1.18.5),
   setup-window scheduler cleanup (v1.17.6), gas last-t bridging (v1.18.4),
   exercise task bound to entity lifetime (v1.21.0), escape-pause cap
-  (v1.19.0), TRVZB keeper family (v1.22.x).
+  (v1.19.0), TRVZB keeper family + insulation-scaled setback depth
+  (v1.22.x).
 - **[CLOSED since v1.19–1.21]** ESP8266 OTA signing, MQTT gw_override clamp,
   TSet clamp (board, learned echo ceiling), OTA delivery rewrite
   (verified-pair serving), stuck-valve failover (hub takeover + hand-back).

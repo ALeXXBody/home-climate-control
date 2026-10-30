@@ -221,6 +221,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     deadtime = DeadTimeEstimator(hass)
     await deadtime.async_load()
     insulation = InsulationScorer(hass)
+    setbacks.set_insulation_lookup(insulation.k_for)
     await insulation.async_load()
     datalogger = TrainingDataLogger(hass)
     datalogger.async_start(hass)

@@ -63,14 +63,37 @@ def label_for(k: float) -> str:
     return "poor"
 
 
+K_MATURE_MIN = 4   # EMA samples before k is trusted for decisions
+
+# Setback-depth scaling by loss factor: a leaky room cools faster inside the
+# setback, so the same absolute drop costs more recovery — trim its depth; a
+# tight envelope gives heat up cheaply — allow it a deeper cut.
+DEPTH_SCALES = (   # (upper-bound-of-band, multiplier) — first match wins
+    (0.04, 1.15),  # excellent
+    (0.08, 1.00),  # good
+    (0.14, 0.90),  # fair
+)
+
+
+def depth_scale_for_k(k: float | None) -> float:
+    """Setback-depth multiplier for a room's loss factor k (None → 1.0)."""
+    if k is None:
+        return 1.0
+    for limit, mul in DEPTH_SCALES:
+        if k < limit:
+            return mul
+    return 0.80       # poor
+
+
 class _RoomState:
-    __slots__ = ("last_ts", "last_temp", "active", "k_ema")
+    __slots__ = ("last_ts", "last_temp", "active", "k_ema", "samples")
 
     def __init__(self) -> None:
         self.last_ts: float | None = None
         self.last_temp: float | None = None
         self.active = False     # inside a qualifying cool-down stretch?
         self.k_ema: float | None = None
+        self.samples = 0        # instantaneous k inputs EMA'd into k_ema
 
 
 class InsulationScorer:
@@ -101,6 +124,10 @@ class InsulationScorer:
                 st = self._room(name)
                 st.k_ema = float(v)
                 st.active = False
+                sv = r.get("samples")
+                # older stores have the EMA without the counter: treat it
+                # as mature — it accumulated real cool-down stretches.
+                st.samples = int(sv) if isinstance(sv, int) else K_MATURE_MIN
         if data:
             _LOGGER.info("Insulation scores restored for %d room(s)", len(data))
 
@@ -108,7 +135,7 @@ class InsulationScorer:
         if self._store is None:
             return
         payload = {
-            name: {"k": st.k_ema}
+            name: {"k": st.k_ema, "samples": st.samples}
             for name, st in self.rooms.items()
             if st.k_ema is not None
         }
@@ -158,6 +185,7 @@ class InsulationScorer:
         denom = max(DENOM_MIN_K, temp - outdoor)
         k_i = (drop / (span / 3600.0)) / denom
         k_i = max(K_MIN, min(K_MAX, k_i))
+        st.samples += 1
         st.k_ema = k_i if st.k_ema is None else st.k_ema + EMA_ALPHA * (k_i - st.k_ema)
         st.last_ts, st.last_temp = ts, temp
         self._persist()
@@ -171,6 +199,13 @@ class InsulationScorer:
         if st is None or st.k_ema is None:
             return None
         return label_for(st.k_ema), st.k_ema
+
+    def k_for(self, zone: str) -> float | None:
+        """Raw loss factor for decision-making, or None while immature."""
+        st = self.rooms.get(zone)
+        if st is None or st.k_ema is None or st.samples < K_MATURE_MIN:
+            return None
+        return float(st.k_ema)
 
     def as_dict(self) -> dict[str, Any]:
         rooms = {}
