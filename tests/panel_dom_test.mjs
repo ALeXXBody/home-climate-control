@@ -436,7 +436,9 @@ el._otlogLines = [
 ];
 el._tab = "devices";
 el._render();
-await new Promise((r) => setTimeout(r, 10));
+// fresh cloud runners can be slow to settle the render pipeline between
+// synchronous DOM builds — give it a real beat (10 ms was CI-flaky).
+await new Promise((r) => setTimeout(r, 80));
 const pre = el.shadowRoot.getElementById("hcc-otlog-pre");
 check(!!pre, "otlog: console <pre> missing");
 check(pre.textContent.includes("Status") && pre.textContent.includes("21.50"),
