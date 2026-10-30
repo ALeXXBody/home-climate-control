@@ -47,6 +47,20 @@ external temperatures (now also HCC-keeper-fed).
 - Room areas/radiator-power: manual config + duty maps shipped (v1.19.0);
   (auto-"inference" from data remains an idea only).
 
+## Parked idea — "side quest": merge HCC into HCS on an ESP32
+(User-defined: explore in a future conversation.) The analysis done here,
+to be picked up as-is:
+- RAM/CPU/flash are NOT the blockers (measured: app 1.3 MB in the 1.44 MB
+  slot; static DRAM 68 KB; room state KB-scale; learner already streams —
+  fit state ≈15 KB/room; littlefs could hold rolling windows ~470 KB).
+- The real costs: porting the Python control plane to C++ (2–4 disciplined
+  weeks with test parity), the Zigbee side stays external (TRVs need Z2M
+  somewhere), and HA-sourced inputs (occupancy, presence, alerts).
+- Suggested starting point when this opens: a thermostat-first core
+  (zones + PID + schedule + curve + failsafe) behind a build flag on a
+  16 MB board, HCC/HA as the dashboard, then grow features in C++ through
+  the existing release discipline.
+
 ## Standing policies (keep honoring)
 1. A release ships only after the user's explicit go; field testing stays the
    user's gate afterwards.
