@@ -18,7 +18,7 @@ jobs:
           echo "tag build: expecting version '$VER'"
           grep -qx "INTEGRATION_VERSION = \"$VER\"" custom_components/home_climate_control/const.py \
             || { echo "::error::const.py has not '$VER' — was the version bumped?"; exit 1; }
-          grep -qE '^  "version": "$VER",?$' custom_components/home_climate_control/manifest.json \
+          grep -qE "^  \"version\": \"$VER\",?$" custom_components/home_climate_control/manifest.json \
             || { echo "::error::manifest.json has not '$VER' — was the version bumped?"; exit 1; }
       - uses: actions/setup-python@v5
         with:
