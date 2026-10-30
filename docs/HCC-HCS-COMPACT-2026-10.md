@@ -8,7 +8,7 @@ Home Climate Control (HCC) = a HA custom integration + localStorage-backed panel
 that orchestrates rooms via addressable TRVs (Sonoff TRVZB on Zigbee2MQTT),
 a connection-loss failsafe, weather-comp/duty/condensing logic, autotune and
 AI-shadow learning (never controlling until promoted). Home Climate System
-(HCS) = the OpenTherm board firmware (ESP32 D1 mini deployed at 192.168.50.225;
+(HCS) = the OpenTherm board firmware (ESP32 D1 mini deployed at 192.168.50.21;
 partitions_xl_ota; ECDSA-signed OTA; learned boiler ceiling). HCC drives the
 board over retained MQTT; Z2M carries the TRVs; the user's automations feed
 external temperatures (now also HCC-keeper-fed).
@@ -80,7 +80,7 @@ Key commands
 - Fresh live snapshot for any claim:
   ws://192.168.50.20:8123/api/websocket (read-only HA token) →
   home_climate_control/get_status ✓ board /api/status ✓ device UI
-- HCS board admin password: test1234 (portal 192.168.50.225; the portal
+- HCS board admin password: test1234 (portal 192.168.50.21; the portal
   password field is separate from MQTT creds).
 
 Lessons etched (do not relearn)
