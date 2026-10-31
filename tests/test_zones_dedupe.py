@@ -95,3 +95,21 @@ def test_build_zone_config_radiator_w_bounds():
                 trv_climates=["climate.office_trv"],
                 radiator_w=bad,
             )
+
+
+def test_non_floor_edit_does_not_inject_floor_loop_keys():
+    """The v1.24.1 fix: a non-floor room's edit form sent floor_loop/flow/
+    mixer/pump/surface as None on the wire, which the schema correctly
+    rejected. Non-floor edits must leave all five keys out entirely."""
+    from custom_components.home_climate_control.websocket_api import build_zone_config
+    keys = ("floor_loop_entity", "floor_mixer_entity", "floor_surface_sensor",
+            "floor_flow_sensor", "floor_pump_entity")
+    cfg = build_zone_config(
+        [], name="Office", heat_control="smart",
+        trv_climates=["climate.office_trv"], radiator_w=1336,
+        floor_loop_entity=None, floor_mixer_entity=None,
+        floor_surface_sensor=None, floor_flow_sensor=None,
+        floor_pump_entity=None,
+    )
+    assert not [k for k in keys if k in cfg]
+    assert cfg.get("radiator_kw") == 1.336           # watts still convert

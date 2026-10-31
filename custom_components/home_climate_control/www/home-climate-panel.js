@@ -3390,9 +3390,9 @@ class HomeClimatePanel extends HTMLElement {
       if (fEl) {
         // Edit form has floor fields when the system selector shows them;
         // send only what's actually in the DOM (same preservation rule).
-        if (system === "floor" || fEl.value || fEl.parentElement) {
-          payload.heat_control = system === "floor"
-            ? "floor" : heat_control;
+        if (system === "floor" && fEl) {
+          // Floor room: the_loop keys are sent so explicit clears stay possible.
+          payload.heat_control = "floor";
           payload.floor_loop_entity = (fEl.value || "").trim() || null;
           const fm = root.getElementById("er-floor-mixer");
           if (fm) payload.floor_mixer_entity = (fm.value || "").trim() || null;
@@ -3403,6 +3403,9 @@ class HomeClimatePanel extends HTMLElement {
           const fp = root.getElementById("er-floor-pump");
           if (fp) payload.floor_pump_entity = (fp.value || "").trim() || null;
         }
+        // Non-floor edits send NOTHING for these keys: nulls don't belong on
+        // the wire for a radiator room, and omitting keys can never wipe the
+        // stored ones.
       }
       this._editingZone = null;
       this._adminZone("rename_zone", payload);
