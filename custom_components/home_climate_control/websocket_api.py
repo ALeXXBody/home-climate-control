@@ -1213,6 +1213,7 @@ async def ws_rename_zone(
     co2_sensor = msg.get("co2_sensor")
     trv_position_entity = msg.get("trv_position_entity")
     radiator_kw = msg.get("radiator_kw")
+    radiator_w = msg.get("radiator_w")
     humidity_sensor = msg.get("humidity_sensor")
     floor_fields = {
         k: msg.get(k)
@@ -1233,6 +1234,7 @@ async def ws_rename_zone(
         or "co2_sensor" in msg
         or "trv_position_entity" in msg
         or "radiator_kw" in msg
+        or "radiator_w" in msg
     )
     err = validate_zone_update(
         [n for n in names if n != msg["zone"]],
@@ -1402,7 +1404,28 @@ async def ws_rename_zone(
                 z[CONF_ZONE_TRV_POSITION] = valve
             else:
                 z.pop(CONF_ZONE_TRV_POSITION, None)
-        if "radiator_kw" in msg:
+        if "radiator_w" in msg:
+            # The UI unit (whole watts); kW is the stored unit.
+            if radiator_w is None:
+                z.pop(CONF_ZONE_RADIATOR_KW, None)
+            else:
+                try:
+                    rw = int(radiator_w)
+                except (TypeError, ValueError):
+                    connection.send_error(
+                        msg["id"], "invalid_zone",
+                        "radiator_w must be a whole number of watts",
+                    )
+                    return
+                if not 0 <= rw <= 20000:
+                    connection.send_error(
+                        msg["id"], "invalid_zone",
+                        "radiator_w must be between 0 and 20000",
+                    )
+                    return
+                z[CONF_ZONE_RADIATOR_KW] = rw / 1000.0
+        elif "radiator_kw" in msg:
+            # Legacy payload unit — kept for older integrations/scripts.
             if radiator_kw is None:
                 z.pop(CONF_ZONE_RADIATOR_KW, None)
             else:
@@ -1517,6 +1540,7 @@ async def ws_add_zone(
             lux_sensor=msg.get("lux_sensor"),
             co2_sensor=msg.get("co2_sensor"),
             trv_position_entity=auto_valve,
+            radiator_w=msg.get("radiator_w"),
             radiator_kw=msg.get("radiator_kw"),
             floor_loop_entity=msg.get("floor_loop_entity"),
             floor_mixer_entity=msg.get("floor_mixer_entity"),
