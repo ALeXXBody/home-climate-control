@@ -1179,6 +1179,12 @@ def validate_zone_update(
         vol.Optional("trv_position_entity"): vol.Any(str, None),
         vol.Optional("radiator_kw"): vol.Any(vol.Coerce(float), None),
         vol.Optional("radiator_w"): vol.Any(vol.Coerce(int), None),
+        vol.Optional("floor_loop_entity"): vol.Any(str, None),
+        vol.Optional("floor_mixer_entity"): vol.Any(str, None),
+        vol.Optional("floor_surface_sensor"): vol.Any(str, None),
+        vol.Optional("floor_flow_sensor"): vol.Any(str, None),
+        vol.Optional("floor_pump_entity"): vol.Any(str, None),
+        vol.Optional("floor_surface_max"): vol.Any(vol.Coerce(float), None),
     }
 )
 @websocket_api.async_response
