@@ -9,6 +9,8 @@ the first (stale/empty) always won. Users saw: TRV/temp/floor never save,
 rooms always show old values.
 """
 
+import pytest
+
 from custom_components.home_climate_control import _dedupe_zones
 from custom_components.home_climate_control.const import CONF_ZONES
 
@@ -63,3 +65,33 @@ def test_add_zone_rejects_duplicate_even_with_empty_controller():
     }))
     conn.send_error.assert_called_once()
     hass.config_entries.async_update_entry.assert_not_called()
+
+
+# ── radiator power in watts (v1.24.0): the field the user types ──────────
+# W is whole-number friendly (no decimal separators to fight in European
+# keyboards); kW stays the stored unit for duty maps and room rows.
+
+def test_build_zone_config_accepts_radiator_watts():
+    from custom_components.home_climate_control.websocket_api import build_zone_config
+    cfg = build_zone_config(
+        [], name="Office", heat_control="smart",
+        trv_climates=["climate.office_trv"],
+        radiator_w=1336,
+    )
+    assert cfg["radiator_kw"] == 1.336                # W → kW stored
+    assert build_zone_config(
+        [], name="Office", heat_control="smart",
+        trv_climates=["climate.office_trv"],
+        radiator_w=None,
+    ).get("radiator_kw") is None                     # clearing stays clearing
+
+
+def test_build_zone_config_radiator_w_bounds():
+    from custom_components.home_climate_control.websocket_api import build_zone_config
+    for bad in (25000, -5):
+        with pytest.raises(ValueError, match="radiator_w"):
+            build_zone_config(
+                [], name="Office", heat_control="smart",
+                trv_climates=["climate.office_trv"],
+                radiator_w=bad,
+            )

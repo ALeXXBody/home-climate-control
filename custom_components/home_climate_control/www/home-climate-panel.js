@@ -2123,7 +2123,7 @@ class HomeClimatePanel extends HTMLElement {
     const curCo2 = isEdit ? (z.co2_sensor || "") : "";
     const curValve = isEdit ? (z.trv_position_entity || "") : "";
     const curHumidity = isEdit ? (z.humidity_sensor || "") : "";
-    const curRadKw = isEdit && z.radiator_kw != null ? z.radiator_kw : "";
+    const curRadW = isEdit && z.radiator_kw != null ? Math.round(z.radiator_kw * 1000) : "";
     const curName = isEdit ? (z.name || "") : "";
     const curControl = isEdit ? (z.heat_control || "smart") : "smart";
     const curFloor = isEdit ? String(z.floor ?? 0) : "0";
@@ -2182,8 +2182,8 @@ class HomeClimatePanel extends HTMLElement {
         <div class="row"><label>TRV valve position<br><span style="font-weight:400">(optional)</span></label>
           <input id="${prefix}-valve" list="${prefix}-valves" value="${this._esc(curValve)}" placeholder="sensor.°/number.… 0-100%" style="flex:1">
           <datalist id="${prefix}-valves">${valveSensors.map((c) => `<option value="${this._esc(c)}">${this._esc(friendly(c))}</option>`).join("")}</datalist></div>
-        <div class="row"><label>Radiator nominal kW<br><span style="font-weight:400">(optional, nominal at ΔT50)</span></label>
-          <input id="${prefix}-radkw" type="number" step="0.1" min="0" max="20" value="${this._esc(curRadKw)}" placeholder="e.g. 1.8" style="flex:1"></div>
+        <div class="row"><label>Radiator nominal power in W<br><span style="font-weight:400">(optional — nominal at ΔT50; 0–20000)</span></label>
+          <input id="${prefix}-radkw" type="text" inputmode="numeric" value="${this._esc(curRadW)}" placeholder="e.g. 1800" style="flex:1"></div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button type="button" class="a" data-zone-action="${action}" ${isEdit ? `data-zone-name="${this._esc(z.name || "")}"` : ""} style="flex:1">${isEdit ? "Save changes" : "Create room"}</button>
           <button type="button" class="ghost" data-zone-action="${isEdit ? "cancel-edit" : "cancel-add"}" style="flex:1">Cancel</button>
@@ -3319,7 +3319,7 @@ class HomeClimatePanel extends HTMLElement {
       const lux = root.getElementById("nr-lux")?.value?.trim();
       const co2 = root.getElementById("nr-co2")?.value?.trim();
       const valve = root.getElementById("nr-valve")?.value?.trim();
-      const radkw = root.getElementById("nr-radkw")?.value;
+      const radw = root.getElementById("nr-radkw")?.value;
       this._adminZone("add_zone", {
         name, heat_control, floor,
         trv_climates: trv,
@@ -3329,7 +3329,7 @@ class HomeClimatePanel extends HTMLElement {
         lux_sensor: lux || undefined,
         co2_sensor: co2 || undefined,
         trv_position_entity: valve || undefined,
-        radiator_kw: radkw !== "" && radkw != null ? parseFloat(radkw) : undefined,
+        radiator_w: (this._wOrNull(radw) ?? undefined),
         ...floor_fields,
       });
       return;
@@ -3385,11 +3385,7 @@ class HomeClimatePanel extends HTMLElement {
       const vEl = root.getElementById("er-valve");
       if (vEl) payload.trv_position_entity = (vEl.value || "").trim() || null;
       const rEl = root.getElementById("er-radkw");
-      if (rEl) {
-        const radkw = rEl.value;
-        payload.radiator_kw =
-          radkw !== "" && radkw != null ? parseFloat(radkw) : null;
-      }
+      if (rEl) payload.radiator_w = this._wOrNull(rEl.value);
       const fEl = root.getElementById("er-floor-loop");
       if (fEl) {
         // Edit form has floor fields when the system selector shows them;
@@ -3628,6 +3624,25 @@ class HomeClimatePanel extends HTMLElement {
     if (v === null || v === undefined || Number.isNaN(v)) return "—";
     if (typeof v === "number") return (Math.round(v * 10) / 10).toString();
     return String(v);
+  }
+
+  /* Whole-number parser for the watt field: ignores separators/spaces
+     ("1 800", "1800", "1.800" all = 1800 W). null when nothing usable. */
+  _wOrNull(raw) {
+    if (raw == null) return null;
+    const digits = String(raw).replace(/[^0-9]/g, "");
+    if (digits === "") return null;
+    return parseInt(digits, 10);
+  }
+
+  /* Locale-tolerant decimal: accepts "1.336" and "1,336" (common EU
+     keyboards). null when nothing usable — callers decide omit vs send. */
+  _decOrNull(raw) {
+    if (raw == null) return null;
+    const str = String(raw).trim().replace(",", ".");
+    if (str === "") return null;
+    const v = parseFloat(str);
+    return isFinite(v) ? v : null;
   }
 
   _esc(s) {

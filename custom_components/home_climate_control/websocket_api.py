@@ -1008,6 +1008,7 @@ def build_zone_config(
     co2_sensor: str | None = None,
     trv_position_entity: str | None = None,
     radiator_kw: float | None = None,
+    radiator_w: int | None = None,
     floor_loop_entity: str | None = None,
     floor_mixer_entity: str | None = None,
     floor_surface_sensor: str | None = None,
@@ -1084,13 +1085,22 @@ def build_zone_config(
             raise ValueError("floor_surface_max must be a number")
         if not 25.0 <= surface_max <= 35.0:
             raise ValueError("floor_surface_max must be between 25 and 35 °C")
-    if radiator_kw is not None:
+    if radiator_w is not None:
+        try:
+            radiator_w = int(radiator_w)
+        except (TypeError, ValueError):
+            raise ValueError("radiator_w must be a whole number of watts")
+        if not 0 <= radiator_w <= 20000:
+            raise ValueError("radiator_w must be between 0 and 20000 W")
+        # W is the UI unit; kW is the stored unit (duty maps, room rows).
+        radiator_kw = radiator_w / 1000.0
+    elif radiator_kw is not None:
         try:
             radiator_kw = float(radiator_kw)
         except (TypeError, ValueError):
             raise ValueError("radiator_kw must be a number")
         if not 0 <= radiator_kw <= 20:
-            raise ValueError("radiator_kw must be between 0 and 20")
+            raise ValueError("radiator_kw must be between 0 and 20 kW")
     cfg = {
         CONF_ZONE_NAME: name,
         CONF_ZONE_TRV_CLIMATES: trvs,
@@ -1168,6 +1178,7 @@ def validate_zone_update(
         vol.Optional("co2_sensor"): vol.Any(str, None),
         vol.Optional("trv_position_entity"): vol.Any(str, None),
         vol.Optional("radiator_kw"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("radiator_w"): vol.Any(vol.Coerce(int), None),
     }
 )
 @websocket_api.async_response
@@ -1445,6 +1456,7 @@ async def ws_rename_zone(
         vol.Optional("co2_sensor"): str,
         vol.Optional("trv_position_entity"): str,
         vol.Optional("radiator_kw"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("radiator_w"): vol.Any(vol.Coerce(int), None),
         vol.Optional("floor_loop_entity"): str,
         vol.Optional("floor_mixer_entity"): str,
         vol.Optional("floor_surface_sensor"): str,
