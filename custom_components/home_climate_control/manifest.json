@@ -20,6 +20,6 @@
     "home_climate_control"
   ],
   "requirements": [],
-  "version": "1.26.0",
+  "version": "1.26.1",
   "homeassistant": "2026.10.0"
 }
