@@ -990,6 +990,14 @@ class CentralController:
                             )
                     except Exception:  # noqa: BLE001
                         _LOGGER.debug("valve drive failed", exc_info=True)
+            elif getattr(z, "heater_control", None) == "smart" and healthy:
+                # Smart rooms that are not valve-direct still need the
+                # external-temperature feed. The keeper no-ops without a
+                # TRV input entity.
+                try:
+                    await z.trv_keeper_tick(now, self.hass)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("trv keeper failed", exc_info=True)
             elif valve is not None:
                 await self._async_maybe_autocap(z, now)
 

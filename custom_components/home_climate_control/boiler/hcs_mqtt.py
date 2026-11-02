@@ -119,8 +119,12 @@ class HcsMqttBackend(BoilerBackend):
         self._on_topic(msg.topic, msg.payload)
 
     async def _async_http_poll_tick(self, now=None) -> None:
-        """HTTP-primary values refresh — one board at a time."""
-        nid = self._active
+        """HTTP-primary values refresh — one board at a time.
+
+        Must run even without MQTT adoption: the adoption flag itself can
+        only be set by leaf arrivals, which are exactly what may be dead
+        (October 2026). Fall back to the configured preferred node."""
+        nid = self._active or self._preferred
         if nid:
             await self._async_http_poll_status(nid)
 
@@ -134,7 +138,7 @@ class HcsMqttBackend(BoilerBackend):
         / ch_active / tset_cap. MQTT leaves keep their fast cadence; this
         poll is the guarantee."""
         try:
-            from .firmware_manager import get_firmware_manager
+            from ..firmware_manager import get_firmware_manager
 
             mgro = get_firmware_manager(self._hass)
             dev = mgro.devices.get(node_id) if mgro else None
@@ -147,9 +151,14 @@ class HcsMqttBackend(BoilerBackend):
             session = async_get_clientsession(self._hass)
             resp = await session.get(f"http://{dev_ip}/api/status")
             if resp.status != 200:
+                _LOGGER.debug("HTTP poll %s: status %s", node_id, resp.status)
                 return
             d = await resp.json(content_type=None)
-        except Exception:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001
+            now_m = time.monotonic()
+            if now_m - getattr(self, "_poll_fail_log", 0.0) > 900:
+                self._poll_fail_log = now_m
+                _LOGGER.warning("HTTP poll %s failed: %s", node_id, err)
             return
         st = self._nodes.get(node_id)
         if st is None:
@@ -161,20 +170,37 @@ class HcsMqttBackend(BoilerBackend):
             except (TypeError, ValueError):
                 return None
 
-        if _n(d.get("flow_temp")) is not None:
-            st.flow_temp = _n(d.get("flow_temp"))
-        if _n(d.get("return_temp")) is not None:
-            st.return_temp = _n(d.get("return_temp"))
-        if _n(d.get("ch_pressure")) is not None:
-            st.pressure = _n(d.get("ch_pressure"))
-        st.ot_valid = bool(d.get("ot_valid"))
-        st.flame = bool(d.get("flame"))
-        st.ch_active = bool(d.get("ch_active"))
-        cap = _n(d.get("tset_cap"))
-        if cap is not None:
-            st.tset_cap = cap
+        flow = _n(d.get("flow_temp"))
+        ret = _n(d.get("return_temp"))
+        if flow is not None:
+            st.flow_temp = flow
+        if ret is not None:
+            st.return_temp = ret
+        # Portal field is pressure_bar; older payloads used ch_pressure.
+        pressure = _n(d.get("pressure_bar"))
+        if pressure is None:
+            pressure = _n(d.get("ch_pressure"))
+        if pressure is not None:
+            st.pressure = pressure
+        mod = _n(d.get("modulation"))
+        if mod is not None:
+            st.modulation = mod / 256.0 * 100.0 if mod > 100 else mod
+        outdoor = _n(d.get("outdoor_temp"))
+        if outdoor is not None:
+            st.outdoor_temp = outdoor
+            st.outdoor_rx = time.monotonic()
+        # Absent keys must not wipe a value MQTT already delivered.
+        if "ot_valid" in d:
+            st.ot_valid = bool(d.get("ot_valid"))
+        if "flame" in d:
+            st.flame = bool(d.get("flame"))
+        if "ch_active" in d:
+            st.ch_active = bool(d.get("ch_active"))
+        if "tset_cap" in d:
+            st.tset_cap = _n(d.get("tset_cap"))
         st.online = True
         st.last_rx = time.monotonic()   # the poll IS a heartbeat
+        self._maybe_adopt(st)
         if dev is not None:
             ver = str(d.get("version") or "")
             if ver and dev.version != ver:
@@ -205,7 +231,7 @@ class HcsMqttBackend(BoilerBackend):
         def _dispatch(msg) -> None:
             self._on_topic(msg.topic, msg.payload)
 
-        self._unsubs.append(await self._subscribe_leaves())
+        await self._subscribe_leaves()
         # The hub went deaf for 7 days in 2026-10 while everything else
         # said "connected": the hcs/# subscription died silently at the
         # broker and never recovered. A periodic re-assert (re-subscribe is
@@ -242,8 +268,6 @@ class HcsMqttBackend(BoilerBackend):
             self._hass, f"{self._prefix}/#", self._dispatch_fn, 0
         )
         self._sub_unsubs.append(un)
-        # keep async_stop able to kill whatever is live right now
-        self._unsubs = [un]
         return un
 
     async def _async_ingest_watchdog(self, now=None):
@@ -255,8 +279,6 @@ class HcsMqttBackend(BoilerBackend):
             or (time.monotonic() - st.last_rx
                 > HcsMqttBackend.DEAF_WATCH_INACTIVE_S)
         )
-        if self._sub_unsubs_fresh_clare:
-            pass
         # re-subscribe every cycle: HA delivers retained leaves at (re)
         # subscribe and the same callback keeps the routing
         await self._subscribe_leaves()
@@ -293,18 +315,32 @@ class HcsMqttBackend(BoilerBackend):
         )
 
     async def async_stop(self) -> None:
-        for unsub in self._unsubs:
-            unsub()
+        seen: set[int] = set()
+        for unsub in list(self._unsubs) + list(self._sub_unsubs):
+            if id(unsub) in seen:
+                continue
+            seen.add(id(unsub))
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
         self._unsubs.clear()
+        self._sub_unsubs.clear()
 
     def diagnostics(self) -> dict:
-        """Per-node raw view — the get_status surface shows it so a live
-        hub/board disagreement (e.g. tset_cap never surfacing while the
-        board holds it) is visible from the panel, not guessed at."""
-        return {
-            "leaf_count": self._leaf_count,
-            "leaf_topics": list(self._leaf_topics),
-            "nodes": {
+        """Panel fields plus the per-node raw view.
+
+        The home card reads flow_temp / return_temp / modulation_level /
+        flame_on / ch_active off this dict. Overriding diagnostics() without
+        the base fields is what left dashes on the card while the backend
+        already held the numbers.
+        """
+        data = super().diagnostics()
+        data["tset_cap"] = self.tset_cap
+        data["pressure_bar"] = self.pressure_bar
+        data["leaf_count"] = self._leaf_count
+        data["leaf_topics"] = list(self._leaf_topics)
+        data["nodes"] = {
                 nid: {
                     "online": st.online,
                     "ot_valid": st.ot_valid,
@@ -315,7 +351,7 @@ class HcsMqttBackend(BoilerBackend):
                 }
                 for nid, st in self._nodes.items()
             }
-        }
+        return data
 
     # --- dispatch ------------------------------------------------------------
     @callback

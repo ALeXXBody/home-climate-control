@@ -12,6 +12,15 @@ from tests.conftest import install_ha_stubs  # noqa: E402 - run at import
 install_ha_stubs()
 
 
+def test_floor_tick_missing_temperature_does_not_throw():
+    z, hass = _floor_zone(cur=None)
+    asyncio.run(z.floor_tick(0.0, hass, 8.0))
+    ons = _turn_ons(hass)
+    assert ons == [] or all(
+        c.args[1] != "turn_on" for c in hass.services.async_call.call_args_list
+    )
+
+
 def test_floor_room_requires_loop_entity():
     with pytest.raises(ValueError) as exc:
         build_zone_config(

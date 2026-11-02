@@ -1124,8 +1124,16 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         elif not pump_on:
             forced_off = "pump off (interlock)"
 
-        # hysteresis (0.25 on / 0.35 off — a floor hates cycling)
-        if self._floor_state is True:
+        # hysteresis (0.25 on / 0.35 off — a floor hates cycling).
+        # Missing room temperature or setpoint must turn the loop off, not
+        # throw: the subtraction used to run before forced_off was applied.
+        if cur is None or want is None:
+            want_on = False
+            if forced_off is None:
+                forced_off = (
+                    "no room temperature" if cur is None else "no setpoint"
+                )
+        elif self._floor_state is True:
             want_on = want - cur > -0.35
         else:
             want_on = want - cur > 0.25

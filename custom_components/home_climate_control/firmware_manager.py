@@ -1584,7 +1584,10 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
                     break
         else:
             http_err = "no board ip on record"
-        dev.ota_state = "delivered" if (http_ok or mqtt_sent) else "failed"
+        # "starting" is a state the panel and the watchdog already understand.
+        # "delivered" was neither, so a command that only reached MQTT sat
+        # on the card as "Downloading — 0%" forever.
+        dev.ota_state = "starting" if (http_ok or mqtt_sent) else "failed"
         dev.ota_error = "" if (http_ok or mqtt_sent) else (http_err or "no channel")
 
         # Independent delivery proof: read the version straight from the
@@ -1610,6 +1613,22 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
 
         h = hashlib.sha256(local_path.read_bytes()).hexdigest()
         return h != sha
+
+    async def _async_blocking(self, func, *args):
+        """Run a short filesystem call off the event loop.
+
+        Home Assistant's executor is a coroutine. Unit-test hass objects
+        hand back a MagicMock, which cannot be awaited — those call the
+        function directly.
+        """
+        import asyncio
+
+        job = getattr(self.hass, "async_add_executor_job", None)
+        if callable(job):
+            result = job(func, *args)
+            if asyncio.iscoroutine(result):
+                return await result
+        return func(*args)
 
     async def _async_fetch_bin(self, url: str) -> bytes:
         """Production fetch through the hub's aiohttp session."""
@@ -1680,7 +1699,7 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
                 continue
             try:
                 data = await self._async_fetch_bin(src_url)
-                local.write_bytes(data)
+                await self._async_blocking(local.write_bytes, data)
                 manifest_boards[board] = item       # row only after a served bin
                 _LOGGER.info("pre-mirrored %s (%s, %d bytes)",
                              fname, item["version"], len(data))
@@ -1697,11 +1716,16 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
 
         path = self.MIRROR_DIR / "latest.json"
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(_json.dumps({
+        payload = _json.dumps({
             "generated": datetime.now().isoformat(timespec="seconds"),
             "boards": manifest_boards,
-        }))
-        tmp.replace(path)
+        })
+
+        def _write_manifest() -> None:
+            tmp.write_text(payload)
+            tmp.replace(path)
+
+        await self._async_blocking(_write_manifest)
         _LOGGER.debug("latest.json updated: %s", dict(manifest_boards))
 
     async def _async_verify_ota_over_http(
