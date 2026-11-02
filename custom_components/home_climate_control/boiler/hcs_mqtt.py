@@ -49,7 +49,7 @@ class _NodeState:
     """Telemetry cache for one HCS board."""
 
     __slots__ = (
-        "node_id", "last_rx", "online", "ot_valid", "outdoor_temp",
+        "node_id", "last_rx", "telemetry_rx", "online", "ot_valid", "outdoor_temp",
         "outdoor_rx", "flow_temp", "return_temp", "modulation", "pressure",
         "flame", "ch_active", "fault_text", "commanded_setpoint",
         "custom", "sensors_snapshot", "tset_cap",
@@ -58,6 +58,9 @@ class _NodeState:
     def __init__(self, node_id: str) -> None:
         self.node_id = node_id
         self.last_rx: float | None = None
+        # Fresh substantive evidence this node is the one answering —
+        # a retained "online" alone must never promote a stale board.
+        self.telemetry_rx: float | None = None
         self.online: bool | None = None
         self.ot_valid: bool | None = None
         self.outdoor_temp: float | None = None
@@ -116,7 +119,9 @@ class HcsMqttBackend(BoilerBackend):
             self._leaf_count += 1
             self._leaf_topics = ([*self._leaf_topics[-9:], msg.topic]
                                  if hasattr(self, "_leaf_topics") else [msg.topic])
-        self._on_topic(msg.topic, msg.payload)
+        self._on_topic(
+            msg.topic, msg.payload, bool(getattr(msg, "retain", False))
+        )
 
     async def _async_http_poll_tick(self, now=None) -> None:
         """HTTP-primary values refresh — one board at a time.
@@ -200,6 +205,7 @@ class HcsMqttBackend(BoilerBackend):
             st.tset_cap = _n(d.get("tset_cap"))
         st.online = True
         st.last_rx = time.monotonic()   # the poll IS a heartbeat
+        st.telemetry_rx = st.last_rx
         self._maybe_adopt(st)
         if dev is not None:
             ver = str(d.get("version") or "")
@@ -355,7 +361,7 @@ class HcsMqttBackend(BoilerBackend):
 
     # --- dispatch ------------------------------------------------------------
     @callback
-    def _on_topic(self, topic: str, payload) -> None:
+    def _on_topic(self, topic: str, payload, retained: bool = False) -> None:
         text = (
             payload if isinstance(payload, str)
             else payload.decode("utf-8", "replace")
@@ -369,10 +375,10 @@ class HcsMqttBackend(BoilerBackend):
         node, _, key = rest.partition("/")
         if not node or not key:
             return
-        self._on_value(node, key, text)
+        self._on_value(node, key, text, retained=retained)
 
     @callback
-    def _on_value(self, node: str, key: str, text: str) -> None:
+    def _on_value(self, node: str, key: str, text: str, retained: bool = False) -> None:
         st = self._nodes.get(node)
         if st is None:
             st = self._nodes[node] = _NodeState(node)
@@ -383,15 +389,18 @@ class HcsMqttBackend(BoilerBackend):
                 st.online = False
             elif low in ("online", "1", "true", "on"):
                 st.online = True
-                st.last_rx = time.monotonic()  # LWT online = board alive
+                if not retained:
+                    st.last_rx = time.monotonic()  # LWT online = board alive
             self._maybe_adopt(st)
             return
         if key == "ping_discovery" or key.startswith("set/"):
             return
 
-        # Any live telemetry leaf is a heartbeat for this node.
-        st.last_rx = time.monotonic()
-        self._maybe_adopt(st)
+        # Any live substantive, non-retained leaf is a heartbeat for this node.
+        if not retained:
+            st.last_rx = time.monotonic()
+            st.telemetry_rx = st.last_rx
+            self._maybe_adopt(st)
 
         if key.startswith("x/"):
             name = key[2:].strip()
@@ -484,22 +493,29 @@ class HcsMqttBackend(BoilerBackend):
         """Follow the preferred board while it lives; else any live board."""
         if st.node_id == self._active:
             return
-        live = st.online is not False and (
-            st.last_rx is None or time.monotonic() - st.last_rx <= 30
+        now = time.monotonic()
+        fresh_any = st.online is not False and (
+            (st.telemetry_rx is not None and now - st.telemetry_rx <= 30)
+            or (st.last_rx is not None and now - st.last_rx <= 30)
+        )
+        fresh_telemetry = st.online is not False and st.telemetry_rx is not None and (
+            now - st.telemetry_rx <= 30
         )
         if st.node_id == self._preferred:
-            if live:
+            if fresh_any:
                 self._switch(st)
             return
-        # Non-preferred board: only take over when the current one is dead.
+        # Non-preferred board: only take over when the current one is dead
+        # and the candidate has substantive fresh telemetry — not just an
+        # old retained "online" replay.
         cur = self._state()
         cur_dead = (
             cur is None
             or cur.online is False
-            or cur.last_rx is None
-            or time.monotonic() - cur.last_rx > 60
+            or cur.telemetry_rx is None
+            or now - cur.telemetry_rx > 60
         )
-        if live and cur_dead and st.last_rx is not None:
+        if fresh_telemetry and cur_dead:
             self._switch(st)
 
     def _switch(self, st: _NodeState) -> None:

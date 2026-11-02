@@ -49,6 +49,17 @@ def test_poll_runs_without_adoption_state():
     assert calls == ["hcs-a"]                     # the configured node polled
 
 
+def test_retained_phantom_replay_does_not_adopt_stale_board():
+    backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
+    backend._on_value("hcs-c4d8d512d085", "online", "online", retained=True)
+    backend._on_value("hcs-c4d8d512d085", "tset_cap", "40", retained=True)
+    backend._on_value("hcs-c4d8d512d085", "flow_temp", "20", retained=True)
+    assert backend.active_node is None
+
+    backend._on_value("hcs-a", "flow_temp", "55.0")
+    assert backend.active_node == "hcs-a"
+
+
 def test_blank_outdoor_replay_does_not_erase_a_live_reading():
     backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
     backend._on_value("hcs-a", "outdoor_temp", "8.0")
