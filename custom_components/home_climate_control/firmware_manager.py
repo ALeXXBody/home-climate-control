@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import ipaddress
 import logging
 import math
@@ -452,7 +453,7 @@ class FirmwareManager:
             if entries:
                 self.catalog = entries
                 self._catalog_at = now
-                self._async_write_latest_manifest(entries)
+                await self._async_write_latest_manifest(entries)
                 versions = sorted({e["version"] for e in entries}, reverse=True)
                 _LOGGER.info(
                     "Firmware catalog refreshed from releases (%s)", versions[0]
@@ -1226,6 +1227,8 @@ class FirmwareManager:
     _board_admin_pw: dict[str, str] = {}
     _board_admin_store_ready = False
 
+    # Instance-level: test suites patch this per-instance; a global class
+    # attr assignment from one test leaked into every later test.
     MIRROR_DIR = Path(__file__).parent / "www" / "firmware"
 
     @staticmethod
@@ -1514,8 +1517,6 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
         # web server is the channel that has never silently failed —
         # HTTP-direct is the primary; MQTT is the fallback for a board
         # whose HTTP is unreachable but whose broker leg is alive.
-        import asyncio
-
         mqtt_sent = False
         try:
             topic = f"hcs/{node_id}/set/ota_url"
@@ -1602,7 +1603,23 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
             "url": url,
         }
 
-    def _async_write_latest_manifest(self, entries: list[dict]) -> None:
+    @staticmethod
+    def _mirror_looks_stale(local_path, sha: str) -> bool:
+        """True when the mirrored file's digest differs from the catalog row."""
+        import hashlib
+
+        h = hashlib.sha256(local_path.read_bytes()).hexdigest()
+        return h != sha
+
+    async def _async_fetch_bin(self, url: str) -> bytes:
+        """Production fetch through the hub's aiohttp session."""
+        session = async_get_clientsession(self.hass)
+        async with asyncio.timeout(300):
+            async with session.get(url) as resp:
+                resp.raise_for_status()
+                return await resp.content.read(32 * 1024 * 1024 + 1)
+
+    async def _async_write_latest_manifest(self, entries: list[dict]) -> None:
         """Write latest.json beside the mirrored firmware: the boards' own
         pull-based self-update reads THIS file over plain LAN HTTP. Newest
         release per board wins; the URL stays on the hub's own static route
@@ -1627,14 +1644,65 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
             return
         import json as _json
 
+        # Pre-mirror every board's binary BEFORE the manifest lands: the
+        # boards pull latest.json → then the .bin from the same static
+        # route. A manifest pointing at a missing bin is a 404 for every
+        # board in the fleet (the exact hole found on the live server one
+        # day after shipping 1.26.0).
+        session = None
+        try:
+            session = async_get_clientsession(self.hass)
+        except Exception:  # noqa: BLE001
+            session = None
+        manifest_boards = {}
+        for board, item in list(newest.items()):
+            fname = f"firmware-{board}.bin"
+            local = self.MIRROR_DIR / fname
+            sha = str(item["sha256"]).replace("sha256:", "")
+            needs = (
+                not local.is_file()
+                or session is None
+                or self._mirror_looks_stale(local, sha)
+            )
+            if needs and session is None:
+                _LOGGER.warning(
+                    "pre-mirror %s: no aiohttp session available — the "
+                    "manifest waits for the next refresh", fname)
+            if not needs:
+                manifest_boards[board] = item
+                continue
+            src_url = next(
+                (e.get("url") for e in entries
+                 if e.get("board") == board and e.get("version") == item["version"]),
+                None,
+            )
+            if not src_url:
+                continue
+            try:
+                data = await self._async_fetch_bin(src_url)
+                local.write_bytes(data)
+                manifest_boards[board] = item       # row only after a served bin
+                _LOGGER.info("pre-mirrored %s (%s, %d bytes)",
+                             fname, item["version"], len(data))
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("pre-mirror %s failed: %s — the manifest "
+                                "will not advertise this board", fname, err)
+
+        if not manifest_boards:
+            _LOGGER.warning(
+                "latest.json withheld — no board image was pre-mirrored this "
+                "cycle; the boards keep their current firmware instead of "
+                "pulling a 404")
+            return
+
         path = self.MIRROR_DIR / "latest.json"
         tmp = path.with_suffix(".tmp")
         tmp.write_text(_json.dumps({
             "generated": datetime.now().isoformat(timespec="seconds"),
-            "boards": newest,
+            "boards": manifest_boards,
         }))
         tmp.replace(path)
-        _LOGGER.debug("latest.json updated: %s", dict(newest))
+        _LOGGER.debug("latest.json updated: %s", dict(manifest_boards))
 
     async def _async_verify_ota_over_http(
         self, node_id: str, target_version: str | None

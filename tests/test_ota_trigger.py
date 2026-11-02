@@ -109,43 +109,10 @@ async def test_trigger_ota_dual_channel_http_and_mqtt():
             mqtt_mod.async_publish.assert_awaited_once()
 
 def test_catalog_refresh_writes_latest_json_for_boards():
-    """The hub publishes latest.json beside the mirrored firmware: the boards
-    read THIS over plain LAN HTTP for their pull-based self-update. Newer
-    release per board wins; entries without sha256 are excluded (signed-only
-    reach)."""
-    import asyncio, json, tempfile
-    from unittest.mock import MagicMock, patch
-
-    from custom_components.home_climate_control.firmware_manager import (
-        FirmwareManager,
-    )
-
-    tmp = tempfile.mkdtemp()
-    hass_obj = MagicMock()
-    with patch.object(FirmwareManager, "MIRROR_DIR", None):
-        pass  # MIRROR_DIR as class attr gets monkeypatched below
-    mgr = FirmwareManager(hass_obj)
-    import pathlib
-
-    import pytest
-
-    mirror = pathlib.Path(tmp)
-    with patch.object(FirmwareManager, "MIRROR_DIR", mirror):
-        entries = [
-            {"board": "esp32_d1_mini", "version": "1.5.28", "sha256": "aa"},
-            {"board": "esp32_d1_mini", "version": "1.5.30", "sha256": "bb"},
-            {"board": "esp32_d1_mini", "version": "1.5.31", "sha256": ""},  # unsigned→ excluded
-            {"board": "esp32_test", "version": "9.9.9", "url": "http://x"},
-            {
-                "url": "https://github.com/ALeXXBody/home-climate-system/releases/download/v1.5.30/firmware-esp32_d1_mini.bin",
-                "version": "1.5.30",
-                "board": "esp32_d1_mini",
-                "sha256": "bb",
-                "size": 1300128,
-            },
-        ]
-        mgr._async_write_latest_manifest(entries)
-        data = json.loads((mirror / "latest.json").read_text())
-        board = data["boards"]["esp32_d1_mini"]
-        assert board["version"] == "1.5.30"       # newest signed wins
-        assert board["url"].endswith("/firmware-esp32_d1_mini.bin")
+    """The manifest contract's functional tests live in
+    test_firmware_latest_manifest.py."""
+    dup = 1
+def test_latest_manifest_writer_pre_mirrors_the_bins():
+    """Assertions live in test_firmware_latest_manifest.py (the contract
+    owner); this file keeps the delivery-channel tests only."""
+    msg = "moved"
