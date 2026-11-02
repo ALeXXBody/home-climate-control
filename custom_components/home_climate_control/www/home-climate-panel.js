@@ -460,6 +460,7 @@ class HomeClimatePanel extends HTMLElement {
     const root = this.shadowRoot;
     const systems = this._systems();
     const sys = systems[0];
+    this._computeVersionStale();
 
     // Chrome-level live bits
     const pill = root.getElementById("hcc-pill");
@@ -1243,7 +1244,7 @@ class HomeClimatePanel extends HTMLElement {
         <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
-          <span id="hcc-ver">Home Climate Control${this._status?.version ? ` v${this._esc(this._status.version)}` : ""}</span>
+          <span id="hcc-ver">Home Climate Control${this._status?.version ? ` v${this._esc(this._status.version)}` : ""}${this._versionStale ? ` <span class="badge heat" title="Files updated but the process still runs the old code — restart Home Assistant">code not loaded — restart HA</span>` : ""}</span>
           <a href="https://github.com/ALeXXBody/home-climate-control" target="_blank" rel="noopener">Software</a>
           <a href="https://github.com/ALeXXBody/home-climate-system" target="_blank" rel="noopener">Hardware</a>
           <a href="https://buymeacoffee.com/alexxbody" target="_blank" rel="noopener">Buy me a coffee</a>
@@ -1716,6 +1717,12 @@ class HomeClimatePanel extends HTMLElement {
           </table>
         </div>
       </div>`;
+  }
+
+  _computeVersionStale() {
+    const st = this._status || {};
+    const run = st.version, inst = st.installed_version;
+    this._versionStale = !!(run && inst && run !== inst);
   }
 
   _debugTick_() {

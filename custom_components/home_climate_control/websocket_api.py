@@ -68,21 +68,31 @@ INTEGRATION_VERSION = _PACKAGED_VERSION
 
 
 def _integration_version() -> str:
+    """The version of the code actually RUNNING (import-time constant).
+
+    Never reads the manifest from disk: the process keeps running old code
+    after a file-only update (HACS replaces files; only a full HA restart
+    re-imports) — the on-disk version is the *installed* version, and the
+    two disagreeing is exactly the state the footer must surface.
+    """
     return INTEGRATION_VERSION
+
+
+def _installed_version_on_disk() -> str:
+    """The version of the files in the integration directory (what the
+    NEXT restart will load). The update-checker compares against this."""
+    try:
+        from pathlib import Path as _Path
+
+        manifest = _Path(__file__).parent / "manifest.json"
+        return json.loads(manifest.read_text()).get("version", _PACKAGED_VERSION)
+    except (OSError, json.JSONDecodeError):
+        return _PACKAGED_VERSION
 
 
 async def async_setup_websocket(hass: HomeAssistant) -> None:
     """Register WebSocket commands (once)."""
     key = f"{DOMAIN}_ws_registered"
-    global INTEGRATION_VERSION
-    try:
-        from pathlib import Path as _Path
-
-        manifest = _Path(__file__).parent / "manifest.json"
-        text = await hass.async_add_executor_job(manifest.read_text)
-        INTEGRATION_VERSION = json.loads(text).get("version", _PACKAGED_VERSION)
-    except (OSError, json.JSONDecodeError):
-        INTEGRATION_VERSION = _PACKAGED_VERSION
     if hass.data.get(key):
         return
     websocket_api.async_register_command(hass, ws_get_status)
@@ -377,6 +387,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
     return {
         "domain": DOMAIN,
         "version": _integration_version(),
+        "installed_version": _installed_version_on_disk(),
         "systems": systems,
         "devices": devices,
         "firmware_catalog": mgr.catalog if mgr else [],
