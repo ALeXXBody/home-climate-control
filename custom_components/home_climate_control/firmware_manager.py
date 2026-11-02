@@ -136,6 +136,16 @@ def _firmware_asset_re():
     return _FIRMWARE_ASSET_RE
 
 
+def _ver_tuple(v: str) -> tuple[int, int, int]:
+    try:
+        parts = [int(x) for x in str(v).strip().lstrip("vV").split(".")]
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+    except (TypeError, ValueError):
+        return (0, 0, 0)
+
+
 def catalog_from_releases(
     releases: list[dict], base: list[dict[str, str]]
 ) -> list[dict[str, str]]:
@@ -442,6 +452,7 @@ class FirmwareManager:
             if entries:
                 self.catalog = entries
                 self._catalog_at = now
+                self._async_write_latest_manifest(entries)
                 versions = sorted({e["version"] for e in entries}, reverse=True)
                 _LOGGER.info(
                     "Firmware catalog refreshed from releases (%s)", versions[0]
@@ -1590,6 +1601,40 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
             "node_id": node_id,
             "url": url,
         }
+
+    def _async_write_latest_manifest(self, entries: list[dict]) -> None:
+        """Write latest.json beside the mirrored firmware: the boards' own
+        pull-based self-update reads THIS file over plain LAN HTTP. Newest
+        release per board wins; the URL stays on the hub's own static route
+        (LAN, plain HTTP, sha pinned in the catalog row)."""
+        from datetime import datetime
+
+        newest: dict[str, dict] = {}
+        for e in entries:
+            board = e.get("board")
+            ver = e.get("version") or ""
+            prior = newest.get(board, {}).get("version")
+            if prior is None or _ver_tuple(ver) > _ver_tuple(prior):
+                if not e.get("sha256"):      # signed-asset gate: no digest, no pull
+                    continue
+                newest[board] = {
+                    "version": ver,
+                    "url": f"/home_climate_control_static/firmware/"
+                           f"firmware-{board}.bin",
+                    "sha256": e.get("sha256"),
+                }
+        if not newest:
+            return
+        import json as _json
+
+        path = self.MIRROR_DIR / "latest.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(_json.dumps({
+            "generated": datetime.now().isoformat(timespec="seconds"),
+            "boards": newest,
+        }))
+        tmp.replace(path)
+        _LOGGER.debug("latest.json updated: %s", dict(newest))
 
     async def _async_verify_ota_over_http(
         self, node_id: str, target_version: str | None
