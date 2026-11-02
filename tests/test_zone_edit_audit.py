@@ -306,3 +306,172 @@ async def test_add_zone_persists_radiator_watts():
     saved_zones = saved[1].get("options")[CONF_ZONES]
     created = [z for z in saved_zones if z.get(CONF_ZONE_NAME) == "Study"]
     assert created and created[0].get(CONF_ZONE_RADIATOR_KW) == 1.8
+
+
+# ── OTA delivery: dual-channel with HTTP proof-of-delivery ────────────────
+# October's tenth silent update failure: the OTA trigger published the URL
+# over MQTT into a zombie session and returned "ok" — the HTTP channel that
+# reached the board existed on paper only. The rewrite delivers over both
+# channels (HTTP-direct primary) and verifies the installed version by
+# reading the board's own portal.
+
+
+
+# ── OTA delivery: dual-channel with HTTP proof-of-delivery ────────────────
+# October's tenth silent update failure: the OTA trigger published the URL
+# over MQTT into a zombie session and returned "ok" — the HTTP channel to
+# the board (its own web server, the thing that has never failed silently)
+# existed on paper only. The rewrite delivers on both channels (HTTP
+# primary) and verifies the installed version by reading the board's portal.
+
+from unittest.mock import MagicMock, patch, AsyncMock
+
+
+class _RespCtx:
+    """A response object usable as `async with session.post(...) as resp`."""
+
+    def __init__(self, status=200):
+        self.status = status
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _fm_with_device():
+    from custom_components.home_climate_control.firmware_manager import (
+        FirmwareManager,
+        HcsDevice,
+    )
+    hass = MagicMock()
+    hass.async_create_task = MagicMock(side_effect=lambda coro: None)
+    mgr = FirmwareManager(hass)
+    dev = HcsDevice(node_id="hcs-a", board="esp32_d1_mini")
+    dev.ip = "192.168.50.21"
+    dev.online = True
+    mgr.devices["hcs-a"] = dev
+    mgr.async_refresh_catalog = AsyncMock()
+    return mgr, dev, hass
+
+
+def _wire(mgr, session, mqtt_publish_side_effect=None, board_pw=None):
+    from custom_components.home_climate_control import firmware_manager
+    mgr._async_ota_url = AsyncMock(return_value="http://url/fw.bin")
+    mgr._board_admin_pw = {"hcs-a": board_pw} if board_pw else {}
+    fm = firmware_manager
+    patches = [
+        patch.object(fm, "async_get_clientsession", MagicMock(return_value=session)),
+        patch.object(mgr, "_async_verify_ota_over_http", AsyncMock()),
+    ]
+    if mqtt_publish_side_effect is None:
+        mqtt = MagicMock()
+        mqtt.async_publish = AsyncMock()
+        patches.append(patch.object(fm, "mqtt", mqtt))
+    else:
+        mqtt = MagicMock()
+        mqtt.async_publish = AsyncMock(side_effect=mqtt_publish_side_effect)
+        patches.append(patch.object(fm, "mqtt", mqtt))
+    return patches, mqtt
+
+
+def test_trigger_ota_delivers_http_primary_and_mqtt_fallback():
+    import custom_components.home_climate_control.firmware_manager as fm
+    mgr, dev, hass = _fm_with_device()
+    session = MagicMock()
+    session.post = MagicMock(return_value=_RespCtx(200))
+    # the user's stored board password rides the Basic auth header
+    mgr._board_admin_pw = {"hcs-a": "test1234"}
+    patches, mqtt = _wire(mgr, session, board_pw="test1234")
+    for ppt in patches:
+        ppt.start()
+    try:
+        res = asyncio.run(
+            mgr.async_trigger_ota("hcs-a", "http://url/fw.bin", "1.5.27")
+        )
+    finally:
+        for ppt in patches:
+            ppt.stop()
+    assert res["ok"] is True
+    assert res["http"] is True                        # HTTP primary delivered
+    assert res["mqtt"] is True                        # MQTT fallback fired
+    assert session.post.call_args[0][0].endswith("/api/ota")
+    assert dev.ota_state in ("delivered", "starting")
+
+
+def test_trigger_ota_survives_dead_http_with_mqtt():
+    mgr, dev, hass = _fm_with_device()
+    session = MagicMock()
+    session.post = MagicMock(side_effect=TimeoutError("board unreachable"))
+    patches, mqtt = _wire(mgr, session)
+    for ppt in patches:
+        ppt.start()
+    try:
+        res = asyncio.run(
+            mgr.async_trigger_ota("hcs-a", "http://url/fw.bin", "1.5.27")
+        )
+    finally:
+        for ppt in patches:
+            ppt.stop()
+    assert res["http"] is False and res["http_error"]
+    assert res["ok"] is True                          # MQTT fallback delivered
+
+
+def test_trigger_ota_reports_total_failure_when_both_channels_dead():
+    import custom_components.home_climate_control.firmware_manager as fm
+    mgr, dev, hass = _fm_with_device()
+    mgr.devices["hcs-a"].ip = None                    # no HTTP channel
+    patches, mqtt = _wire(mgr, MagicMock(), mqtt_publish_side_effect=RuntimeError("dead broker"))
+    for ppt in patches:
+        ppt.start()
+    try:
+        res = asyncio.run(
+            mgr.async_trigger_ota("hcs-a", "http://url/fw.bin", "1.5.27")
+        )
+    finally:
+        for ppt in patches:
+            ppt.stop()
+    assert res["ok"] is False                          # no lie about delivery
+    assert res["http_error"]
+    assert dev.ota_state == "failed"
+
+
+def test_verify_ota_over_http_confirms_the_version_flip():
+    """The independent proof: after the board reboots, a direct portal read
+    shows the target version → ota_state 'done' even if the MQTT progress
+    feed is blind."""
+    import custom_components.home_climate_control.firmware_manager as fm
+    mgr, dev, hass = _fm_with_device()
+    session = MagicMock()
+    versions = iter([{"version": "1.5.26"}, {"version": "1.5.27"}])
+    class _JsonResp(_RespCtx):
+        def __init__(self, body):
+            super().__init__(200)
+            self._body = body
+        async def json(self, content_type=None):
+            return self._body
+
+    class _SleeplessAsyncTimeout:
+        # the code awaits asyncio.timeout(…/sleep) inside its own module import
+        pass
+
+    session.get = MagicMock(side_effect=[
+        _JsonResp({"version": "1.5.26"}),
+        _JsonResp({"version": "1.5.27"}),   # after the reboot: target version
+    ] * 99)
+    import custom_components.home_climate_control.firmware_manager as _fm
+    patches = [patch.object(
+        _fm, "async_get_clientsession", MagicMock(return_value=session)
+    )]
+    for ppt in patches:
+        ppt.start()
+    try:
+        with patch("asyncio.timeout", MagicMock(return_value=MagicMock())), \
+             patch("asyncio.sleep", AsyncMock()):
+            asyncio.run(mgr._async_verify_ota_over_http("hcs-a", "1.5.27"))
+    finally:
+        for ppt in patches:
+            ppt.stop()
+    assert dev.ota_state == "done" and dev.ota_progress == 100
+    assert dev.ota_error == ""

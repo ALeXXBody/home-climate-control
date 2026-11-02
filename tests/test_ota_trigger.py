@@ -63,35 +63,47 @@ async def test_trigger_ota_mqtt_topic_payload_nonretained():
 
 
 @pytest.mark.asyncio
-async def test_trigger_ota_no_http_fallback():
-    """The HTTP POST fallback was removed: it cannot authenticate to the
-    board's (password-protected) control endpoints and was dead weight."""
+async def test_trigger_ota_dual_channel_http_and_mqtt():
+    """v1.25.1: the OTA delivery re-audited. The MQTT-only path silently
+    failed in the Oct 2026 zombie-session incident (the publish returned
+    clean while the socket was dead); the ten failed updates ended there.
+    The delivery now rides BOTH channels: HTTP-direct to the board's own
+    portal (authenticated with the stored board password) first, MQTT as
+    the fallback when the board's HTTP is unreachable."""
     from unittest.mock import MagicMock as M
 
     hass = M()
     session = M()
-    session.post = M()
+
+    class _RespCtx:
+        status = 200
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *e):
+            return False
+    session.post = M(return_value=_RespCtx())
 
     from custom_components.home_climate_control.firmware_manager import (
         FirmwareManager,
         HcsDevice,
     )
-
     mgr = FirmwareManager(hass)
     mgr.devices["hcs-t2"] = HcsDevice(node_id="hcs-t2", ip="192.168.50.153")
+    mgr._board_admin_pw = {"hcs-t2": "test1234"}
 
     with patch(
         "custom_components.home_climate_control.firmware_manager.mqtt"
     ) as mqtt_mod:
         mqtt_mod.async_publish = AsyncMock()
         with patch(
-            "custom_components.home_climate_control.firmware_manager.async_get_clientsession",
+            "custom_components.home_climate_control.firmware_manager."
+            "async_get_clientsession",
             return_value=session,
         ):
             url = "http://ha.local/firmware.bin"
             res = await mgr.async_trigger_ota("hcs-t2", url)
 
             assert res["ok"] is True
-            assert res.get("http") is False
-            assert not session.post.called
+            assert res.get("http") is True      # direct channel fired
+            assert session.post.called          # the portal was POSTed
             mqtt_mod.async_publish.assert_awaited_once()

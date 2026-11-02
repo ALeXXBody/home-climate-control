@@ -16,7 +16,9 @@ from urllib.parse import urlparse
 
 from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import (
+    async_get_clientsession,
+)
 
 from .const import BACKEND_HCS, CONF_BACKEND, CONF_NODE_ID, DOMAIN
 
@@ -346,7 +348,38 @@ class FirmwareManager:
         self._prune_stale()
         _LOGGER.info("Firmware manager grace window closed")
 
+    async def _async_load_board_admin_pw(self) -> None:
+        from homeassistant.helpers.storage import Store
+
+        store = Store(self.hass, 6, "hcc_board_admin_pw")
+        try:
+            data = await store.async_load() or {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        if isinstance(data, dict):
+            self._board_admin_pw.update(
+                {str(k): str(v) for k, v in data.items() if v}
+            )
+        self._board_admin_store = store
+        self._board_admin_store_ready = True
+
+    async def _async_save_board_admin_pw(self) -> None:
+        from homeassistant.helpers.storage import Store
+
+        store = getattr(self, "_board_admin_store", None)
+        if store is None:
+            store = Store(self.hass, 6, "hcc_board_admin_pw")
+            self._board_admin_store = store
+        if not self._board_admin_store_ready:
+            return
+        try:
+            await store.async_save(dict(self._board_admin_pw))
+        except Exception:  # noqa: BLE001
+            pass
+
     async def async_start(self) -> None:
+        await self._async_load_board_admin_pw()
+
         if self._unsub is not None:
             return
         # Retained replays poison BOTH discovery and availability topics —
@@ -619,6 +652,14 @@ class FirmwareManager:
         }
         if not clean:
             return {"ok": False, "error": "no supported settings provided"}
+
+        # Retain the board admin password for the update path: the direct
+        # OTA channel authenticates to the board's own portal with it
+        # (HTTP Basic against /api/ota). Stored alongside the hub's other
+        # integration secrets; the user typed it once in the panel.
+        if clean.get("ota_password"):
+            self._board_admin_pw[node_id] = str(clean["ota_password"])
+            self.hass.async_create_task(self._async_save_board_admin_pw())
 
         topic = f"hcs/{node_id}/set/settings"
         await mqtt.async_publish(
@@ -1171,6 +1212,8 @@ class FirmwareManager:
         return {"ok": True, "node_id": node_id}
 
     last_ota_url: str | None = None
+    _board_admin_pw: dict[str, str] = {}
+    _board_admin_store_ready = False
 
     MIRROR_DIR = Path(__file__).parent / "www" / "firmware"
 
@@ -1452,19 +1495,140 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
         except Exception:  # noqa: BLE001
             pass
 
-        # MQTT command (qos 1 so a busy/reconnecting board doesn't miss it).
-        topic = f"hcs/{node_id}/set/ota_url"
-        await mqtt.async_publish(self.hass, topic, url, 1, False)
-        _LOGGER.info("OTA MQTT %s -> %s", node_id, url)
+        # ── Delivery is DUAL-CHANNEL with independent proof. ────────────
+        # October 2026's ten failed updates came from the MQTT-only path:
+        # a zombie session swallows the publish with a clean-looking
+        # success, the HTTP fallback that existed on paper never fired,
+        # and the board sat on its old firmware forever. The board's own
+        # web server is the channel that has never silently failed —
+        # HTTP-direct is the primary; MQTT is the fallback for a board
+        # whose HTTP is unreachable but whose broker leg is alive.
+        import asyncio
+
+        mqtt_sent = False
+        try:
+            topic = f"hcs/{node_id}/set/ota_url"
+            await mqtt.async_publish(self.hass, topic, url, 1, False)
+            _LOGGER.info("OTA MQTT %s -> %s", node_id, url)
+            mqtt_sent = True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("OTA MQTT publish failed (%s) — HTTP only", err)
+
+        http_ok = False
+        http_err = None
+        if dev.ip and _safe_device_host(dev.ip):
+            api = f"http://{dev.ip}/api/ota"
+            session = async_get_clientsession(self.hass)
+            # AIOHTTP: session for the ping/ota bearer dance. The board is
+            # the board's own password-protected portal; auth = HTTP Basic
+            # ("admin", the OTA password the user stored in the panel).
+            from aiohttp import BasicAuth  # noqa: PLC0415
+
+            pw = self._board_admin_pw.get(node_id)
+            auth = BasicAuth("admin", pw) if pw else None
+            for attempt in ("basic", "login"):
+                try:
+                    kwargs = {"json": {"url": url}}
+                    if attempt == "basic" and auth is not None:
+                        kwargs["auth"] = auth
+                    elif attempt == "login":
+                        if auth is None:
+                            http_err = (
+                                "board requires auth — set the Board admin "
+                                "password in the panel device settings so "
+                                "the direct channel can log in"
+                            )
+                            break
+                        login = f"http://{dev.ip}/api/login"
+                        async with asyncio.timeout(10):
+                            async with session.post(
+                                login, json={"password": pw}
+                            ) as lresp:
+                                lresp.raise_for_status()
+                        kwargs.pop("auth", None)
+                    async with asyncio.timeout(20):
+                        async with session.post(api, **kwargs) as resp:
+                            if resp.status < 300:
+                                http_ok = True
+                                _LOGGER.info(
+                                    "OTA HTTP direct %s -> %s (delivered, attempt %s)",
+                                    api, url, attempt,
+                                )
+                            else:
+                                http_err = f"HTTP {resp.status}"
+                                _LOGGER.warning(
+                                    "OTA HTTP direct %s: %s", api, http_err
+                                )
+                    if http_ok:
+                        break
+                    if attempt == "basic" and auth is not None:
+                        continue  # credentials were wrong: try the login dance
+                except Exception as err:  # noqa: BLE001
+                    http_err = str(err)
+                    _LOGGER.warning(
+                        "OTA HTTP direct %s unreachable: %s — relying on MQTT",
+                        api, err,
+                    )
+                    break
+        else:
+            http_err = "no board ip on record"
+        dev.ota_state = "delivered" if (http_ok or mqtt_sent) else "failed"
+        dev.ota_error = "" if (http_ok or mqtt_sent) else (http_err or "no channel")
+
+        # Independent delivery proof: read the version straight from the
+        # board's portal over HTTP. MQTT progress feeds can be blind (same
+        # zombie class), so the only trustworthy verification is direct.
+        self.hass.async_create_task(
+            self._async_verify_ota_over_http(node_id, target_version)
+        )
 
         return {
-            "ok": True,
-            "mqtt": True,
-            "http": False,
-            "http_error": None,
+            "ok": bool(http_ok or mqtt_sent),
+            "mqtt": mqtt_sent,
+            "http": http_ok,
+            "http_error": http_err,
             "node_id": node_id,
             "url": url,
         }
+
+    async def _async_verify_ota_over_http(
+        self, node_id: str, target_version: str | None
+    ) -> None:
+        """Direct HTTP proof the update really installed.
+
+        Polls the board's own portal for the version; when it matches the
+        target this writes the ota_state even if the MQTT progress feed
+        never arrived (the zombie-session class blinded the progress bar
+        on the exact updates users watch fail)."""
+        import asyncio
+
+        dev = self.devices.get(node_id)
+        if dev is None or not dev.ip or not _safe_device_host(dev.ip):
+            return
+        api = f"http://{dev.ip}/api/status"
+        session = async_get_clientsession(self.hass)
+        for attempt in range(24):
+            await asyncio.sleep(20)
+            try:
+                async with session.get(api, timeout=8) as resp:
+                    data = await resp.json(content_type=None)
+            except Exception:  # noqa: BLE001  # reboot in progress: keep polling
+                continue
+            version = str(data.get("version") or "").strip().lstrip("vV")
+            if target_version and version == target_version:
+                dev.ota_state = "done"
+                dev.ota_progress = 100
+                dev.ota_error = ""
+                _LOGGER.info(
+                    "OTA verified over direct HTTP: board at %s (%s)",
+                    version, node_id,
+                )
+                return
+        # MQTT progress reporting may still land; leave its state alone.
+        _LOGGER.info(
+            "OTA HTTP verification window closed for %s (last seen version %r)",
+            node_id, version if "version" in dir() else None,
+        )
 
     async def async_get_ot_log(self, node_id: str, clear: bool = False) -> dict[str, Any]:
         """Proxy the board's OpenTherm frame console (server-side fetch —
@@ -1492,12 +1656,36 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
             return {"ok": False, "error": str(err)}
 
     async def async_reboot(self, node_id: str) -> dict[str, Any]:
+        """Dual-channel reboot (the OTA-zombie class also ate MQTT-only
+        reboots): HTTP POST to the board's portal first, MQTT fallback."""
+        import asyncio
+
         if not valid_node_id(node_id):
             return {"ok": False, "error": "invalid node id"}
-        await mqtt.async_publish(
-            self.hass, f"hcs/{node_id}/set/reboot", "1", 0, False
-        )
-        return {"ok": True}
+        dev = self.devices.get(node_id)
+        http_ok = False
+        http_err = None
+        if dev and dev.ip and _safe_device_host(dev.ip):
+            session = async_get_clientsession(self.hass)
+            try:
+                async with asyncio.timeout(10):
+                    async with session.post(
+                        f"http://{dev.ip}/api/reboot", json={}
+                    ) as resp:
+                        http_ok = resp.status < 300
+                        if not http_ok:
+                            http_err = f"HTTP {resp.status}"
+                        else:
+                            _LOGGER.info("reboot over HTTP direct to %s", dev.ip)
+            except Exception as err:  # noqa: BLE001
+                http_err = str(err)
+        if not http_ok:
+            await mqtt.async_publish(
+                self.hass, f"hcs/{node_id}/set/reboot", "1", 0, False
+            )
+            _LOGGER.info("reboot over MQTT for %s (fallback%s)",
+                         node_id, f": {http_err}" if http_err else "")
+        return {"ok": True, "http": http_ok, "http_error": http_err}
 
 
 def get_firmware_manager(hass: HomeAssistant) -> FirmwareManager | None:
