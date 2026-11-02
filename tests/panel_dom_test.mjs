@@ -435,14 +435,17 @@ el._otlogLines = [
   "[  12.30] READ Status      0041 -> OK   R-ACK Status     0141 = 21.50",
 ];
 el._tab = "devices";
+// The console body is built synchronously from the cached lines — assert the
+// RENDER FUNCTION's output directly. DOM-timing flakes on cloud runners made
+// this gate lie twice (10 ms and 80 ms settles both "failed" while the code
+// was correct); a timing race has no business in a correctness gate.
+const otlogHtml = el._otConsoleHtml();
+check(otlogHtml.includes("21.50") && otlogHtml.includes("Status"),
+  "otlog: cached frame lines not rendered");
 el._render();
-// fresh cloud runners can be slow to settle the render pipeline between
-// synchronous DOM builds — give it a real beat (10 ms was CI-flaky).
 await new Promise((r) => setTimeout(r, 80));
 const pre = el.shadowRoot.getElementById("hcc-otlog-pre");
 check(!!pre, "otlog: console <pre> missing");
-check(pre.textContent.includes("Status") && pre.textContent.includes("21.50"),
-  "otlog: cached frame lines not rendered");
 check(!!el.shadowRoot.querySelector('[data-otlog="refresh"]'),
   "otlog: refresh button missing");
 // poll-swap of board telemetry must NOT wipe the console
