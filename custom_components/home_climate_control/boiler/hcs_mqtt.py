@@ -20,6 +20,7 @@ import logging
 import time
 
 from homeassistant.components import mqtt
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -80,6 +81,7 @@ class HcsMqttBackend(BoilerBackend):
     CONNECTED_STALE_S = 300  # silent board for 5 min = disconnected
     DEAF_WATCH_INTERVAL = timedelta(minutes=5)
     DEAF_WATCH_INACTIVE_S = 900.0  # 15 min without any leaf = deaf
+    HTTP_POLL_INTERVAL = timedelta(seconds=60)  # HTTP-primary values refresh
 
     def __init__(
         self,
@@ -116,6 +118,71 @@ class HcsMqttBackend(BoilerBackend):
                                  if hasattr(self, "_leaf_topics") else [msg.topic])
         self._on_topic(msg.topic, msg.payload)
 
+    async def _async_http_poll_tick(self, now=None) -> None:
+        """HTTP-primary values refresh — one board at a time."""
+        nid = self._active
+        if nid:
+            await self._async_http_poll_status(nid)
+
+    async def _async_http_poll_status(self, node_id: str) -> None:
+        """HTTP-primary truth: read the board's own portal and merge the
+        values into backend state. October 2026's 7-day blindness was the
+        MQTT swing while the board's HTTP server stayed alive the whole
+        time — the panel values are now independent of it.
+
+        Covers: flow / return / pressure / modulation / ot_valid / flame
+        / ch_active / tset_cap. MQTT leaves keep their fast cadence; this
+        poll is the guarantee."""
+        try:
+            from .firmware_manager import get_firmware_manager
+
+            mgro = get_firmware_manager(self._hass)
+            dev = mgro.devices.get(node_id) if mgro else None
+        except Exception:  # noqa: BLE001
+            return
+        dev_ip = dev.ip if (dev and dev.ip) else None
+        if not dev_ip:
+            return
+        try:
+            session = async_get_clientsession(self._hass)
+            resp = await session.get(f"http://{dev_ip}/api/status")
+            if resp.status != 200:
+                return
+            d = await resp.json(content_type=None)
+        except Exception:  # noqa: BLE001
+            return
+        st = self._nodes.get(node_id)
+        if st is None:
+            st = self._nodes[node_id] = _NodeState(node_id)
+
+        def _n(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        if _n(d.get("flow_temp")) is not None:
+            st.flow_temp = _n(d.get("flow_temp"))
+        if _n(d.get("return_temp")) is not None:
+            st.return_temp = _n(d.get("return_temp"))
+        if _n(d.get("ch_pressure")) is not None:
+            st.pressure = _n(d.get("ch_pressure"))
+        st.ot_valid = bool(d.get("ot_valid"))
+        st.flame = bool(d.get("flame"))
+        st.ch_active = bool(d.get("ch_active"))
+        cap = _n(d.get("tset_cap"))
+        if cap is not None:
+            st.tset_cap = cap
+        st.online = True
+        st.last_rx = time.monotonic()   # the poll IS a heartbeat
+        if dev is not None:
+            ver = str(d.get("version") or "")
+            if ver and dev.version != ver:
+                dev.version = ver
+            if d.get("ip"):
+                dev.ip = str(d.get("ip"))
+        self._notify_sensors()
+
     # --- topics --------------------------------------------------------------
     @property
     def base(self) -> str:
@@ -148,6 +215,15 @@ class HcsMqttBackend(BoilerBackend):
             async_track_time_interval(
                 self._hass, self._async_ingest_watchdog,
                 HcsMqttBackend.DEAF_WATCH_INTERVAL,
+            )
+        )
+        # HTTP-primary poll: the values the panel reads refresh from the
+        # board's own portal every 60 s — the delivery channel that never
+        # failed, independent of the MQTT ingestion leg.
+        self._unsubs.append(
+            async_track_time_interval(
+                self._hass, self._async_http_poll_tick,
+                HcsMqttBackend.HTTP_POLL_INTERVAL,
             )
         )
         # Ask every board to re-announce (answers during grace are wiped
