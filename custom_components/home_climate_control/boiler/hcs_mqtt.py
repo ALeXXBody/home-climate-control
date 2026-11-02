@@ -449,18 +449,29 @@ class HcsMqttBackend(BoilerBackend):
                 self._notify_sensors()
             return
         if key == "outdoor_temp":
-            st.outdoor_temp = _f(text)
-            if st.outdoor_temp is not None:
+            # A blank or non-numeric replay must not erase a live reading.
+            # Retained empties from older firmware were doing exactly that
+            # on every 5-minute resubscribe.
+            v = _f(text)
+            if v is not None:
+                st.outdoor_temp = v
                 st.outdoor_rx = time.monotonic()
         elif key == "flow_temp":
-            st.flow_temp = _f(text)
+            v = _f(text)
+            if v is not None:
+                st.flow_temp = v
         elif key == "return_temp":
-            st.return_temp = _f(text)
+            v = _f(text)
+            if v is not None:
+                st.return_temp = v
         elif key == "modulation":
             v = _f(text)
-            st.modulation = v / 256.0 * 100 if v and v > 100 else v
+            if v is not None:
+                st.modulation = v / 256.0 * 100 if v > 100 else v
         elif key == "ch_pressure":
-            st.pressure = _f(text)
+            v = _f(text)
+            if v is not None:
+                st.pressure = v
         elif key == "flame":
             st.flame = _onoff(text)
         elif key == "ch_active":

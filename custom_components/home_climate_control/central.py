@@ -742,19 +742,23 @@ class CentralController:
             else:
                 max_setpoint = UNDERFLOOR_MAX_FLOW_DEFAULT
             if outdoor is None:
-                # No outdoor data at all: a dead sensor must not silently run
-                # the curve at design outdoor (-10 °C → full load) all day.
-                # Fall back to a mild estimate and warn once.
-                if not self._warned_no_outdoor:
-                    _LOGGER.warning(
-                        "No outdoor temperature available (boiler and HA "
-                        "sensor both missing/stale) — using %.1f °C fallback; "
-                        "flow will be approximate until a source returns",
-                        NO_OUTDOOR_FALLBACK_C,
-                    )
-                    self._warned_no_outdoor = True
-                outdoor = NO_OUTDOOR_FALLBACK_C
+                # Hold the last real outdoor. Substituting 0 °C made the
+                # curve jump to full load every time a reading blipped,
+                # which is what the card showed as "stopped working".
+                outdoor = getattr(self, "_last_outdoor", None)
+                if outdoor is None:
+                    if not self._warned_no_outdoor:
+                        _LOGGER.warning(
+                            "No outdoor temperature available (boiler and HA "
+                            "sensor both missing/stale) — using %.1f °C "
+                            "fallback; flow will be approximate until a "
+                            "source returns",
+                            NO_OUTDOOR_FALLBACK_C,
+                        )
+                        self._warned_no_outdoor = True
+                    outdoor = NO_OUTDOOR_FALLBACK_C
             else:
+                self._last_outdoor = outdoor
                 self._warned_no_outdoor = False
             # The board learns the boiler's real CH ceiling from TSet
             # write-ACK echoes and publishes it as tset_cap. The curve must

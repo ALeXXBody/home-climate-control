@@ -1898,6 +1898,10 @@ class HomeClimatePanel extends HTMLElement {
     const mod = this._fmt(b.modulation_level);
     const flowT = this._fmt(b.flow_temp);
     const retT = this._fmt(b.return_temp);
+    const outdoorNow = sys.outdoor_temp ?? b.outdoor_temp;
+    if (outdoorNow != null && !Number.isNaN(Number(outdoorNow)))
+      this._lastOutdoor = outdoorNow;
+    const outdoorShown = outdoorNow ?? this._lastOutdoor;
     const gasToday = gas ? `${this._esc(gas.today_kwh)}<span class="unit">kWh today</span>` : "—";
 
     return `
@@ -1909,11 +1913,11 @@ class HomeClimatePanel extends HTMLElement {
         <div class="bp-hero-stats">
           <div class="zone-title" style="justify-content:flex-start;gap:10px">
             Boiler ${ch} ${flame}
-            <span style="margin-left:auto;font-weight:400" class="fp-sub">mod ${mod}% · flow ${flowT}°C · return ${retT}°C</span>
+            <span style="margin-left:auto;font-weight:400" class="fp-sub">mod ${mod}% · flow ${flowT}°C · return ${retT}°C · outdoor ${this._fmt(outdoorShown)}°C</span>
           </div>
           <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px">
             <div><div class="metric" style="font-size:1.5rem">${gasToday}</div><div class="sub">gas estimate</div></div>
-            <div><div class="metric" style="font-size:1.5rem">${this._fmt(sys.outdoor_temp)}<span class="unit">°C</span></div><div class="sub">outdoor</div></div>
+            <div><div class="metric" style="font-size:1.5rem">${this._fmt(outdoorShown)}<span class="unit">°C</span></div><div class="sub">outdoor</div></div>
             <div><div class="metric" style="font-size:1.5rem">${Math.round((sys.total_demand || 0) * 100)}<span class="unit">% demand</span></div>
               <div class="sub">active: ${this._esc((sys.active_zones || []).join(", ") || "none")}</div></div>
           </div>

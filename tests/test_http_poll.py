@@ -49,6 +49,21 @@ def test_poll_runs_without_adoption_state():
     assert calls == ["hcs-a"]                     # the configured node polled
 
 
+def test_blank_outdoor_replay_does_not_erase_a_live_reading():
+    backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
+    backend._on_value("hcs-a", "outdoor_temp", "8.0")
+    backend._on_value("hcs-a", "flow_temp", "55.0")
+    backend._on_value("hcs-a", "return_temp", "48.0")
+    backend._active = "hcs-a"
+    backend._on_value("hcs-a", "outdoor_temp", "")
+    backend._on_value("hcs-a", "outdoor_temp", "nan")
+    backend._on_value("hcs-a", "flow_temp", "")
+    backend._on_value("hcs-a", "return_temp", "off")
+    assert backend.outdoor_temp == 8.0
+    assert backend.flow_temp == 55.0
+    assert backend.return_temp == 48.0
+
+
 def test_diagnostics_exports_the_fields_the_card_reads():
     """The home card reads these keys off controller.diagnostics(), which
     copies backend.diagnostics(). Missing them is the dash bug."""
