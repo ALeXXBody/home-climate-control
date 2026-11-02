@@ -1244,7 +1244,7 @@ class HomeClimatePanel extends HTMLElement {
         <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
         <footer>
-          <span id="hcc-ver">Home Climate Control${this._status?.version ? ` v${this._esc(this._status.version)}` : ""}${this._versionStale ? ` <span class="badge heat" title="Files updated but the process still runs the old code — restart Home Assistant">code not loaded — restart HA</span>` : ""}</span>
+          <span id="hcc-ver">Home Climate Control${this._status?.version ? ` v${this._esc(this._status.version)}` : ""}${this._status?.process_uptime_min != null ? ` <span class="sub" title="How long the Home Assistant process has been running. Updates load ONLY after a full restart.">· HA up ${this._esc(String(Math.round(this._status.process_uptime_min)))} min</span>` : ""}${this._versionStale ? ` <span class="badge heat" title="Files updated but the process still runs the old code — restart Home Assistant">code not loaded — restart HA</span>` : ""}</span>
           <a href="https://github.com/ALeXXBody/home-climate-control" target="_blank" rel="noopener">Software</a>
           <a href="https://github.com/ALeXXBody/home-climate-system" target="_blank" rel="noopener">Hardware</a>
           <a href="https://buymeacoffee.com/alexxbody" target="_blank" rel="noopener">Buy me a coffee</a>

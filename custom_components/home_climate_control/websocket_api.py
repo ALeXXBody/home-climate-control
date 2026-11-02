@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import logging
 import re
 from typing import Any
@@ -388,6 +389,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
         "domain": DOMAIN,
         "version": _integration_version(),
         "installed_version": _installed_version_on_disk(),
+        "process_uptime_min": round(time.monotonic() / 60.0, 1),
         "systems": systems,
         "devices": devices,
         "firmware_catalog": mgr.catalog if mgr else [],
