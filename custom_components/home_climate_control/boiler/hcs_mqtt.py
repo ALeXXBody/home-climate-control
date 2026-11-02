@@ -15,11 +15,13 @@ Commands:   hcs/<node>/set/<cmd>      (e.g. hcs/hcs-aabbcc/set/flow_setpoint)
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 import logging
 import time
 
 from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_time_interval
 
 from .base import BoilerBackend
 
@@ -76,6 +78,8 @@ class HcsMqttBackend(BoilerBackend):
     """Talks to whichever HCS device is alive on the ``hcs/`` tree."""
 
     CONNECTED_STALE_S = 300  # silent board for 5 min = disconnected
+    DEAF_WATCH_INTERVAL = timedelta(minutes=5)
+    DEAF_WATCH_INACTIVE_S = 900.0  # 15 min without any leaf = deaf
 
     def __init__(
         self,
@@ -93,9 +97,14 @@ class HcsMqttBackend(BoilerBackend):
 
         self._nodes: dict[str, _NodeState] = {}
         self._active: str | None = None
-
+        self._deaf_notified = False
+        self._sub_unsubs: list = []
         self._sensors_listeners: list = []
         self._unsubs: list = []
+
+    @callback
+    def _dispatch_fn(self, msg) -> None:
+        self._on_topic(msg.topic, msg.payload)
 
     # --- topics --------------------------------------------------------------
     @property
@@ -119,9 +128,74 @@ class HcsMqttBackend(BoilerBackend):
         def _dispatch(msg) -> None:
             self._on_topic(msg.topic, msg.payload)
 
+        self._unsubs.append(await self._subscribe_leaves())
+        # The hub went deaf for 7 days in 2026-10 while everything else
+        # said "connected": the hcs/# subscription died silently at the
+        # broker and never recovered. A periodic re-assert (re-subscribe is
+        # idempotent and cheap) plus a staleness alarm turns that class
+        # into a minutes-scale self-heal.
         self._unsubs.append(
-            await mqtt.async_subscribe(self._hass, f"{self._prefix}/#", _dispatch, 0)
+            async_track_time_interval(
+                self._hass, self._async_ingest_watchdog,
+                HcsMqttBackend.DEAF_WATCH_INTERVAL,
+            )
         )
+        # Ask every board to re-announce (answers during grace are wiped
+        # then re-instantiated after — the post-grace ping re-trigger).
+        await mqtt.async_publish(
+            self._hass, f"{self._prefix}/discovery/ping", "1", 0, False
+        )
+
+    async def _subscribe_leaves(self):
+        """Leaf subscription re-assert: unsubscribes the prior handle first
+        (each subscribe call registers its own delivery binding)."""
+        for un in self._sub_unsubs:
+            un()
+        self._sub_unsubs.clear()
+        un = await mqtt.async_subscribe(
+            self._hass, f"{self._prefix}/#", self._dispatch_fn, 0
+        )
+        self._sub_unsubs.append(un)
+        # keep async_stop able to kill whatever is live right now
+        self._unsubs = [un]
+        return un
+
+    async def _async_ingest_watchdog(self, now=None):
+        """Re-assert the leaf subscription; alarm once when nothing lands."""
+        st = self._state()
+        stale = (
+            st is None
+            or st.last_rx is None
+            or (time.monotonic() - st.last_rx
+                > HcsMqttBackend.DEAF_WATCH_INACTIVE_S)
+        )
+        if self._sub_unsubs_fresh_clare:
+            pass
+        # re-subscribe every cycle: HA delivers retained leaves at (re)
+        # subscribe and the same callback keeps the routing
+        await self._subscribe_leaves()
+        if stale and not self._deaf_notified:
+            self._deaf_notified = True
+            try:
+                await self._hass.services.async_call(
+                    "persistent_notification", "create",
+                    {
+                        "title": "Board telemetry stalled — MQTT re-asserted",
+                        "message": "The hub has not received any board "
+                            "telemetry for 15+ minutes. The leaf "
+                            "subscription was re-asserted automatically; "
+                            "if the boards stay silent after reload, "
+                            "restart Home Assistant once to rebuild the "
+                            "MQTT session.",
+                        "notification_id": "home_climate_control_deaf_watch",
+                    },
+                    blocking=False,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        elif not stale:
+            self._deaf_notified = False
+
         # Ask every board to re-announce itself.
         await mqtt.async_publish(
             self._hass, f"{self._prefix}/discovery/ping", "1", 0, False
