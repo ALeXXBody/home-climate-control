@@ -101,9 +101,19 @@ class HcsMqttBackend(BoilerBackend):
         self._sub_unsubs: list = []
         self._sensors_listeners: list = []
         self._unsubs: list = []
+        # ingestion observability: the arrival counter + the last raw topics,
+        # surfaced in backend_nodes — the definitive split between "the
+        # broker/board never delivered" (counter frozen) and "delivered but
+        # mishandled" (counter climbing, topics listed). No guessing anymore.
+        self._leaf_count = 0
+        self._leaf_topics: list = []
 
     @callback
     def _dispatch_fn(self, msg) -> None:
+        if isinstance(self._leaf_count, int):
+            self._leaf_count += 1
+            self._leaf_topics = ([*self._leaf_topics[-9:], msg.topic]
+                                 if hasattr(self, "_leaf_topics") else [msg.topic])
         self._on_topic(msg.topic, msg.payload)
 
     # --- topics --------------------------------------------------------------
@@ -216,6 +226,8 @@ class HcsMqttBackend(BoilerBackend):
         hub/board disagreement (e.g. tset_cap never surfacing while the
         board holds it) is visible from the panel, not guessed at."""
         return {
+            "leaf_count": self._leaf_count,
+            "leaf_topics": list(self._leaf_topics),
             "nodes": {
                 nid: {
                     "online": st.online,
