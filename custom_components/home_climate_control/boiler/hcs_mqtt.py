@@ -95,13 +95,13 @@ class HcsMqttBackend(BoilerBackend):
         prefix: str = DEFAULT_PREFIX,
     ) -> None:
         self._hass = hass
-        self._preferred = node_id
+        self._preferred = node_id.strip()
         self._prefix = prefix.rstrip("/")
         self._min_flow = min_flow
         self._max_flow = max_flow
 
         self._nodes: dict[str, _NodeState] = {}
-        self._active: str | None = None
+        self._active: str | None = self._preferred or None
         self._deaf_notified = False
         self._sub_unsubs: list = []
         self._sensors_listeners: list = []
@@ -224,6 +224,11 @@ class HcsMqttBackend(BoilerBackend):
     def active_node(self) -> str | None:
         return self._active
 
+    @property
+    def is_bound(self) -> bool:
+        """True only when this installation has explicitly linked a board."""
+        return bool(self._preferred)
+
     def _cmd_topic(self, command: str) -> str:
         return f"{self.base}/set/{command}"
 
@@ -236,6 +241,10 @@ class HcsMqttBackend(BoilerBackend):
         @callback
         def _dispatch(msg) -> None:
             self._on_topic(msg.topic, msg.payload)
+
+        if not self.is_bound:
+            _LOGGER.info("No board linked — boiler control is inert until one is linked")
+            return
 
         await self._subscribe_leaves()
         # The hub went deaf for 7 days in 2026-10 while everything else
@@ -270,8 +279,11 @@ class HcsMqttBackend(BoilerBackend):
         for un in self._sub_unsubs:
             un()
         self._sub_unsubs.clear()
+        if not self.is_bound:
+            return
+
         un = await mqtt.async_subscribe(
-            self._hass, f"{self._prefix}/#", self._dispatch_fn, 0
+            self._hass, f"{self._prefix}/{self._active}/#", self._dispatch_fn, 0
         )
         self._sub_unsubs.append(un)
         return un
@@ -312,7 +324,7 @@ class HcsMqttBackend(BoilerBackend):
 
         # Ask every board to re-announce itself.
         await mqtt.async_publish(
-            self._hass, f"{self._prefix}/discovery/ping", "1", 0, False
+            self._hass, f"{self._prefix}/{self._active}/set/discovery_ping", "1", 0, False
         )
         _LOGGER.info(
             "HCS backend watching %s/# (prefers %s, any live board accepted)",
@@ -488,45 +500,16 @@ class HcsMqttBackend(BoilerBackend):
         elif key == "boiler_diag":
             st.fault_text = text
 
-    # --- board adoption ------------------------------------------------------
+    # --- board binding ----------------------------------------------------------
     def _maybe_adopt(self, st: _NodeState) -> None:
-        """Follow the preferred board while it lives; else any live board."""
-        if st.node_id == self._active:
-            return
-        now = time.monotonic()
-        fresh_any = st.online is not False and (
-            (st.telemetry_rx is not None and now - st.telemetry_rx <= 30)
-            or (st.last_rx is not None and now - st.last_rx <= 30)
-        )
-        fresh_telemetry = st.online is not False and st.telemetry_rx is not None and (
-            now - st.telemetry_rx <= 30
-        )
-        if st.node_id == self._preferred:
-            if fresh_any:
-                self._switch(st)
-            return
-        # Non-preferred board: only take over when the current one is dead
-        # and the candidate has substantive fresh telemetry — not just an
-        # old retained "online" replay.
-        cur = self._state()
-        cur_dead = (
-            cur is None
-            or cur.online is False
-            or cur.telemetry_rx is None
-            or now - cur.telemetry_rx > 60
-        )
-        if fresh_telemetry and cur_dead:
-            self._switch(st)
+        """No automatic board adoption.
 
-    def _switch(self, st: _NodeState) -> None:
-        old = self._active
-        self._active = st.node_id
-        if old != st.node_id:
-            _LOGGER.info(
-                "HCS backend now following board %s (was %s; configured %s)",
-                st.node_id, old, self._preferred,
-            )
-        self._notify_sensors()
+        This installation is bound to exactly one board. A different board that
+        announces itself is visible in the Device page but cannot drive or
+        replace the linked board until the user unlinks and binds it.
+        """
+        if st.node_id not in {self._active, self._preferred}:
+            _LOGGER.debug("Ignoring unlinked board %s", st.node_id)
 
     def _notify_sensors(self) -> None:
         for cb in list(self._sensors_listeners):
@@ -537,6 +520,9 @@ class HcsMqttBackend(BoilerBackend):
 
     # --- commands ------------------------------------------------------------
     async def _publish_cmd(self, command: str, payload: str, retain=False) -> None:
+        if not self.is_bound:
+            _LOGGER.warning("Ignoring boiler command %r: no board is linked", command)
+            return
         # Commands must not be retained: a retained CH-on after HA unload can
         # re-fire the boiler when the board reboots without HA connected.
         await mqtt.async_publish(

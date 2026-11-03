@@ -29,6 +29,7 @@ from .const import (
     CONF_ZONE_TRV_POSITION,
     CONF_ZONE_NAME,
     CONF_ZONE_TEMP_SENSOR,
+    CONF_NODE_ID,
     CONF_ZONE_TRV_CLIMATES,
     CONF_ZONE_WINDOW_SENSORS,
     CONF_ZONES,
@@ -57,6 +58,7 @@ from .firmware_manager import (
     async_setup_firmware_manager,
     catalog_item,
     get_firmware_manager,
+    valid_node_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,6 +115,8 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_github_token)
     websocket_api.async_register_command(hass, ws_list_devices)
     websocket_api.async_register_command(hass, ws_forget_device)
+    websocket_api.async_register_command(hass, ws_link_board)
+    websocket_api.async_register_command(hass, ws_unlink_board)
     websocket_api.async_register_command(hass, ws_ping_devices)
     websocket_api.async_register_command(hass, ws_flash_device)
     websocket_api.async_register_command(hass, ws_set_device_settings)
@@ -347,6 +351,14 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
         systems.append(
             {
                 "entry_id": entry_id,
+                "linked_node": str(
+                    (
+                        hass.config_entries.async_get_entry(entry_id).data.get(CONF_NODE_ID)
+                        if hass.config_entries.async_get_entry(entry_id)
+                        else ""
+                    )
+                    or ""
+                ).strip(),
                 "demo": bool(diag.get("demo")),
                 "backend": diag.get("backend")
                 or data.get("backend_type")
@@ -1750,6 +1762,81 @@ async def ws_forget_device(
         connection.send_error(msg["id"], "forget_failed", result.get("error", "?"))
         return
     connection.send_result(msg["id"], {"ok": True, "devices": mgr.list_devices()})
+
+
+def _selected_hcs_entry(hass, entry_id: str | None):
+    entries = [
+        entry for entry in hass.config_entries.async_entries(DOMAIN)
+        if (getattr(entry, "data", None) or {}).get("backend", "hcs") == "hcs"
+    ]
+    if entry_id:
+        return next((entry for entry in entries if entry.entry_id == entry_id), None)
+    if len(entries) == 1:
+        return entries[0]
+    return None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/link_board",
+        vol.Required("node_id"): str,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_link_board(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Explicitly bind one discovered HCS board to this installation."""
+    node_id = str(msg["node_id"]).strip()
+    if not valid_node_id(node_id):
+        connection.send_error(msg["id"], "invalid_node_id", "That board id is not valid.")
+        return
+    mgr = await async_setup_firmware_manager(hass)
+    if node_id not in (mgr.devices if mgr else {}):
+        connection.send_error(msg["id"], "unknown_node", "No board with that id has been discovered.")
+        return
+    entry = _selected_hcs_entry(hass, msg.get("entry_id"))
+    if entry is None:
+        connection.send_error(msg["id"], "entry_not_found", "Could not pick a single HCS integration to link.")
+        return
+    current = str((entry.data or {}).get(CONF_NODE_ID) or "").strip()
+    if current and current != node_id:
+        connection.send_error(msg["id"], "board_already_linked", "Unlink the current board before linking a different one.")
+        return
+    data = dict(entry.data or {})
+    data[CONF_NODE_ID] = node_id
+    hass.config_entries.async_update_entry(entry, data=data)
+    await hass.config_entries.async_reload(entry.entry_id)
+    connection.send_result(msg["id"], {"ok": True, "node_id": node_id})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/unlink_board",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_unlink_board(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Explicitly remove the board binding; boiler control remains inert."""
+    entry = _selected_hcs_entry(hass, msg.get("entry_id"))
+    if entry is None:
+        connection.send_error(msg["id"], "entry_not_found", "Could not pick a single HCS integration to unlink.")
+        return
+    data = dict(entry.data or {})
+    data[CONF_NODE_ID] = ""
+    hass.config_entries.async_update_entry(entry, data=data)
+    await hass.config_entries.async_reload(entry.entry_id)
+    connection.send_result(msg["id"], {"ok": True})
 
 
 @websocket_api.require_admin

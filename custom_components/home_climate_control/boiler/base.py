@@ -80,6 +80,11 @@ class BoilerBackend(ABC):
         """
         return None
 
+    @property
+    def is_bound(self) -> bool:
+        """False when the integration has no board linked (control is inert)."""
+        return True
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "outdoor_temp": self.outdoor_temp,

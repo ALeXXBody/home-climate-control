@@ -520,6 +520,14 @@ class CentralController:
 
         if getattr(self, "_stopping", False):
             return
+        if not getattr(self.backend, "is_bound", True):
+            # No board is linked: HCC is intentionally inert. Do not command
+            # anything, including switching heating off.
+            self.flow_setpoint = None
+            self.active_zone_names = []
+            self.total_demand = 0.0
+            self._ch_on = False
+            return
         now = _time.monotonic()
 
         # Calibration sessions can time out; check on every tick.

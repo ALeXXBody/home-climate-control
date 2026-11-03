@@ -474,53 +474,37 @@ async def test_hcs_backend_connected_tracks_freshness():
 
 
 @pytest.mark.asyncio
-async def test_hcs_backend_follows_any_live_board():
-    """Configured board dead -> another board's telemetry takes over."""
+async def test_hcs_backend_ignores_unlinked_boards():
+    """A board that isn't bound to this installation can't take over."""
     from unittest.mock import MagicMock
-    import time as _t
 
     from custom_components.home_climate_control.boiler.hcs_mqtt import HcsMqttBackend
 
     be = HcsMqttBackend(MagicMock(), prefix="hcs", node_id="dead",
                         min_flow=25, max_flow=75)
-    # A different board publishes live telemetry
+    assert be.active_node == "dead"
     be._on_topic("hcs/play/online", "online")
     be._on_topic("hcs/play/outdoor_temp", "12.5")
-    assert be.active_node == "play"
-    assert be.connected is True
-    assert be.outdoor_temp == 12.5
-    # OT state tracked per active board, independent of MQTT link
-    be._on_topic("hcs/play/ot_valid", "OFF")
-    assert be.connected is True
-    assert be.ot_valid is False
-    be._on_topic("hcs/play/ot_valid", "ON")
-    assert be.ot_valid is True
-    # Commands are routed to the active board
-    assert be._cmd_topic("ch_enable") == "hcs/play/set/ch_enable"
-    # Configured board comes back -> preferred again
-    be._on_topic("hcs/dead/online", "online")
-    be._on_topic("hcs/dead/outdoor_temp", "9.5")
     assert be.active_node == "dead"
-    assert be.outdoor_temp == 9.5
-    # Dead board's retained LWT must not steal control back
-    be._on_topic("hcs/play/online", "offline")
-    assert be.active_node == "dead"
-    assert be.connected is True
+    assert be.outdoor_temp is None
+    assert be._cmd_topic("ch_enable") == "hcs/dead/set/ch_enable"
+    assert be.connected is None
 
 
 @pytest.mark.asyncio
-async def test_hcs_backend_dead_lwt_blocks_adoption():
-    """A dead board's retained 'offline' LWT must never be adopted."""
+async def test_hcs_backend_dead_lwt_does_not_change_binding():
+    """A dead board's retained 'offline' LWT keeps the binding inert, not rebound."""
     from unittest.mock import MagicMock
 
     from custom_components.home_climate_control.boiler.hcs_mqtt import HcsMqttBackend
 
     be = HcsMqttBackend(MagicMock(), prefix="hcs", node_id="cfg",
                         min_flow=25, max_flow=75)
-    be._on_topic("hcs/cfg/online", "offline")  # configured board died
-    be._on_topic("hcs/other/online", "offline")  # other board also dead
-    assert be.active_node is None
-    assert be.connected is None
+    be._on_topic("hcs/cfg/online", "offline")
+    be._on_topic("hcs/other/online", "offline")
+    assert be.active_node == "cfg"
+    assert be.connected is False
+    assert be.ot_valid is None
 
 
 @pytest.mark.asyncio

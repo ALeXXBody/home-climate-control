@@ -149,6 +149,11 @@ class HomeClimatePanel extends HTMLElement {
         this._onZoneAction(za);
         return;
       }
+      const board = t.closest("[data-board-action]");
+      if (board) {
+        this._onBoardAction(board);
+        return;
+      }
       const fw = t.closest("[data-fw-action]");
       if (fw) {
         this._onFwAction(fw);
@@ -506,6 +511,8 @@ class HomeClimatePanel extends HTMLElement {
       }
       case "devices": {
         this._otAutoTick_();
+        const binding = root.getElementById("hcc-board-binding-wrap");
+        if (binding && !HomeClimatePanel._boardEditing(binding)) binding.innerHTML = this._boardBindingHtml();
         const hd = root.getElementById("hcc-fw-head-wrap");
         if (hd && !this._focusBlocked(hd)) hd.innerHTML = this._fwHeadHtml();
         const fw = root.getElementById("hcc-fw-wrap");
@@ -1234,7 +1241,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("home", "Home")}
           ${this._tabBtn("rooms", "Rooms")}
           ${this._tabBtn("stats", "Statistics")}
-          ${this._tabBtn("devices", "Devices")}
+          ${this._tabBtn("devices", "Device")}
           ${this._tabBtn("settings", "Settings")}
           ${this._tabBtn("diagnostics", "Diagnostics")}
           ${this._showDebug ? this._tabBtn("debug", "Debug") : ""}
@@ -1366,7 +1373,8 @@ class HomeClimatePanel extends HTMLElement {
       case "rooms":
         return `<div id="hcc-zones-wrap">${this._zonesHtml(sys)}</div>`;
       case "devices":
-        return `<div id="hcc-fw-head-wrap">${this._fwHeadHtml()}</div>
+        return `<div id="hcc-board-binding-wrap" class="board-binding">${this._boardBindingHtml()}</div>
+          <div id="hcc-fw-head-wrap">${this._fwHeadHtml()}</div>
           <div id="hcc-board-wrap">${this._boardHtml()}</div>
           ${this._otConsoleHtml()}
           <div id="hcc-fw-wrap">${this._fwCardHtml()}</div>`;
@@ -1960,7 +1968,7 @@ class HomeClimatePanel extends HTMLElement {
     home: "Live overview of every room and the floor plan.",
     rooms: "Room cards and room settings — add or edit rooms via the button above the list.",
     stats: "Gas use, heating history and daily charts.",
-    devices: "HCS boards — firmware, OTA updates and devices.",
+    devices: "HCS boards — link one board, then firmware and OTA actions.",
     settings: "Integration options and self-learning.",
     diagnostics: "Technical telemetry: setup analyzer and boiler internals.",
   };
@@ -2900,7 +2908,55 @@ class HomeClimatePanel extends HTMLElement {
     }).join("");
   }
 
-  /* Devices tab — slim header strip + merged Firmware card. */
+  /* Device tab — explicit one-app-to-one-board binding. */
+  _boardBindingHtml() {
+    const sys = this._status?.systems?.[0] || null;
+    const linked = String(sys?.linked_node || "").trim();
+    const entryId = String(sys?.entry_id || "");
+    const devices = [...(this._status?.devices || [])];
+    const linkedKnown = linked
+      ? devices.find((d) => d.node_id === linked)
+      : null;
+    const candidates = devices
+      .filter((d) => !linked || d.node_id !== linked)
+      .filter((d) => d.online)
+      .sort((a, b) => String(a.name || a.node_id).localeCompare(String(b.name || b.node_id)));
+    const rowFor = (d, action, label, note="") => `
+      <div class="zone" style="align-items:center">
+        <div>
+          <div class="zone-title">${this._esc(d.name || d.node_id)}
+            ${d.online ? '<span class="badge on">online</span>' : '<span class="badge off">offline</span>'}
+            ${d.node_id === linked ? '<span class="badge on">linked</span>' : ""}
+          </div>
+          <div class="zone-meta">${this._esc(d.node_id)} · ${this._esc(d.board || "board unknown")}
+            · v${this._esc(d.version || "?")} · ${this._esc(d.ip || "no IP")}</div>
+          ${note ? `<p class="sub" style="margin:.35rem 0 0">${this._esc(note)}</p>` : ""}
+        </div>
+        <div class="controls"><button type="button" class="${action === "link" ? "" : "ghost"}" data-board-action="${action}" data-node="${this._esc(d.node_id)}" data-entry="${this._esc(entryId)}">${label}</button></div>
+      </div>`;
+
+    const linkedBlock = linkedKnown
+      ? rowFor(linkedKnown, "unlink", "Unlink", "This installation only commands and monitors this board.")
+      : linked
+        ? `<div class="zone" style="align-items:center"><div><div class="zone-title">${this._esc(linked)} <span class="badge on">linked</span></div><p class="sub" style="margin:.35rem 0 0">Linked, but not seen. Unlink it before replacing it.</p></div><div class="controls"><button type="button" class="ghost" data-board-action="unlink" data-entry="${this._esc(entryId)}">Unlink</button></div></div>`
+        : `<div class="card placeholder"><h3>No board linked</h3><p class="sub">Heating is inert until you explicitly link a board. The panel will not silently follow any board it happens to see.</p></div>`;
+
+    const candidateBlock = candidates.length && !linked
+      ? `<div class="zones">${candidates.map((d) => rowFor(d, "link", "Link", "")).join("")}</div>`
+      : linked
+        ? ""
+        : `<p class="sub">No board discovered yet. Power one on and press “Scan now” below.</p>`;
+
+    return `
+      <div class="card" style="margin-top:20px">
+        <div class="zone-title" style="margin:0">Linked board</div>
+        <p class="sub" style="margin:.35rem 0 .8rem">One app controls exactly one board. Unlink a faulty or retired board before linking a replacement.</p>
+        ${linkedBlock}
+        ${candidateBlock}
+      </div>`;
+  }
+
+  /* Device tab — slim header strip + merged Firmware card. */
   _fwHeadHtml() {
     const ui = this._status?.systems?.[0]?.update_info || null;
     let banner = "";
@@ -3058,6 +3114,29 @@ class HomeClimatePanel extends HTMLElement {
     img.alt = this._esc(item.title);
     box.querySelector("p").textContent =
       item.description ? `${item.description} — v${item.version}` : `v${item.version}`;
+  }
+
+  async _onBoardAction(el) {
+    const action = el.getAttribute("data-board-action");
+    const nodeId = el.getAttribute("data-node");
+    const entryId = el.getAttribute("data-entry") || undefined;
+    if (action !== "link" && action !== "unlink") return;
+    if (!this._hass) return;
+    try {
+      const msg = action === "link"
+        ? { type: "home_climate_control/link_board", node_id: nodeId, ...(entryId ? { entry_id: entryId } : {}) }
+        : { type: "home_climate_control/unlink_board", ...(entryId ? { entry_id: entryId } : {}) };
+      await this._hass.callWS(msg);
+      this._error = null;
+      this._notice = action === "link"
+        ? "Board linked. This installation now monitors and commands that board only."
+        : "Board unlinked. Boiler control is inert until another board is linked.";
+    } catch (err) {
+      this._error = err?.message || String(err);
+      this._notice = "";
+    }
+    await this._refresh();
+    this._render();
   }
 
   _onFwAction(el) {

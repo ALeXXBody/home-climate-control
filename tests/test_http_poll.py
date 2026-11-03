@@ -49,15 +49,15 @@ def test_poll_runs_without_adoption_state():
     assert calls == ["hcs-a"]                     # the configured node polled
 
 
-def test_retained_phantom_replay_does_not_adopt_stale_board():
+def test_retained_phantom_replay_cannot_change_the_binding():
     backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
     backend._on_value("hcs-c4d8d512d085", "online", "online", retained=True)
     backend._on_value("hcs-c4d8d512d085", "tset_cap", "40", retained=True)
     backend._on_value("hcs-c4d8d512d085", "flow_temp", "20", retained=True)
-    assert backend.active_node is None
-
-    backend._on_value("hcs-a", "flow_temp", "55.0")
     assert backend.active_node == "hcs-a"
+    assert backend.outdoor_temp is None
+    backend._on_value("hcs-a", "flow_temp", "55.0")
+    assert backend.flow_temp == 55.0
 
 
 def test_blank_outdoor_replay_does_not_erase_a_live_reading():
@@ -120,7 +120,6 @@ def test_http_poll_maps_portal_fields_and_adopts():
 
     backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
     backend._hass = MagicMock()
-    backend._active = None
     session = _Session()
     dev = MagicMock(ip="192.168.50.21", version="")
     fmg = MagicMock()
