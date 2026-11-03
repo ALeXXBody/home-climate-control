@@ -35,7 +35,7 @@ w.document.body.appendChild(el);
 const STATUS = {
   domain: "home_climate_control",
   version: "9.9.9",
-  systems: [{ entry_id: "e1", update_info: { available: false, latest_tag: "v1.0.2" } }],
+  systems: [{ entry_id: "e1", linked_node: "hcs-test", update_info: { available: false, latest_tag: "v1.0.2" } }],
   devices: [
     {
       node_id: "hcs-test",
@@ -148,92 +148,41 @@ const html = el.shadowRoot.innerHTML;
 const failures = [];
 const check = (cond, msg) => (cond ? null : failures.push(msg));
 
-// 1) merged Firmware card: title once, selector once, rows inside
-check(
-  html.includes("Registered boards") && html.includes("Flash a new board"),
-  "firmware card content missing"
-);
+// 1) Device page: one explicit linked board, merged compact firmware view
+check(html.includes("Device") && html.includes("linked"),
+  "linked board card missing");
 check((html.match(/hcc-board-sel/g) || []).length === 1,
   "board selector duplicated");
-check(
-  (html.match(/No HCS devices discovered yet/g) || []).length <= 1,
-  "empty-devices placeholder duplicated"
-);
-check(
-  (html.match(/data-fw-action="flash"/g) || []).length === 2,
-  "expected one flash button per online device"
-);
+check(!html.includes("Flash a new board") && !html.includes("fw-cat"),
+  "flash-new-board section must be dropped");
+check(!html.includes("hcs-current") && !html.includes("Current Board"),
+  "unlinked board must not render on Device page");
+check(!html.includes("hcs-offline") && !html.includes("Ghost Board"),
+  "offline board rendered on Device page");
+check(html.includes("hcs-test"), "linked board missing from Device page");
+check(html.includes("Scan now") && html.includes("Check updates"),
+  "device-scan controls missing");
+check(!html.includes("hcc-board-preview"),
+  "catalog preview should be gone from the compact view");
 
-// 4) update pill flips on newer catalog version (semantic, not string eq)
-const fwHtml = el.shadowRoot.innerHTML;
-check(
-  fwHtml.includes("v1.1.0 available"),
-  "update-available pill not shown for newer catalog version"
-);
-// equal versions must NOT be flagged newer (device already updated)
-{
-  const eq = [...el.shadowRoot.querySelectorAll(".badge.on")].some((b) =>
-    b.textContent.includes("up to date")
-  );
-  // d1_mini device is offline (not rendered); simulate equality via the
-  // lolin_c3_mini card only when catalog matches its version.
-}
+// Firmware choices are scoped to the linked board's model
+const opts = [...el.shadowRoot.querySelectorAll("#hcc-board-sel option")].map((o) => o.textContent);
+check(opts.length === 2, "linked board selector should only contain matching images");
+check(opts.every((t) => t.includes("LOLIN C3 mini")), "wrong board model in firmware selector");
+check(opts.includes("LOLIN C3 mini v2.1 · v1.1.0"), "model label missing");
+check(!opts.some((t) => t.includes("ESP8266")), "wrong-board firmware image offered");
 
-// 1b) offline boards are NOT rendered — only online devices appear
-check(!html.includes("hcs-offline"), "offline device rendered on firmware page");
-check(html.includes("hcs-test"), "online device missing from firmware page");
-check(html.includes("Scan now") && html.includes("Check updates"), "device-scan controls missing");
-check(
-  !html.includes("Ghost Board"),
-  "offline device card rendered"
-);
-
-// 1c) catalog block + registered-boards area both live in the merged card
-check(!!el.shadowRoot.querySelector(".fw-cat"), "catalog grid layout missing");
-check(html.includes("Registered boards"), "registered-boards label missing");
-check(html.indexOf("Registered boards") < html.indexOf("Flash a new board"),
-  "registered boards should sit above the flash-new-board catalog");
-const opts = [...el.shadowRoot.querySelectorAll("#hcc-board-sel option")].map(
-  (o) => o.textContent
-);
-check(
-  !opts.some((t) => /^HCS /.test(t)),
-  "dropdown shows legacy HCS/version labels"
-);
-check(opts.includes("LOLIN C3 mini v2.1"), "model label missing (with field)");
-check(
-  opts.includes("ESP8266 D1 mini"),
-  "model label fallback from title failed"
-);
-check(
-  !el.shadowRoot.querySelector(".dev-card img"),
-  "device cards must not show photos (catalog card only)"
-);
-const prevImg = el.shadowRoot.querySelector("#hcc-board-preview img");
-check(!!prevImg, "catalog preview image missing");
-check(
-  /max-width:\s*170px/.test(prevImg?.getAttribute("style") || ""),
-  "catalog preview not halved"
-);
-
-// pills are per-device and semantic: 1.0.2 card offers 1.1.0, 1.1.0 card green
-const pills = [...el.shadowRoot.querySelectorAll(".badge")].map((b) =>
-  b.textContent.trim()
-);
-check(pills.includes("v1.1.0 available"), "update pill missing for outdated device");
-check(pills.includes("up to date"), "up-to-date pill missing for current device");
+// pills are semantic: the linked 1.0.2 board is offered 1.1.0
+const pills = [...el.shadowRoot.querySelectorAll(".badge")].map((b) => b.textContent.trim());
+check(pills.includes("v1.1.0 available"), "update pill missing for outdated linked board");
 check(!html.includes("Firmware is up to date"), "stale banner still rendered");
 
-// 5) live progress bar with percentage
-check(
-  !!el.shadowRoot.querySelector(".ota-bar:not(.ind)"),
-  "determinate ota progress bar missing"
-);
+// live progress bar with percentage
+check(!!el.shadowRoot.querySelector(".ota-bar:not(.ind)"),
+  "determinate ota progress bar missing");
 const barFill = el.shadowRoot.querySelector(".ota-bar i");
-check(
-  barFill && barFill.getAttribute("style").includes("width:55%"),
-  "progress bar width does not reflect 55%"
-);
+check(barFill && barFill.getAttribute("style").includes("width:55%"),
+  "progress bar width does not reflect 55%");
 check(html.includes("Downloading firmware — 55%"), "progress label missing");
 
 // 5b) board settings card intentionally removed from Settings tab
@@ -247,6 +196,11 @@ el.shadowRoot.querySelector('[data-tab="devices"]').click();
 await new Promise((r) => setTimeout(r, 20));
 
 // 6) failure box carries the board's error reason
+STATUS.devices[0].ota_state = "failed";
+STATUS.devices[0].ota_error = "HTTP 404 (code -104)";
+STATUS.devices[0].ota_progress = null;
+await el._refresh();
+await new Promise((r) => setTimeout(r, 10));
 const failBox = el.shadowRoot.querySelector(".ota-fail");
 check(!!failBox, "ota failure box missing");
 check(
@@ -258,16 +212,9 @@ check(
   "GitHub token UI must be gone entirely"
 );
 
-// 2) catalog dropdown + preview exist
+// 2) compact catalog dropdown remains, preview is gone
 check(!!el.shadowRoot.getElementById("hcc-board-sel"), "catalog dropdown missing");
-check(
-  !!el.shadowRoot.getElementById("hcc-board-preview"),
-  "board preview missing"
-);
-check(
-  el.shadowRoot.getElementById("hcc-board-preview").querySelector("p").textContent.includes("test desc"),
-  "description not rendered in preview"
-);
+check(!el.shadowRoot.getElementById("hcc-board-preview"), "preview should be gone from compact view");
 
 // 3) click flash -> ws call + notice
 el.shadowRoot.querySelector('[data-fw-action="flash"]').click();
@@ -275,6 +222,7 @@ await new Promise((r) => setTimeout(r, 30));
 
 const flashCall = wsCalls.find((c) => c.type === "home_climate_control/flash_device");
 check(!!flashCall, "flash_device ws not called");
+check(flashCall?.node_id === "hcs-test", "wrong linked board sent");
 check(flashCall?.catalog_id === "hcs-1.1.0-lolin_c3_mini", "wrong catalog id sent");
 check(
   el._error === null || el._error === undefined,
@@ -296,20 +244,7 @@ check(
   el.shadowRoot.getElementById("hcc-board-sel").value === "hcs-1.0.2-lolin_c3_mini",
   "catalog selection lost after re-render"
 );
-check(
-  el.shadowRoot.getElementById("hcc-board-preview").querySelector("p").textContent.includes("test desc"),
-  "preview not restored for selected board"
-);
-
-// 5) flash-catalog action sends node id + catalog id
-el.shadowRoot.getElementById("hcc-cat-node").value = "hcs-newboard";
-el.shadowRoot.querySelector('[data-fw-action="flash-catalog"]').click();
-await new Promise((r) => setTimeout(r, 20));
-const catFlash = wsCalls.find(
-  (c) => c.type === "home_climate_control/flash_device" && c.node_id === "hcs-newboard"
-);
-check(!!catFlash, "flash-catalog ws not called");
-check(catFlash?.catalog_id === "hcs-1.0.2-lolin_c3_mini", "flash-catalog wrong image");
+check(!el.shadowRoot.getElementById("hcc-cat-node"), "Flash a new board controls must be removed");
 
 // 6) Board tab replicates the ESP control page
 el._tab = "devices";
