@@ -2065,7 +2065,13 @@ async def ws_check_updates(
     msg: dict[str, Any],
 ) -> None:
     """Force an immediate firmware-update check against GitHub releases."""
+    from .firmware_manager import async_setup_firmware_manager
     from .update_checker import get_update_checker
+
+    # Refresh the published firmware catalog too, so a freshly released
+    # board image is selectable in the same pass.
+    mgr = await async_setup_firmware_manager(hass)
+    await mgr.async_refresh_catalog(force=True)
 
     uc = get_update_checker(hass)
     if uc is None:

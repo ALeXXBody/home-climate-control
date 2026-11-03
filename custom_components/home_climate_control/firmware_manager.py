@@ -702,6 +702,8 @@ class FirmwareManager:
             "ota_password" in clean
         )
         dev.cfg = merged
+        if "device_name" in clean and isinstance(clean["device_name"], str):
+            dev.name = clean["device_name"]
 
         return {"ok": True, "mqtt": True, "http": http_ok,
                 "http_error": http_err or None, "node_id": node_id}

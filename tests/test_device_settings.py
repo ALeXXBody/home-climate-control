@@ -79,6 +79,8 @@ def test_push_whitelists_keys_and_publishes(mgr):
     }
     # optimistic echo keeps secrets masked
     assert "s3cret" not in json.dumps(m.devices["hcs-a"].cfg)
+    # the friendly name updates immediately, without waiting for a reboot
+    assert m.devices["hcs-a"].name == "Attic unit"
 
 
 def test_push_rejects_empty_and_unknown_device(mgr):

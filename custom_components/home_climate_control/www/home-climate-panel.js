@@ -18,7 +18,6 @@ class HomeClimatePanel extends HTMLElement {
     this._busy = {};
     this._poll = null;
     this._otaFast = null;
-    this._selectedBoardId = null;
     this._curveData = null;
     this._curveAt = 0;
     this._drafts = {};
@@ -237,12 +236,6 @@ class HomeClimatePanel extends HTMLElement {
         this._bsSel = t.value;
         this._bsDraft = null;
         this._render();
-      } else if (t.id === "hcc-otlog-node") {
-        this._otlogNodeId = t.value;
-        this._otlogLines = null;
-        this._fetchOtLog();
-      } else if (t.id === "hcc-board-sel") {
-        this._selectedBoardId = t.value;
       }
     });
 
@@ -388,8 +381,14 @@ class HomeClimatePanel extends HTMLElement {
 
   /** Skip re-render while the user is editing board controls. */
   static _boardEditing(root) {
-    const a = root.activeElement;
-    if (a && a.dataset && (a.dataset.draftKey != null || a.dataset.rangeLive != null))
+    const scope =
+      root && "activeElement" in root ? root : root?.getRootNode?.();
+    const a = scope?.activeElement;
+    if (
+      a &&
+      a.dataset &&
+      (a.dataset.draftKey != null || a.dataset.rangeLive != null)
+    )
       return true;
     return false;
   }
@@ -512,16 +511,6 @@ class HomeClimatePanel extends HTMLElement {
         this._otAutoTick_();
         const binding = root.getElementById("hcc-device-wrap");
         if (binding && !HomeClimatePanel._boardEditing(binding)) binding.innerHTML = this._deviceHtml();
-        if (!HomeClimatePanel._boardEditing(root)) {
-          const bw = root.getElementById("hcc-board-wrap");
-          if (bw && !this._focusBlocked(bw)) {
-            bw.innerHTML = this._boardHtml();
-            if (this._selectedBoardId) {
-              const bsel = root.getElementById("hcc-board-sel");
-              if (bsel) bsel.value = this._selectedBoardId;
-            }
-          }
-        }
         break;
       }
       case "diagnostics": {
@@ -1245,10 +1234,6 @@ class HomeClimatePanel extends HTMLElement {
     `;
     if (savedRoom) this._restoreAddRoomForm(savedRoom);
     this._applyRoomFlash(root);
-    if (this._selectedBoardId) {
-      const bsel = root.getElementById("hcc-board-sel");
-      if (bsel) bsel.value = this._selectedBoardId;
-    }
     this._populateBoilerCatalog();
   }
 
@@ -1357,8 +1342,7 @@ class HomeClimatePanel extends HTMLElement {
       case "rooms":
         return `<div id="hcc-zones-wrap">${this._zonesHtml(sys)}</div>`;
       case "devices":
-        return `<div id="hcc-device-wrap" class="board-binding compact">${this._deviceHtml()}</div>
-          <div id="hcc-board-wrap">${this._boardHtml()}</div>
+        return `<div id="hcc-device-wrap" class="board-binding compact" style="margin-bottom:14px">${this._deviceHtml()}</div>
           ${this._otConsoleHtml()}`;
       case "settings":
         return `${this._soptMsg ? `<div class="card" style="border-color:#3a7">${this._esc(this._soptMsg)}</div>` : ""}${this._settingsHtml(sys)}`;
@@ -1552,33 +1536,26 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
-  /* ── OpenTherm console (Board tab) ─────────────────────────────────
+  /* ── OpenTherm console (Device tab) ────────────────────────────────
      Frames come from the board via the integration proxy (server-side
-     HTTP fetch — no CORS). Lives outside hcc-board-wrap so the poll's
-     telemetry swap never scrolls away what you're reading. */
+     HTTP fetch — no CORS). Kept outside the merged Device card so the
+     poll's telemetry swap never scrolls away what you're reading. */
   _otConsoleHtml() {
     const linked = String(this._status?.systems?.[0]?.linked_node || "").trim();
     const devs = (this._status?.devices || []).filter(
       (d) => d.online && (!linked || d.node_id === linked)
     );
     if (!devs.length) return "";
-    const sel = this._otlogNodeId ||
-      (this._selectedBoardId && devs.some(d=>d.node_id===this._selectedBoardId)
-        ? this._selectedBoardId : devs[0].node_id);
-    this._otlogNodeId = sel;
-    const opts = devs.map(
-      (d) => `<option value="${this._esc(d.node_id)}"${d.node_id === sel ? " selected" : ""}>${this._esc(d.name || d.node_id)}</option>`
-    ).join("");
+    this._otlogNodeId = devs[0].node_id;
     const lines = this._otlogLines;
     const body = lines == null
       ? "loading…"
       : (lines.length ? this._esc(lines.join("\n")) : "(no frames yet)");
     return `
-      <div class="card wide" style="margin-top:20px">
+      <div class="card wide">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <div class="zone-title" style="margin:0">OpenTherm console</div>
           <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
-            <select id="hcc-otlog-node" style="background:var(--secondary-background-color,#1c1c1c);color:inherit;border:1px solid var(--divider-color,#333);border-radius:6px;padding:3px 8px;font-size:.78rem">${opts}</select>
             <button type="button" class="ghost" data-otlog="refresh" title="Refresh"
               style="padding:2px 10px;font-size:.78rem">⟳ Refresh</button>
             <button type="button" class="ghost" data-otlog="clear" title="Clear log"
@@ -2811,19 +2788,14 @@ class HomeClimatePanel extends HTMLElement {
     return String(c.title || "").replace(/^HCS\s+[\d.]+\s+(GW\s+)?—\s+/, "");
   }
 
-  /** Replica of the linked board Control page, driven over MQTT. */
-  _boardHtml() {
+  /** Linked board Control page body, driven over MQTT (inside the Device card). */
+  _boardBodyHtml() {
     const linked = String(this._status?.systems?.[0]?.linked_node || "").trim();
     const devs = (this._status?.devices || []).filter(
       (d) => d.online && (!linked || d.node_id === linked)
     );
     if (!devs.length)
-      return this._placeholder(
-        "Board",
-        linked
-          ? "The linked board is offline. Link another board or bring this one back online."
-          : "No board is linked yet. Link one on the Device page."
-      );
+      return `<p class="sub">The linked board is offline. Link another board or bring this one back online.</p>`;
     return devs.map((d) => {
       const c = d.ctl || {};
       const node = this._esc(d.node_id);
@@ -2839,12 +2811,10 @@ class HomeClimatePanel extends HTMLElement {
       const fsColor =
         fs === "FAILSAFE" ? "#ef5350" : fs === "HOLD" ? "#ffb74d" : "#7cb342";
       return `
-      <div class="card wide" style="margin-bottom:14px">
-        <div class="zone-title">${this._esc(d.name || d.node_id)}
-          <span class="badge on">v${this._esc(d.version || "?")}</span>
-          ${fs !== "OFF" ? `<span class="badge heat">failsafe: ${this._esc(fs)}</span>` : ""}
-        </div>
-        <div class="zone-meta">live mirror of the board Control page · changes apply instantly over MQTT</div>
+      <div style="border-top:1px solid var(--divider-color,#2a2a2a);margin:14px 0 8px"></div>
+      <div class="zone-title" style="font-size:.85rem">Board control
+        ${fs !== "OFF" ? `<span class="badge heat">failsafe: ${this._esc(fs)}</span>` : ""}
+      </div>
 
         <div class="row"><label>Central heating</label>
           <button type="button" class="${c.ch_enable === false ? "" : "a"}" data-ctl-node="${node}" data-ctl-key="ch_enable" data-ctl-value="true">CH on</button>
@@ -2893,8 +2863,7 @@ class HomeClimatePanel extends HTMLElement {
             value="${dv("wc_fmax", "")}" data-draft-node="${node}" data-draft-key="wc_fmax">
           <input type="number" step="1" style="max-width:80px" title="Flow min" placeholder="Min"
             value="${dv("wc_fmin", "")}" data-draft-node="${node}" data-draft-key="wc_fmin">
-          <button type="button" class="a" data-wc-apply="${node}">Apply curve</button></div>
-      </div>`;
+          <button type="button" class="a" data-wc-apply="${node}">Apply curve</button></div>`;
     }).join("");
   }
 
@@ -2923,7 +2892,8 @@ class HomeClimatePanel extends HTMLElement {
                   <div class="zone-meta">${this._esc(d.node_id)} · ${this._esc(d.board || "?")} · v${this._esc(d.version || "?")} · ${this._esc(d.ip || "no IP")}</div></div>
                   <div class="controls"><button type="button" data-board-action="link" data-node="${this._esc(d.node_id)}" data-entry="${this._esc(entryId)}">Link</button></div>
                 </div>`).join("")}</div>`
-            : `<p class="sub">No online board discovered yet. Power one on and press “Scan now”.</p><div class="row"><button type="button" class="ghost" data-fw-action="ping">Scan now</button></div>`}
+            : `<p class="sub">No online board discovered yet. Power one on and press “Scan now”.</p>`}
+          <div class="row" style="margin-top:.6rem"><button type="button" class="ghost" data-fw-action="ping">Scan now</button></div>
         </div>`;
     }
 
@@ -2932,45 +2902,38 @@ class HomeClimatePanel extends HTMLElement {
     const catalog = [...(this._status?.firmware_catalog || [])]
       .filter((c) => !d || !d.board || c.board === d.board);
     const match = d ? (catalog.find((c) => c.board === d.board) || null) : null;
-    const selected = match && this._selectedBoardId
-      ? catalog.find((c) => c.id === this._selectedBoardId) || match
-      : match;
-    const options = selected
-      ? catalog.map((c) => `<option value="${this._esc(c.id)}"${c.id === selected.id ? " selected" : ""}>${this._esc(c.model || c.title || c.id)} · v${this._esc(c.version)}</option>`).join("")
-      : `<option value="">No firmware image for this board</option>`;
+    const updateAvailable = !!(d && match && HomeClimatePanel._verNewer(match.version, d.version));
+    const updatePill = d && match
+      ? (updateAvailable
+          ? `<span class="badge heat">v${this._esc(match.version)} available</span>`
+          : '<span class="badge on">up to date</span>')
+      : '<span class="badge">no image</span>';
 
     const telemetry = d?.ctl || {};
     const setpoint = telemetry.flow_setpoint != null ? `${telemetry.flow_setpoint} °C` : "—";
     return `
       <div class="card compact wide">
-        <div class="row" style="align-items:flex-start">
-          <div style="min-width:0">
-            <div class="zone-title" style="margin:0">${this._esc(d?.name || linked)}
-              <span class="badge on">linked</span>
-              <span class="badge ${online ? "on" : "off"}">${online ? "online" : "offline"}</span>
-              ${d?.ota_state === "starting" || d?.ota_state === "downloading" || d?.ota_state === "rebooting" ? "" : ""}
-            </div>
-            <div class="zone-meta">${this._esc(linked)} · ${this._esc(d?.board || "board unknown")} · v${this._esc(d?.version || "?")} · ${this._esc(d?.ip || "no IP")}${d?.last_seen ? ` · seen ${this._ago(d.last_seen)}` : ""}</div>
-          </div>
+        <div class="row" style="align-items:center;gap:8px;margin-bottom:.4rem">
+          <div class="zone-title" style="margin:0">Home Climate System</div>
+          <span class="badge on">linked</span>
+          <span class="badge ${online ? "on" : "off"}">${online ? "online" : "offline"}</span>
+          ${updatePill}
           <div class="controls" style="margin-left:auto">
             <button type="button" class="ghost" data-board-action="unlink" data-entry="${this._esc(entryId)}">Unlink</button>
-            <button type="button" class="ghost" data-fw-action="ping">Scan now</button>
             <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
+            <button type="button" class="ghost" data-fw-action="reboot" data-node="${this._esc(linked)}" ${online && !this._busy[linked] ? "" : "disabled"}>Reboot</button>
+            <button type="button" class="ghost" data-fw-action="open" data-node="${this._esc(linked)}" ${online && d?.ota_http ? "" : "disabled"}>OTA</button>
           </div>
         </div>
-        <p class="sub" style="margin:.5rem 0 .75rem">This installation only monitors and commands this board. ${online ? "Board settings live below." : "It is unresponsive; replace or unlink it before linking another board."} Flow setpoint: <b>${this._esc(setpoint)}</b>.</p>
-        ${online ? `
+        <div class="zone-meta">${this._esc(linked)} · ${this._esc(d?.board || "board unknown")} · v${this._esc(d?.version || "?")} · ${this._esc(d?.ip || "no IP")}${d?.last_seen ? ` · seen ${this._ago(d.last_seen)}` : ""}</div>
+        <p class="sub" style="margin:.55rem 0 .7rem">This installation only monitors and commands this board. ${online ? "Board settings live below." : "It is unresponsive; replace or unlink it before linking another board."} Flow setpoint: <b>${this._esc(setpoint)}</b>.</p>
+        ${online && updateAvailable ? `
           <div class="row" style="gap:8px;flex-wrap:wrap">
-            <select id="hcc-board-sel" style="min-width:150px;max-width:230px" aria-label="Firmware version">${options}</select>
-            <button type="button" data-fw-action="flash" data-node="${this._esc(linked)}" ${selected && !this._busy[linked] ? "" : "disabled"}>Flash</button>
-            <button type="button" class="ghost" data-fw-action="reboot" data-node="${this._esc(linked)}" ${!this._busy[linked] ? "" : "disabled"}>Reboot</button>
-            <button type="button" class="ghost" data-fw-action="open" data-node="${this._esc(linked)}" ${d?.ota_http ? "" : "disabled"}>OTA</button>
-            ${match ? `<span class="badge on">${HomeClimatePanel._verNewer(match.version, d.version) ? `v${this._esc(match.version)} available` : "up to date"}</span>` : ""}
+            <button type="button" data-fw-action="flash" data-node="${this._esc(linked)}" data-catalog-id="${this._esc(match?.id || "")}" ${!this._busy[linked] ? "" : "disabled"}>Flash</button>
           </div>
-          ${HomeClimatePanel._otaHtml(d)}
-        ` : `
-          <p class="sub">OTA controls are disabled while this board is offline.</p>
-        `}
+        ` : ""}
+        ${HomeClimatePanel._otaHtml(d)}
+        ${this._boardBodyHtml()}
       </div>`;
   }
 
@@ -2978,8 +2941,8 @@ class HomeClimatePanel extends HTMLElement {
     const action = el.getAttribute("data-board-action");
     const nodeId = el.getAttribute("data-node");
     const entryId = el.getAttribute("data-entry") || undefined;
-    if (action !== "link" && action !== "unlink") return;
     if (!this._hass) return;
+    if (action !== "link" && action !== "unlink") return;
     try {
       const msg = action === "link"
         ? { type: "home_climate_control/link_board", node_id: nodeId, ...(entryId ? { entry_id: entryId } : {}) }
@@ -3003,31 +2966,6 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "check-updates") {
       this._hass.callWS({ type: "home_climate_control/check_updates" })
         .then(() => this._refresh());
-      return;
-    }
-    if (action === "flash-catalog") {
-      const cid = this.shadowRoot.getElementById("hcc-board-sel").value;
-      const node =
-        this.shadowRoot.getElementById("hcc-cat-node").value.trim();
-      if (!node) {
-        this._showError("Enter the target device node id (e.g. hcs-aabbccddeeff).");
-        return;
-      }
-      this._hass
-        .callWS({
-          type: "home_climate_control/flash_device",
-          node_id: node,
-          catalog_id: cid,
-        })
-        .then(() => {
-          this._flashNotice(
-            `Update command sent to ${node}. The device downloads and reboots (~90 s).`,
-            8000
-          );
-        })
-        .catch((err) => {
-          this._showError(err?.message || String(err));
-        });
       return;
     }
     if (action === "flash-all") return this._flashAllOutdated();
@@ -3118,6 +3056,12 @@ class HomeClimatePanel extends HTMLElement {
   _selectedFirmware(nodeId, devices, catalog) {
     const sel = this.shadowRoot.querySelector(`select[data-catalog-for="${nodeId}"]`);
     let value = sel?.value;
+    if (!value) {
+      const btn = this.shadowRoot.querySelector(
+        `[data-fw-action="flash"][data-node="${nodeId}"][data-catalog-id]`
+      );
+      value = btn?.getAttribute("data-catalog-id") || "";
+    }
     if (!value) {
       const dev = devices.find((d) => d.node_id === nodeId);
       value = catalog.find((c) => c.board === dev?.board)?.id;

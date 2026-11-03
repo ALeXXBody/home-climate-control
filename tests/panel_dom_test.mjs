@@ -148,34 +148,65 @@ const html = el.shadowRoot.innerHTML;
 const failures = [];
 const check = (cond, msg) => (cond ? null : failures.push(msg));
 
-// 1) Device page: one explicit linked board, merged compact firmware view
+// 1) Device page: one explicit linked board, compact firmware controls
 check(html.includes("Device") && html.includes("linked"),
   "linked board card missing");
-check((html.match(/hcc-board-sel/g) || []).length === 1,
-  "board selector duplicated");
+check(html.includes("Home Climate System"), "fixed board title missing");
+check(!el.shadowRoot.getElementById("hcc-board-name"),
+  "friendly-name editor must be gone");
+check(!el.shadowRoot.getElementById("hcc-board-sel"),
+  "firmware dropdown must be removed from the linked-board card");
 check(!html.includes("Flash a new board") && !html.includes("fw-cat"),
   "flash-new-board section must be dropped");
-check(!html.includes("hcs-current") && !html.includes("Current Board"),
-  "unlinked board must not render on Device page");
 check(!html.includes("hcs-offline") && !html.includes("Ghost Board"),
   "offline board rendered on Device page");
 check(html.includes("hcs-test"), "linked board missing from Device page");
-check(html.includes("Scan now") && html.includes("Check updates"),
-  "device-scan controls missing");
+check(html.includes("Check updates"), "update check control missing");
+check(!html.includes("Scan now"),
+  "Scan now must only appear when no board is linked");
 check(!html.includes("hcc-board-preview"),
   "catalog preview should be gone from the compact view");
 
-// Firmware choices are scoped to the linked board's model
-const opts = [...el.shadowRoot.querySelectorAll("#hcc-board-sel option")].map((o) => o.textContent);
-check(opts.length === 2, "linked board selector should only contain matching images");
-check(opts.every((t) => t.includes("LOLIN C3 mini")), "wrong board model in firmware selector");
-check(opts.includes("LOLIN C3 mini v2.1 · v1.1.0"), "model label missing");
-check(!opts.some((t) => t.includes("ESP8266")), "wrong-board firmware image offered");
+// top action row: Unlink, Check updates, Reboot, OTA together
+const topRow = el.shadowRoot.querySelector(".card.compact .row");
+const topText = topRow?.textContent || "";
+for (const label of ["Unlink", "Check updates", "Reboot", "OTA"]) {
+  check(topText.includes(label), `top action missing: ${label}`);
+}
+check(el.shadowRoot.querySelectorAll('[data-fw-action="reboot"]').length === 1,
+  "Reboot duplicated outside the top row");
+check(el.shadowRoot.querySelectorAll('[data-fw-action="open"]').length === 1,
+  "OTA duplicated outside the top row");
 
-// pills are semantic: the linked 1.0.2 board is offered 1.1.0
-const pills = [...el.shadowRoot.querySelectorAll(".badge")].map((b) => b.textContent.trim());
-check(pills.includes("v1.1.0 available"), "update pill missing for outdated linked board");
-check(!html.includes("Firmware is up to date"), "stale banner still rendered");
+// binding header and board controls share one card
+check(!el.shadowRoot.getElementById("hcc-board-wrap"),
+  "board controls still render in a separate card");
+const mergedCard = el.shadowRoot.querySelector("#hcc-device-wrap .card");
+check(!!mergedCard, "merged Device card missing");
+check(!!mergedCard?.querySelector('[data-ctl-key="ch_enable"]'),
+  "central-heating controls not inside the merged card");
+check(!!mergedCard?.querySelector('[data-wc-apply="hcs-test"]'),
+  "weather compensation not inside the merged card");
+check(
+  el.shadowRoot.getElementById("hcc-device-wrap")
+    ?.getAttribute("style")?.includes("margin-bottom:14px"),
+  "merged card needs a gap before the OpenTherm console"
+);
+const lastCard = [...el.shadowRoot.querySelectorAll(".card")].pop();
+check(lastCard && !/margin-top/.test(lastCard.getAttribute("style") || ""),
+  "OpenTherm console still adds extra top spacing");
+
+// status pills sit together in the card header
+const headText = topRow?.textContent || "";
+check(headText.includes("linked") && headText.includes("online"),
+  "binding pills missing from the card header");
+check(headText.includes("v1.1.0 available"),
+  "update pill is not next to the linked/online pills");
+
+// Flash appears only when an update exists, and is labelled Flash
+const flashNow = el.shadowRoot.querySelector('[data-fw-action="flash"]');
+check(!!flashNow, "Flash must show when an update exists");
+check(flashNow?.textContent.trim() === "Flash", "flash label must be Flash");
 
 // live progress bar with percentage
 check(!!el.shadowRoot.querySelector(".ota-bar:not(.ind)"),
@@ -212,12 +243,16 @@ check(
   "GitHub token UI must be gone entirely"
 );
 
-// 2) compact catalog dropdown remains, preview is gone
-check(!!el.shadowRoot.getElementById("hcc-board-sel"), "catalog dropdown missing");
+// 2) no firmware picker, no flash-new-board controls
+check(!el.shadowRoot.getElementById("hcc-board-sel"), "catalog dropdown missing");
 check(!el.shadowRoot.getElementById("hcc-board-preview"), "preview should be gone from compact view");
 
-// 3) click flash -> ws call + notice
-el.shadowRoot.querySelector('[data-fw-action="flash"]').click();
+// 3) click Flash -> ws call for the linked board's own image + notice
+const flashBtn = el.shadowRoot.querySelector('[data-fw-action="flash"]');
+check(!!flashBtn, "flash button missing");
+check(flashBtn?.getAttribute("data-catalog-id") === "hcs-1.1.0-lolin_c3_mini",
+  "flash button not bound to the linked board's firmware");
+flashBtn.click();
 await new Promise((r) => setTimeout(r, 30));
 
 const flashCall = wsCalls.find((c) => c.type === "home_climate_control/flash_device");
@@ -232,19 +267,37 @@ check(
   el.shadowRoot.querySelector(".notice")?.textContent.includes("Update command sent"),
   "flash notice not shown"
 );
-
-// 4) catalog selection survives re-render
-const sel2 = el.shadowRoot.getElementById("hcc-board-sel");
-sel2.value = "hcs-1.0.2-lolin_c3_mini";
-sel2.dispatchEvent(new w.Event("change", { bubbles: true }));
-await new Promise((r) => setTimeout(r, 10));
-el._render();
-await new Promise((r) => setTimeout(r, 10));
-check(
-  el.shadowRoot.getElementById("hcc-board-sel").value === "hcs-1.0.2-lolin_c3_mini",
-  "catalog selection lost after re-render"
-);
 check(!el.shadowRoot.getElementById("hcc-cat-node"), "Flash a new board controls must be removed");
+
+// 4) Flash disappears once the linked board is current
+STATUS.devices[0].version = "1.1.0";
+await el._refresh();
+await new Promise((r) => setTimeout(r, 10));
+check(!el.shadowRoot.querySelector('[data-fw-action="flash"]'),
+  "Flash must be hidden when the board is up to date");
+check(
+  [...el.shadowRoot.querySelectorAll(".badge")].some(
+    (b) => b.textContent.trim() === "up to date"
+  ),
+  "up-to-date pill missing"
+);
+
+// 5) unlinked state offers Scan now and no board actions
+STATUS.systems[0].linked_node = "";
+await el._refresh();
+await new Promise((r) => setTimeout(r, 10));
+const unlinkedHtml = el.shadowRoot.innerHTML;
+check(unlinkedHtml.includes("Scan now"),
+  "Scan now must be offered while no board is linked");
+check(!el.shadowRoot.querySelector('[data-fw-action="flash"]'),
+  "Flash must not render without a linked board");
+check(!el.shadowRoot.querySelector('[data-fw-action="reboot"]'),
+  "Reboot must not render without a linked board");
+check(!!el.shadowRoot.querySelector('[data-board-action="link"]'),
+  "Link action missing for discovered boards");
+STATUS.systems[0].linked_node = "hcs-test";
+await el._refresh();
+await new Promise((r) => setTimeout(r, 10));
 
 // 6) Board tab replicates the ESP control page
 el._tab = "devices";
@@ -364,7 +417,7 @@ check(!!flashed && flashed.textContent.includes("Attic"),
   "clicked room card not highlighted on Rooms tab");
 
 
-// ── OpenTherm console gates (Board tab) ──────────────────────────────
+// ── OpenTherm console gates (Device tab) ─────────────────────────────
 el._otlogNodeId = "hcs-test";
 el._otlogLines = [
   "[  12.30] READ Status      0041 -> OK   R-ACK Status     0141 = 21.50",
@@ -377,6 +430,8 @@ el._tab = "devices";
 const otlogHtml = el._otConsoleHtml();
 check(otlogHtml.includes("21.50") && otlogHtml.includes("Status"),
   "otlog: cached frame lines not rendered");
+check(!otlogHtml.includes("hcc-otlog-node") && !otlogHtml.includes("<select"),
+  "otlog: board dropdown must be gone with a single linked board");
 el._render();
 await new Promise((r) => setTimeout(r, 80));
 const pre = el.shadowRoot.getElementById("hcc-otlog-pre");
