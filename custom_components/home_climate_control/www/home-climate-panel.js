@@ -1220,7 +1220,7 @@ class HomeClimatePanel extends HTMLElement {
           ${this._tabBtn("diagnostics", "Diagnostics")}
           ${this._showDebug ? this._tabBtn("debug", "Debug") : ""}
         </nav>
-        <div class="sub" id="hcc-tab-hint" style="margin:-6px 0 8px">${this._esc(HomeClimatePanel.TAB_HINTS[this._tab] || "")}</div>
+        ${HomeClimatePanel.TAB_HINTS[this._tab] ? `<div class="sub" id="hcc-tab-hint" style="margin:-6px 0 8px">${this._esc(HomeClimatePanel.TAB_HINTS[this._tab])}</div>` : ""}
         <div id="hcc-error" class="error" ${this._error ? "" : "hidden"}>${this._esc(this._error || "")}</div>
         <div id="hcc-notice" class="notice" ${this._notice ? "" : "hidden"}>${this._esc(this._notice || "")}</div>
         ${this._loading ? `<div class="empty">Loading…</div>` : this._body(sys, systems)}
@@ -1930,7 +1930,6 @@ class HomeClimatePanel extends HTMLElement {
     home: "Live overview of every room and the floor plan.",
     rooms: "Room cards and room settings — add or edit rooms via the button above the list.",
     stats: "Gas use, heating history and daily charts.",
-    devices: "HCS boards — link one board, then firmware and OTA actions.",
     settings: "Integration options and self-learning.",
     diagnostics: "Technical telemetry: setup analyzer and boiler internals.",
   };
@@ -2884,7 +2883,6 @@ class HomeClimatePanel extends HTMLElement {
       return `
         <div class="card">
           <div class="zone-title" style="margin:0">Linked board</div>
-          <p class="sub" style="margin:.35rem 0 .8rem">One installation commands exactly one board. Link an online board when you want boiler control; no board is followed automatically.</p>
           ${candidates.length
             ? `<div class="zones">${candidates.map((d) => `
                 <div class="zone compact">
@@ -2909,8 +2907,6 @@ class HomeClimatePanel extends HTMLElement {
           : '<span class="badge on">up to date</span>')
       : '<span class="badge">no image</span>';
 
-    const telemetry = d?.ctl || {};
-    const setpoint = telemetry.flow_setpoint != null ? `${telemetry.flow_setpoint} °C` : "—";
     return `
       <div class="card compact wide">
         <div class="row" style="align-items:center;gap:8px;margin-bottom:.4rem">
@@ -2926,7 +2922,6 @@ class HomeClimatePanel extends HTMLElement {
           </div>
         </div>
         <div class="zone-meta">${this._esc(linked)} · ${this._esc(d?.board || "board unknown")} · v${this._esc(d?.version || "?")} · ${this._esc(d?.ip || "no IP")}${d?.last_seen ? ` · seen ${this._ago(d.last_seen)}` : ""}</div>
-        <p class="sub" style="margin:.55rem 0 .7rem">This installation only monitors and commands this board. ${online ? "Board settings live below." : "It is unresponsive; replace or unlink it before linking another board."} Flow setpoint: <b>${this._esc(setpoint)}</b>.</p>
         ${online && updateAvailable ? `
           <div class="row" style="gap:8px;flex-wrap:wrap">
             <button type="button" data-fw-action="flash" data-node="${this._esc(linked)}" data-catalog-id="${this._esc(match?.id || "")}" ${!this._busy[linked] ? "" : "disabled"}>Flash</button>

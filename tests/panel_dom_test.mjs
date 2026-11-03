@@ -166,6 +166,10 @@ check(!html.includes("Scan now"),
   "Scan now must only appear when no board is linked");
 check(!html.includes("hcc-board-preview"),
   "catalog preview should be gone from the compact view");
+check(!/This installation only monitors/.test(html) &&
+  !/Board settings live below/.test(html) &&
+  !/Flow setpoint:/.test(html),
+  "Device card must not carry explanatory filler text");
 
 // top action row: Unlink, Check updates, Reboot, OTA together
 const topRow = el.shadowRoot.querySelector(".card.compact .row");
@@ -295,6 +299,8 @@ check(!el.shadowRoot.querySelector('[data-fw-action="reboot"]'),
   "Reboot must not render without a linked board");
 check(!!el.shadowRoot.querySelector('[data-board-action="link"]'),
   "Link action missing for discovered boards");
+check(!/One installation commands exactly one board/.test(unlinkedHtml),
+  "unlinked Device card must not carry explanatory filler text");
 STATUS.systems[0].linked_node = "hcs-test";
 await el._refresh();
 await new Promise((r) => setTimeout(r, 10));
@@ -801,7 +807,7 @@ if (failures.length) {
   check(!!hint, "tab hint bar missing");
   const hintChecks = {
     home: "Live overview", rooms: "Room cards", stats: "Gas use",
-    devices: "HCS boards", settings: "Integration options",
+    settings: "Integration options",
     diagnostics: "Technical telemetry",
   };
   for (const t of Object.keys(hintChecks)) {
@@ -810,6 +816,11 @@ if (failures.length) {
     const h2 = el.shadowRoot.getElementById("hcc-tab-hint");
     check(h2 && h2.textContent.includes(hintChecks[t]), "tab hint for " + t + " missing");
   }
+  // Device tab carries no redundant hint line.
+  el._tab = "devices";
+  el._render();
+  check(!el.shadowRoot.getElementById("hcc-tab-hint"),
+    "Device tab hint must be removed");
   el._tab = "settings";
   delete sys0.boiler.learner;
   if (savedLearner) sys0.boiler.learner = savedLearner;
