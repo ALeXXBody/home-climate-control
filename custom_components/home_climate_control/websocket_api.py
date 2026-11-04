@@ -54,6 +54,7 @@ from .const import (
     ZONE_PRESETS,
 )
 from .setuphealth import analyze as _setup_analyze
+from .battery import zone_batteries
 from .firmware_manager import (
     async_setup_firmware_manager,
     catalog_item,
@@ -258,6 +259,15 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         getattr(zone, "_humidity_sensor", None)
                     ),
                     "temp_sensor": getattr(zone, "temp_sensor_entity", None),
+                    # small battery chips for the room's own hardware
+                    "batteries": zone_batteries(
+                        hass,
+                        trvs=(
+                            list(getattr(zone, "trv_entities", None) or [])
+                            or [getattr(zone, "trv_entity", None)]
+                        ),
+                        temp_sensor=getattr(zone, "temp_sensor_entity", None),
+                    ),
                     "temp_source": (
                         (getattr(zone, "extra_state_attributes", {}) or {}).get(
                             "temp_source"

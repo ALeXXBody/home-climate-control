@@ -1107,6 +1107,13 @@ class HomeClimatePanel extends HTMLElement {
         }
         .zone-title { font-size: 1.1rem; font-weight: 500; }
         .zone-meta { font-size: 0.85rem; color: var(--secondary-text-color, #aaa); margin-top: 4px; }
+        .batt {
+          font-size: 0.72rem;
+          opacity: 0.85;
+          white-space: nowrap;
+          cursor: default;
+        }
+        .batt.low { color: #ef9a9a; opacity: 1; font-weight: 600; }
         .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         button, select, input[type="number"] {
           font: inherit;
@@ -1200,6 +1207,8 @@ class HomeClimatePanel extends HTMLElement {
         .fp-temp { font-size: 20px; font-weight: 700; fill: #fff; }
         .fp-sub  { font-size: 11px; fill: rgba(255,255,255,.75); }
         .fp-badge { font-size: 11px; }
+        .fp-batt { font-size: 10px; fill: rgba(255,255,255,.8); }
+        .fp-batt-low { fill: #ff9e9e; font-weight: 600; }
         .fp-flash { animation: fpflash 1.6s ease-out 2; }
         @keyframes fpflash { 0%,100% { outline: none; } 40% { box-shadow: 0 0 0 3px var(--primary-color,#03a9f4) inset; } }
 
@@ -1793,7 +1802,7 @@ class HomeClimatePanel extends HTMLElement {
     }
     const floors = [...byFloor.keys()].sort((a, b) => a - b);
 
-    const RH = 108, GAP = 10, PAD = 6;   // room height / gaps
+    const RH = 124, GAP = 10, PAD = 6;   // room height / gaps
     // Same canonical width for EVERY floor → every band scales identically,
     // so all room tiles render at the same height and floors stack without
     // ragged sizes or large gaps. Room count only widens/narrows tiles inside
@@ -1827,6 +1836,11 @@ class HomeClimatePanel extends HTMLElement {
         const badges = [];
         if (heating) badges.push(`<tspan class="fp-badge" fill="#ff8a65">🔥</tspan>`);
         if (demandPct > 0) badges.push(`<tspan class="fp-badge" fill="#4fc3f7">${demandPct}%</tspan>`);
+        const battBits = (Array.isArray(z.batteries) ? z.batteries : []).map((b) => {
+          const icon = HomeClimatePanel.BATT_ICONS[b.kind === "trv" ? "trv" : "temp"];
+          const lvl = b.level == null ? "?" : b.level;
+          return `<tspan${b.low ? ' class="fp-batt-low"' : ""}>${icon} ${lvl}%</tspan>`;
+        });
         rects += `
         <g class="fp-room${manual ? " manual" : ""}" data-fp-zone="${HomeClimatePanel._fpEsc(z.name)}">
           <rect class="r" x="${x.toFixed(1)}" y="${rectY}" width="${w.toFixed(1)}" height="${RH}"
@@ -1834,6 +1848,7 @@ class HomeClimatePanel extends HTMLElement {
           <text class="fp-name" x="${cx}" y="${rectY + 24}" text-anchor="middle">${HomeClimatePanel._fpEsc(z.name)}</text>
           <text class="fp-temp" x="${cx}" y="${rectY + 52}" text-anchor="middle">${tempTxt}</text>
           <text class="fp-sub" x="${cx}" y="${rectY + 72}" text-anchor="middle">${HomeClimatePanel._fpEsc(subBits.join(" · "))}</text>
+          ${battBits.length ? `<text class="fp-batt" x="${cx}" y="${rectY + 90}" text-anchor="middle">${battBits.join("\u2002")}</text>` : ""}
           <text class="fp-sub" x="${cx}" y="${rectY + RH - 14}" text-anchor="middle">${badges.join(" ")}</text>
         </g>`;
         x += w + GAP;
@@ -2171,6 +2186,22 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
+  /* Chip icons: a knob for the TRV head, a thermometer for the room sensor. */
+  static BATT_ICONS = { trv: "🔘", temp: "🌡" };
+
+  /** Minimal battery chips: one per room device that reports a level. */
+  _batteryChips(z) {
+    const list = Array.isArray(z?.batteries) ? z.batteries : [];
+    return list
+      .map((b) => {
+        const icon = HomeClimatePanel.BATT_ICONS[b.kind === "trv" ? "trv" : "temp"];
+        const name = this._esc(b.name || b.entity || "device");
+        const lvl = b.level == null ? "?" : b.level;
+        return ` <span class="batt${b.low ? " low" : ""}" title="${name} — battery ${lvl}%">${icon} ${lvl}%</span>`;
+      })
+      .join("");
+  }
+
   _zoneCard(z, ctx) {
     const { compact, cal, rates, dts, health, insul } = ctx;
     const heat =
@@ -2184,7 +2215,7 @@ class HomeClimatePanel extends HTMLElement {
               <div class="z-info">
                 <div class="zone-title">${this._esc(z.name || z.entity_id || "Room")}</div>
                 <div class="zone-meta">
-                  ${this._fmt(z.current_temperature)}°C${z.humidity != null ? ` · ${Math.round(z.humidity)}%RH` : ""}${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
+                  ${this._fmt(z.current_temperature)}°C${z.humidity != null ? ` · ${Math.round(z.humidity)}%RH` : ""}${this._batteryChips(z)}${manual ? "" : ` → ${this._fmt(z.effective_setpoint ?? z.target_temperature)}°C`}
                   ${!manual ? ` · demand ${Math.round((z.demand_level || 0) * 100)}%` : ""}
                   ${!manual && heat ? ' · <span class="badge heat">heating</span>' : ""}
                   ${!manual && z.preheat ? ' · <span class="badge heat" title="Optimal-start catch-up using dead-time + warm rate">pre-heat</span>' : ""}

@@ -391,7 +391,11 @@ check(
 el._status.systems[0].zones = [
   { name: "Office", floor: 0, current_temperature: 18.0, target_temperature: 20,
     effective_setpoint: 20, demand_level: 0.4, hvac_action: "heating",
-    heat_control: "smart", window_open: false },
+    heat_control: "smart", window_open: false,
+    batteries: [
+      { entity: "climate.office_trv", kind: "trv", name: "Office TRV", level: 76, low: false },
+      { entity: "sensor.office_temp", kind: "temp", name: "Office sensor", level: 18, low: true },
+    ] },
   { name: "Attic", floor: 1, current_temperature: 22.5, target_temperature: 20,
     effective_setpoint: 21, demand_level: 0, hvac_action: "idle",
     heat_control: "manual", window_open: true },
@@ -410,6 +414,13 @@ check(fp.includes("manual"), "floorplan: manual-room marker missing");
 check(fp.includes("window"), "floorplan: open-window badge missing");
 check(fp.includes("🔥"), "floorplan: heating badge missing");
 check(/18\.0°/.test(fp), "floorplan: room temperature not rendered");
+// battery chips on the tiles, same glyphs as the room cards
+check(/🔘 76%/.test(fp), "floorplan: TRV battery chip missing");
+check(/🌡 18%/.test(fp), "floorplan: temperature-sensor battery chip missing");
+check(fp.includes("fp-batt-low"), "floorplan: low battery must be marked");
+const atticTile = fp.match(/data-fp-zone="Attic"[\s\S]*?<\/g>/)?.[0] || "";
+check(atticTile.length > 0 && !atticTile.includes("fp-batt"),
+  "floorplan: room without battery data must show no battery chip");
 
 // click-through: floor-plan room → rooms tab + highlighted card
 el.shadowRoot
@@ -421,6 +432,28 @@ check(!el._fpFocus, "fp focus flag not cleared after render");
 const flashed = el.shadowRoot.querySelector(".fp-flash");
 check(!!flashed && flashed.textContent.includes("Attic"),
   "clicked room card not highlighted on Rooms tab");
+
+// ── Room battery chips: TRV + temperature sensor, small and minimal ──
+const chips = [...el.shadowRoot.querySelectorAll("#hcc-zones-wrap .batt")];
+check(chips.length === 2,
+  "room card must show one battery chip per room device, got " + chips.length);
+check(chips.some((c) => c.textContent.includes("🔘") && c.textContent.includes("76%")),
+  "TRV battery chip must use the knob icon");
+check(chips.some((c) => c.textContent.includes("🌡") && c.textContent.includes("18%")),
+  "temperature-sensor battery chip must use the thermometer icon");
+check(!chips.some((c) => c.textContent.includes("🔥")),
+  "TRV chip must not use the heating flame as its device icon");
+check(!chips.some((c) => c.textContent.includes("🎛")),
+  "control-knobs emoji reads as a window and must not be used");
+check(chips.some((c) => c.classList.contains("low")),
+  "low battery must be marked");
+check(chips.every((c) => /battery \d+%/.test(c.getAttribute("title") || "")),
+  "battery chip tooltip missing");
+// Rooms without battery data must render no chip at all.
+const atticCard = [...el.shadowRoot.querySelectorAll("#hcc-zones-wrap .zone")]
+  .find((c) => c.textContent.includes("Attic"));
+check(atticCard && !atticCard.querySelector(".batt"),
+  "room without battery data must not render a battery chip");
 
 
 // ── OpenTherm console gates (Device tab) ─────────────────────────────
