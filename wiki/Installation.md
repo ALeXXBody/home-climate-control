@@ -4,12 +4,11 @@ Two things to install: the **HCC integration** (Home Assistant) and the **HCS fi
 
 ## 1. Home Assistant integration (HCC)
 
-### Via HACS
+### Via Marketplace
 
-1. Open HACS → **Integrations** → **⋮** → **Custom repositories**.
-2. Add `https://github.com/ALeXXBody/home-climate-control` with category **Integration**.
-3. Search for **Home Climate Control** → **Download**.
-4. Restart Home Assistant.
+1. **Settings → Marketplace** → search **Home Climate Control** → **Install**.
+2. Restart Home Assistant.
+3. Not in the catalog yet? Add `https://github.com/ALeXXBody/home-climate-control` as a custom repository in Marketplace (category **Integration**).
 
 ### Add the integration
 

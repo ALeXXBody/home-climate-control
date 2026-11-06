@@ -13,7 +13,7 @@ Unlike a basic on/off thermostat, HCC **learns your house**: how fast each room 
 
 ## In 60 seconds
 
-1. **Install the HCC integration** in Home Assistant (via HACS).
+1. **Install the HCC integration** in Home Assistant (via the built-in Marketplace).
 2. **Flash the HCS firmware** onto an ESP32 wired to your boiler's OpenTherm port.
 3. **Add rooms** and point each at its TRV (radiator valve) and a temperature sensor.
 4. Done — the controller weather-compensates, condenses, duty-cycles, and (optionally) auto-tunes the curve for you.
@@ -21,7 +21,7 @@ Unlike a basic on/off thermostat, HCC **learns your house**: how fast each room 
 ## Where to go next
 
 - **[What the app does](What-the-app-does)** — the full feature list and how each piece works.
-- **[Installation](Installation)** — HACS + firmware + wiring.
+- **[Installation](Installation)** — Marketplace + firmware + wiring.
 - **[Configuration](Configuration)** — rooms, curve, flow and presets.
 - **[Using the panel](Using-the-panel)** — what each tab/screen does.
 - **[Gas optimization](Gas-optimization)** — the specifics of *why* this burns less gas.

@@ -189,7 +189,7 @@ panel.py via StaticPathConfig.
 
 Brand images live in brand/ (icon/logo @1x/@2x). Since HA 2026.3 the
 built-in brands proxy serves these locally for integration UI surfaces
-(Settings->Updates, HACS after its frontend catches up).
+(Settings->Updates, Marketplace after its frontend catches up).
 
 --------------------------------------------------------------------------------
 8. BOILER IDENTITY (boiler_info.py, boilers.py)
@@ -218,7 +218,7 @@ picks a product image from www/boilers/ via image_url_for().
 * Panel DOM gates (no browser needed):
     node tests/panel_dom_test.mjs
 * Releases: bump manifest.json version -> tag vX.Y.Z -> GitHub release.
-  HACS serves the repo; users update through HACS + restart HA.
+  The Marketplace serves the repo; users update through it + restart HA.
 
 --------------------------------------------------------------------------------
 11. KEY DESIGN RULES WORTH REMEMBERING

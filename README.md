@@ -84,20 +84,22 @@ Live data, captured from the sidebar app.
 
 ## Requirements
 
-- Home Assistant 2024.1+
-- [HACS](https://hacs.xyz/) (recommended)
+- Home Assistant 2026.10+
+- The built-in **Marketplace** (Home Assistant 2026.11+; HACS has been folded into it)
 - MQTT in Home Assistant
 - A **Home Climate System** board ([repo](https://github.com/ALeXXBody/home-climate-system))
 - Outdoor temp (boiler sensor and/or HA fallback)
 
-## Install via HACS
+## Install via Marketplace
 
-1. HACS → ⋮ → **Custom repositories** →  
-   `https://github.com/ALeXXBody/home-climate-control` · Category **Integration**
-2. Download **Home Climate Control** → restart HA
-3. **Settings → Devices & services → + Add integration** → Home Climate Control  
+1. **Settings → Marketplace** → search **Home Climate Control** → **Install**
+2. **Settings → Devices & services → + Add integration** → Home Climate Control  
    - HCS: MQTT prefix + node id, flow limits, curve  
    - Or **Demo mode** (no hardware)
+
+If the catalog copy is not visible yet, add
+`https://github.com/ALeXXBody/home-climate-control` as a custom repository in
+Marketplace (category **Integration**).
 
 ### Options (after install)
 
@@ -118,7 +120,7 @@ Live data, captured from the sidebar app.
 
 ## Update
 
-HACS → Home Climate Control → update → restart HA → hard-refresh the sidebar panel (Ctrl+Shift+R).
+Settings → Marketplace → Home Climate Control → update → restart HA → hard-refresh the sidebar panel (Ctrl+Shift+R).
 
 ## Sidebar app
 

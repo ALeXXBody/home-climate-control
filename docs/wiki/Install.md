@@ -1,19 +1,18 @@
 # Install
 
-## HACS (recommended)
+## Marketplace (recommended)
 
-1. Open **HACS → Integrations** (side menu)
-2. Click the **⋮** (three dots) in the top-right → **Custom repositories**
-3. Enter:
-   - Repository: `https://github.com/ALeXXBody/home-climate-control`
-   - Category: **Integration**
-4. Click **Add**
-5. Find **Home Climate Control** in the list → **Download**
-6. **Restart Home Assistant** (Settings → System → Restart)
-7. After restart, go to **Settings → Devices & services → + Add integration**
-8. Search for **Home Climate Control** and complete the setup wizard
+1. Open **Settings → Marketplace**
+2. Search for **Home Climate Control** → **Install**
+3. **Restart Home Assistant** (Settings → System → Restart)
+4. Go to **Settings → Devices & services → + Add integration**
+5. Search for **Home Climate Control** and complete the setup wizard
 
-## Manual install (without HACS)
+Not in the catalog yet? Add
+`https://github.com/ALeXXBody/home-climate-control` as a custom repository in
+Marketplace (category **Integration**), then install it from there.
+
+## Manual install (without Marketplace)
 
 1. Clone or download [the repo](https://github.com/ALeXXBody/home-climate-control)
 2. Copy the folder `custom_components/home_climate_control` into your HA config directory:
@@ -21,7 +20,7 @@
    config/custom_components/home_climate_control/
    ```
 3. Restart Home Assistant
-4. Continue from step 7 above (Add integration)
+4. Continue from step 4 above (Add integration)
 
 ## Setup wizard
 
@@ -68,7 +67,7 @@ Open the **Home Climate** sidebar item, set zones to **Heat**, and watch demand 
 
 ## Updating
 
-**HACS:** HACS → Integrations → Home Climate Control → **Redownload** (or update when offered) → restart HA → hard-refresh the sidebar panel.
+**Marketplace:** Settings → Marketplace → Home Climate Control → **Update** (or **Redownload**) → restart HA → hard-refresh the sidebar panel.
 
 **Manual:** replace `custom_components/home_climate_control` with the new files → restart HA → hard-refresh.
 

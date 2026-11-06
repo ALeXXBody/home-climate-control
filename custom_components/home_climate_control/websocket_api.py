@@ -75,7 +75,7 @@ def _integration_version() -> str:
     """The version of the code actually RUNNING (import-time constant).
 
     Never reads the manifest from disk: the process keeps running old code
-    after a file-only update (HACS replaces files; only a full HA restart
+    after a file-only update (the Marketplace replaces files; only a full HA restart
     re-imports) — the on-disk version is the *installed* version, and the
     two disagreeing is exactly the state the footer must surface.
     """

@@ -1,5 +1,11 @@
 # HACS default — draft PR text
 
+> **OBSOLETE — do not submit.** HACS ships as the built-in Home Assistant
+> **Marketplace** from 2026.11 (`Settings → Marketplace`). Existing HACS
+> repositories, including this one, migrate automatically on the first restart;
+> there is no `hacs/default` list to open a PR against. The text below is kept
+> only as history.
+
 Ready to submit when community traction is there (aim ~50+ installs/stars).
 **Open a PR against:** https://github.com/hacs/default — add the repo under
 `integration` in `repositories.yaml` (alphabetical order).

@@ -1,6 +1,6 @@
 # Home Climate Control — Architecture v1
 
-Status: draft. Target platform: Home Assistant custom component (HACS).
+Status: draft. Target platform: Home Assistant custom component (distributed through the built-in Marketplace).
 License plan: private during development, MIT on first release.
 
 **Repos**

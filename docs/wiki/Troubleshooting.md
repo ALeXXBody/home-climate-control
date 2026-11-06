@@ -2,7 +2,7 @@
 
 ## Integration doesn't appear after install
 
-1. **Restart HA** after copying files or HACS download
+1. **Restart HA** after copying files or a Marketplace install
 2. Check HA logs: **Settings → System → Logs → integration** — look for `home_climate_control` errors
 3. Verify files are in the right place: `config/custom_components/home_climate_control/`
 4. Check `manifest.json` exists and has valid JSON

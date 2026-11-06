@@ -1,7 +1,7 @@
 """Firmware update entity — the HA-native way to announce & install updates.
 
 One entity per config entry ("Home Climate System firmware"). Shows in
-Settings → Updates alongside HACS/HA updates, with the integration's brand
+Settings → Updates alongside Marketplace/HA updates, with the integration's brand
 icon, changelog dialog, and an Install button that flashes all outdated
 devices over MQTT+HTTP OTA.
 """

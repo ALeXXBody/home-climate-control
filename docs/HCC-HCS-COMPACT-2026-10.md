@@ -72,8 +72,8 @@ to be picked up as-is:
 5. Health flags (struggling/airflow-blockage) are diagnostics-only.
 6. Gas-gap truths: unknown gaps stay under-counted (honest billing better
    than inventing a rate); the board clamps OT to the boiler's real limits.
-7. User handles HA-side changes (HACS/Mkplc, automations); HCC ops allowed
-   on boards/portal once the user asks.
+7. User handles HA-side changes (Marketplace, formerly HACS; Mkplc,
+   automations); HCC ops allowed on boards/portal once the user asks.
 
 Genuinely open threads & immediate next steps
 - Waiting on the user's Redownload of **HCC 1.23.0** — after restart,

@@ -3,7 +3,8 @@
 ## What the product is
 
 **Home Climate Control (HCC)** is an open-source **Home Assistant custom
-integration** (installed via **HACS**) that controls multi-zone gas heating
+integration** (installed via the **Marketplace**, formerly HACS) that controls
+multi-zone gas heating
 through an **OpenTherm** connection. It replaces "dumb" thermostat logic
 with weather compensation: it reads the outside temperature, computes the
 lowest flow temperature that keeps every room comfortable, and drives the
@@ -13,7 +14,7 @@ Companion project: **Home Climate System** — ESP32/ESP8266 firmware + DIY
 hardware that speaks OpenTherm directly to the boiler.
 
 Where the logo appears:
-- HACS store listing & GitHub social preview (square, small)
+- Marketplace store listing & GitHub social preview (square, small)
 - Home Assistant sidebar icon (must read at ~24 px)
 - README header on dark GitHub background
 - Device web UI footer
@@ -55,7 +56,7 @@ Tagline (banner only): *"Save gas, stay comfortable."*
 | Master logo | Vector **SVG**, square composition |
 | Logo PNG | 1024×1024 and 512×512, transparent background version + dark-tile version |
 | Favicon/avatar | 64×64 legibility check (HA sidebar size) |
-| Banner (optional add-on) | 1280×640 for GitHub social preview / HACS card |
+| Banner (optional add-on) | 1280×640 for GitHub social preview / Marketplace card |
 | Variants | full-color on dark, full-color on light, mono (white), mono (black) |
 
 ## Constraints / do-nots

@@ -33,7 +33,7 @@ HCC creates a **climate entity per room** and drives an OpenTherm boiler gateway
 
 | Page | What's in it |
 |---|---|
-| [Install](Install.md) | HACS, manual, setup wizard, demo mode |
+| [Install](Install.md) | Marketplace, manual, setup wizard, demo mode |
 | [Quick start](Quick-start.md) | First 10 minutes after install |
 | [Options & settings](Options-and-settings.md) | Every configurable option, what it does, defaults |
 | [Sidebar app](Sidebar-app.md) | All tabs: Home, Rooms, Devices, Diagnostics |
@@ -49,7 +49,7 @@ HCC creates a **climate entity per room** and drives an OpenTherm boiler gateway
 ## Requirements
 
 - Home Assistant 2024.1+
-- [HACS](https://hacs.xyz/) (recommended)
+- The built-in **Marketplace** (Home Assistant 2026.11+; HACS is folded into it)
 - MQTT in Home Assistant
 - A **Home Climate System** board ([repo](https://github.com/ALeXXBody/home-climate-system))
 - Outdoor temperature (boiler sensor and/or HA fallback)

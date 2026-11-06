@@ -17,6 +17,7 @@ Compiled 2026-11-06 from the Git history of both repositories.
 | HCS history | 133 commits, 65 tags, first commit 2026-08-22, last 2026-11-02 |
 | HCC head | `v1.32.0` → `2de5b06` |
 | HCS head | `v1.5.32` → `a80a697` |
+| Distribution | Built-in Home Assistant **Marketplace** (HA 2026.11); HACS was folded into it and its repositories migrate automatically, so "HACS" only appears below where it is historical |
 
 Every row below is taken from a tag or a commit in one of the two repos. Where
 the release note subject was terse (just the version number), the row records
@@ -35,7 +36,7 @@ The project started as one repository called *Home Climate System*. On
 
 | Name | What it is | Repo |
 |---|---|---|
-| **Home Climate Control (HCC)** | Home Assistant custom integration (HACS) plus sidebar panel: rooms, schedules, weather compensation, learning, statistics, boiler gateway supervision | `home-climate-control` |
+| **Home Climate Control (HCC)** | Home Assistant custom integration distributed through the built-in Marketplace plus sidebar panel: rooms, schedules, weather compensation, learning, statistics, boiler gateway supervision | `home-climate-control` |
 | **Home Climate System (HCS)** | ESP32/ESP8266 firmware and DIY hardware: the OpenTherm boiler gateway the integration drives | `home-climate-system` |
 
 The rule that settled the naming: **Control is the software, System is the
@@ -43,6 +44,18 @@ metal.** The integration never contains firmware logic, and the firmware never
 contains room logic. HCC speaks to the boiler only through an HCS board over
 MQTT (and, since v1.27.0, over the board's own HTTP portal as the primary
 telemetry path).
+
+### 2.1 Distribution and branding mechanics
+
+- **Distribution moved into Home Assistant.** In 2026.11 HACS shipped as the
+  built-in **Marketplace** (`Settings → Marketplace`). Existing HACS content
+  migrates on the first restart: integrations, custom repositories, update
+  entities and entity IDs carry over. `hacs.json` is still read for custom
+  repositories, so the file stays.
+- **Branding needs no request.** Home Assistant serves the integration's local
+  `brand/` folder first (2026.3+). There is no `home-assistant/brands` PR and
+  no Marketplace asset submission in the workflow — the PNGs shipped inside
+  the integration are the whole mechanism.
 
 ## 3. Timeline at a glance
 
@@ -442,8 +455,8 @@ On 2026-08-23 the project held a branding review before the public 1.0 line.
 Why A: the project's tone is *warmth against cold, engineering-grade calm*. The
 approved reference is a dark navy night scene with one warm flame. The house
 outline carries "home", the flame carries "heat", and the mark has to survive
-the two places it actually appears: the HA sidebar at 24–32 px and the HACS
-store card.
+the two places it actually appears: the HA sidebar at 24–32 px and the
+Marketplace listing card.
 
 ### 6.2 Fixed brief (from `docs/branding/LOGO-BRIEF.md`)
 
@@ -460,16 +473,16 @@ store card.
 
 | Date | Commit / release | Delivery change |
 |---|---|---|
-| 2026-08-23 | `7041574` | Root `logo.png` / `icon.png` for HACS variants that read repo-root images |
+| 2026-08-23 | `7041574` | Root `logo.png` / `icon.png` for legacy HACS-era variants that read repo-root images (HACS is now the Marketplace) |
 | 2026-08-23 | `551578d` | Local `brand/` folder ships `icon`/`logo` at 1× and 2× (HA 2026.3+ mechanism) |
-| 2026-08-23 | `5527182` | `docs/branding/brands/` PNG set (256/512/1024) prepared for a `home-assistant/brands` submission |
-| 2026-08-23 | `26cf7a3`, `2f47ba9` | High-contrast social-preview variant; square export for the GitHub social preview / HACS card |
+| 2026-08-23 | `5527182` | `docs/branding/brands/` PNG set (256/512/1024) prepared for a `home-assistant/brands` submission — never opened, and no submission is part of the workflow now |
+| 2026-08-23 | `26cf7a3`, `2f47ba9` | High-contrast social-preview variant; square export for the GitHub social preview / Marketplace listing card |
 | 2026-08-23 | `2204db7` | Resized to HA spec (256/512 shortest side) — oversized exports could hit proxy limits |
 | 2026-08-23 | `0b7fbf3` | Update entity shows the bundled logo on any HA version via `www/brand/` |
 | 2026-08-23 | **v1.0.10** | `brand/logo` normalised to 1× ≤ 256, 2× = 512 |
 | 2026-08-23 | **v1.0.14** | Origin-relative cache-busted icon URL — absolute `get_url` links break off-origin |
 | 2026-08-24 | **v1.1.0** | Panel logo in the sidebar app |
-| 2026-08-28 | `22f2821` | Documented that HA 2026.3+ proxies `brand/` locally first; the `home-assistant/brands` submission was dropped in favour of the inline folder (custom-integration PRs there are auto-closed) |
+| 2026-08-28 | `22f2821` | Documented that HA 2026.3+ proxies `brand/` locally first. No request of any kind is needed: the bundled folder is served first, so the brands-repo route stays closed |
 
 ### 6.4 Current asset state (verified 2026-11-06)
 
@@ -481,8 +494,8 @@ store card.
 | `custom_components/home_climate_control/brand/logo@2x.png` | 512 × 512 | HA integration logo (2×) |
 | `custom_components/home_climate_control/www/brand/icon*.png` | 256 / 512 | Update-entity icon served from the static path |
 | `docs/branding/banner-1280.png`, `logo.svg`, `logo-1024.png`, `social-*.png` | — | Repository presentation |
-| `docs/branding/brands/*.png` | 256 / 512 / 512 / 1024 | Prepared brands-repo set (not submitted) |
-| Root `icon.png`, `logo.png` | 1024 × 1024 | Legacy HACS root images — see drift §8 |
+| `docs/branding/brands/*.png` | 256 / 512 / 512 / 1024 | Historical brands-repo set; nothing is submitted, the inline `brand/` folder is what HA serves |
+| Root `icon.png`, `logo.png` | 1024 × 1024 | Legacy HACS-era root images — see drift §8 |
 
 ## 7. Decisions and invariants
 
@@ -532,15 +545,13 @@ these affect behaviour; all of them mislead a reader.
 | File | Says | Truth |
 |---|---|---|
 | `README.md` line 21 | Current version **v1.7.13** | v1.32.0 |
-| `README.md` line 87 | Home Assistant **2024.1+** | manifest and `hacs.json` require 2026.10.0 |
-| `README.md` line 134 | "Tier — Status (v1.4.5)" | Tiers 0–5 shipped long ago; internal tier labels were removed from UI in v1.15.25 |
-| `README.md` line 146 | Companion firmware **HCS v1.4.0** | v1.5.32 |
-| `README.md` vs `readme.md` | Two different README files are tracked | GitHub and HACS display `README.md`; the newer branding README (`readme.md`, 2026-08-23) is effectively hidden |
-| `readme.md` line 11 | Badge "HA 2024.1+" | 2026.10.0 |
+| `README.md` line 136 | "Tier — Status (v1.4.5)" | Tiers 0–5 shipped long ago; internal tier labels were removed from UI in v1.15.25 |
+| `README.md` line 148 | Companion firmware **HCS v1.4.0** | v1.5.32 |
+| `README.md` vs `readme.md` | Two different README files are tracked | GitHub and the Marketplace display `README.md`; the newer branding README (`readme.md`, 2026-08-23) is effectively hidden |
 | `readme.md` line 30 | "Highlights (v1.0.0)" | 32 minors behind |
-| `readme.md` line 79 | Floor plan "Placeholder (coming later)" | Floor plan shipped in v1.15.2 (2026-09-20) |
+| `readme.md` line 80 | Floor plan "Placeholder (coming later)" | Floor plan shipped in v1.15.2 (2026-09-20) |
 | `docs/wiki/Home.md` line 8 | Current version **v1.5.7** | v1.32.0 |
-| `docs/hacs-default-pr.md` | "continuous releases since 2024", "current version v1.5.3", "283 unit tests" | First commit is 2026-08-22; current version 1.32.0; 579 test functions across 74 test modules |
+| `docs/hacs-default-pr.md` | Obsolete banner added, but the body still plans a PR to `hacs/default` and quotes "continuous releases since 2024", "current version v1.5.3", "283 unit tests" | The plan is dead: HACS is the built-in Marketplace since 2026.11 and repositories migrate automatically, so there is no `hacs/default` list to PR. Its numbers are stale too (first commit 2026-08-22; current 1.32.0; 579 test functions across 74 test modules) |
 | HCS `README.md` lines 21/32/62 | Current firmware **v1.5.0** | v1.5.32 |
 | HCS `docs/wiki/Changelog.md` | Latest entry **v1.4.8** | v1.5.32; the 1.5.x line has no changelog entries |
 | Root `icon.png` / `logo.png` | 1024 × 1024, 76 KB | Not normalised to the HA spec used by `brand/`; legacy copies from 2026-08-23 |
@@ -561,8 +572,9 @@ the version or move a tag.
   schedule + curve + failsafe) behind a build flag on a 16 MB board.
 - **TRVZB control-band management** — declined by the user; factory −1.0 bands
   stay (living room is the −0.2 reference).
-- **`home-assistant/brands` submission** — dropped in favour of the inline
-  `brand/` folder.
+- **`home-assistant/brands` submission** — not needed at all: Home Assistant
+  serves the integration's own `brand/` folder first, so no request exists in
+  the workflow.
 
 ### Waiting on data or hardware
 

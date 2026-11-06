@@ -7,8 +7,8 @@
 **Multi-zone heating control for Home Assistant** — weather-compensated,
 OpenTherm-native, and gentle on your gas bill.
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-![HA min version](https://img.shields.io/badge/HA-2024.1%2B-blue)
+![Marketplace](https://img.shields.io/badge/HA-Marketplace-41BDF5.svg)
+![HA min version](https://img.shields.io/badge/HA-2026.10%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 Companion hardware + firmware: **[home-climate-system](https://github.com/ALeXXBody/home-climate-system)**
@@ -52,21 +52,22 @@ Companion hardware + firmware: **[home-climate-system](https://github.com/ALeXXB
 
 ## Requirements
 
-- Home Assistant 2024.1 or newer
-- [HACS](https://hacs.xyz/)
+- Home Assistant 2026.10 or newer (Marketplace install requires 2026.11+)
+- The built-in **Marketplace** — HACS has been folded into it; no separate download
 - MQTT integration configured in Home Assistant
 - A **Home Climate System** device (ESP32/ESP8266 running the `*_gw`
   firmware build — discovered automatically once it joins your MQTT broker)
 
-## Install via HACS
+## Install via Marketplace
 
-1. HACS → ⋮ menu → **Custom repositories**
-2. Repository: `https://github.com/ALeXXBody/home-climate-control`, Category: `Integration`
-3. **Add**, then download **Home Climate Control** from HACS → Integrations
-4. Restart Home Assistant
-5. Settings → Devices & services → **Add integration** → *Home Climate Control*
+1. **Settings → Marketplace** → search **Home Climate Control** → **Install**
+2. **Settings → Devices & services → Add integration** → *Home Climate Control*
    - Backend: **Home Climate System device** (auto-discovered) — a **Demo** mode is included for testing without hardware
    - Configure zones (name, room sensor, optional TRVs/window sensors)
+
+If the catalog copy is not visible yet, add
+`https://github.com/ALeXXBody/home-climate-control` as a custom repository in
+Marketplace (category `Integration`).
 
 ## Sidebar panel
 
@@ -87,7 +88,7 @@ and restart Home Assistant.
 
 ## Update
 
-HACS → Integrations → Home Climate Control → Update → restart HA.
+Settings → Marketplace → Home Climate Control → **Update** → restart HA.
 The panel's Firmware tab will tell you when device firmware updates are available too.
 
 ## Docs
