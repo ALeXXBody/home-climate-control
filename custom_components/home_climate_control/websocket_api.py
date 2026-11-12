@@ -94,6 +94,39 @@ def _installed_version_on_disk() -> str:
         return _PACKAGED_VERSION
 
 
+# Cache so the per-poll status path never touches the disk on the event
+# loop (HA flags read_text/open there). Refreshed in the executor by
+# _async_refresh_installed_version() before each status payload.
+_INSTALLED_VERSION_CACHE: str = _PACKAGED_VERSION
+
+
+async def _async_refresh_installed_version(hass: HomeAssistant) -> str:
+    """Refresh the on-disk version cache off the event loop."""
+    global _INSTALLED_VERSION_CACHE
+    try:
+        job = getattr(hass, "async_add_executor_job", None)
+        if callable(job):
+            from unittest.mock import MagicMock
+
+            if not isinstance(job, MagicMock):
+                res = await job(_installed_version_on_disk)
+                if isinstance(res, str):
+                    _INSTALLED_VERSION_CACHE = res
+                return _INSTALLED_VERSION_CACHE
+        res = _installed_version_on_disk()
+        if isinstance(res, str):
+            _INSTALLED_VERSION_CACHE = res
+    except Exception:  # noqa: BLE001
+        pass
+    return _INSTALLED_VERSION_CACHE
+
+
+async def _async_collect_status(hass: HomeAssistant) -> dict[str, Any]:
+    """Status payload with the on-disk version refreshed off-loop first."""
+    await _async_refresh_installed_version(hass)
+    return _collect_status(hass)
+
+
 async def async_setup_websocket(hass: HomeAssistant) -> None:
     """Register WebSocket commands (once)."""
     key = f"{DOMAIN}_ws_registered"
@@ -411,7 +444,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
     return {
         "domain": DOMAIN,
         "version": _integration_version(),
-        "installed_version": _installed_version_on_disk(),
+        "installed_version": _INSTALLED_VERSION_CACHE,
         "process_uptime_min": round(time.monotonic() / 60.0, 1),
         "systems": systems,
         "devices": devices,
@@ -461,7 +494,7 @@ async def ws_get_status(
     _mgr = get_firmware_manager(hass)
     if _mgr is not None:
         await _mgr.async_refresh_catalog()  # TTL-gated no-op when fresh
-    connection.send_result(msg["id"], _collect_status(hass))
+    connection.send_result(msg["id"], await _async_collect_status(hass))
 
 
 @websocket_api.websocket_command(
@@ -527,7 +560,7 @@ async def ws_set_zone(
             blocking=True,
         )
 
-    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+    connection.send_result(msg["id"], {"ok": True, "status": await _async_collect_status(hass)})
 
 
 @websocket_api.require_admin
@@ -593,7 +626,7 @@ async def ws_calibrate_zone(
         connection.send_error(msg["id"], "calibration_error", str(err))
         return
 
-    connection.send_result(msg["id"], {**result, "status": _collect_status(hass)})
+    connection.send_result(msg["id"], {**result, "status": await _async_collect_status(hass)})
 
 
 def _detect_trv_position_entity(
@@ -1010,7 +1043,7 @@ async def ws_set_options(
         _hot_apply_bools(hass, entry, options)
     else:
         await hass.config_entries.async_reload(entry.entry_id)
-    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+    connection.send_result(msg["id"], {"ok": True, "status": await _async_collect_status(hass)})
 
 
 def validate_zone_name(names: list[str | None], new_name: str) -> str | None:
@@ -1503,7 +1536,7 @@ async def ws_rename_zone(
     hass.config_entries.async_update_entry(entry, options=new_options)
     ZonesBackup(hass).save(new_zones, hass)
     await hass.config_entries.async_reload(entry.entry_id)
-    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+    connection.send_result(msg["id"], {"ok": True, "status": await _async_collect_status(hass)})
 
 
 @websocket_api.require_admin
@@ -1595,7 +1628,7 @@ async def ws_add_zone(
     hass.config_entries.async_update_entry(entry, options=new_options)
     ZonesBackup(hass).save(zones_cfg, hass)
     await hass.config_entries.async_reload(entry.entry_id)
-    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+    connection.send_result(msg["id"], {"ok": True, "status": await _async_collect_status(hass)})
 
 
 @websocket_api.require_admin
@@ -1637,7 +1670,7 @@ async def ws_remove_zone(
     hass.config_entries.async_update_entry(entry, options=new_options)
     ZonesBackup(hass).save(new_zones, hass)
     await hass.config_entries.async_reload(entry.entry_id)
-    connection.send_result(msg["id"], {"ok": True, "status": _collect_status(hass)})
+    connection.send_result(msg["id"], {"ok": True, "status": await _async_collect_status(hass)})
 
 
 async def _remove_balance_store(

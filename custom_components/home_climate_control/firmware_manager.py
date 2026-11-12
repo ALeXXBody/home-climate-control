@@ -1320,7 +1320,7 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
                 "OTA delivery: %s has no catalog sha256+size — no mirror",
                 url,
             )
-            self._purge_mirror_pair(fname)
+            await self._async_blocking(self._purge_mirror_pair, fname)
             return False
 
         session = async_get_clientsession(self.hass)
@@ -1350,7 +1350,7 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
                 url,
                 exc,
             )
-            self._purge_mirror_pair(fname)
+            await self._async_blocking(self._purge_mirror_pair, fname)
             return False
 
         local = self.MIRROR_DIR / fname
@@ -1358,13 +1358,17 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
         try:
             tmp_img = local.with_name(local.name + ".tmp")
             tmp_sig = sig_local.with_name(sig_local.name + ".tmp")
-            tmp_img.write_bytes(image)
-            tmp_sig.write_bytes(sig)
-            tmp_sig.replace(sig_local)
-            tmp_img.replace(local)
+
+            def _sync_place_pair() -> None:
+                tmp_img.write_bytes(image)
+                tmp_sig.write_bytes(sig)
+                tmp_sig.replace(sig_local)
+                tmp_img.replace(local)
+
+            await self._async_blocking(_sync_place_pair)
         except OSError as exc:
             _LOGGER.error("OTA delivery: cannot write mirror files: %s", exc)
-            self._purge_mirror_pair(fname)
+            await self._async_blocking(self._purge_mirror_pair, fname)
             return False
         _LOGGER.info(
             "OTA delivery: verified pair placed for %s (%d bytes)",
@@ -1619,17 +1623,23 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
     async def _async_blocking(self, func, *args):
         """Run a short filesystem call off the event loop.
 
-        Home Assistant's executor is a coroutine. Unit-test hass objects
-        hand back a MagicMock, which cannot be awaited — those call the
-        function directly.
+        hass.async_add_executor_job returns an awaitable (a Future, not a
+        coroutine — asyncio.iscoroutine() is False for it). Unit-test hass
+        objects hand back a MagicMock, which cannot be awaited — those call
+        the function directly.
         """
-        import asyncio
+        import inspect
 
         job = getattr(self.hass, "async_add_executor_job", None)
         if callable(job):
+            from unittest.mock import MagicMock
+
+            if isinstance(job, MagicMock):
+                return func(*args)
             result = job(func, *args)
-            if asyncio.iscoroutine(result):
+            if inspect.isawaitable(result):
                 return await result
+            return result
         return func(*args)
 
     async def _async_fetch_bin(self, url: str) -> bytes:
@@ -1680,11 +1690,16 @@ a7Skubyu+fkIUdnt2V5g/0KrpU1p0bALmvk5njO+2S3M/E/POKKz7Y1Suw==
             fname = f"firmware-{board}.bin"
             local = self.MIRROR_DIR / fname
             sha = str(item["sha256"]).replace("sha256:", "")
-            needs = (
-                not local.is_file()
-                or session is None
-                or self._mirror_looks_stale(local, sha)
-            )
+
+            def _sync_needs(
+                _local=local, _sha=sha,
+            ) -> bool:
+                # stat + read off the event loop; HA flags both as blocking
+                if not _local.is_file():
+                    return True
+                return self._mirror_looks_stale(_local, _sha)
+
+            needs = await self._async_blocking(_sync_needs)
             if needs and session is None:
                 _LOGGER.warning(
                     "pre-mirror %s: no aiohttp session available — the "
