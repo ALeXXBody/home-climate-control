@@ -1,7 +1,9 @@
 # HCC & HCS — project compact (Oct 2026)
 This document replaces sessions "HCC&HCS: 1/2/3" (Aug 24 – Sep 27, 2026).
-It is the single source of truth for current state, closed threads and
-the remaining plan. Update it instead of resurrecting old sessions.
+It is the working **plan**: closed threads, parked ideas and the open work.
+For the reference description of what exists and why, see `docs/LEDGER.md`;
+this file must not contradict it. Update it instead of resurrecting old
+sessions.
 
 ## The system, in one paragraph
 Home Climate Control (HCC) = a HA custom integration + localStorage-backed panel
@@ -13,8 +15,8 @@ partitions_xl_ota; ECDSA-signed OTA; learned boiler ceiling). HCC drives the
 board over retained MQTT; Z2M carries the TRVs; the user's automations feed
 external temperatures (now also HCC-keeper-fed).
 
-## Current state (2026-10-30)
-- HCC **v1.23.0** · HCS **v1.5.26** — both tagged on green CI.
+## Current state (2026-11-06)
+- HCC **v1.32.0** · HCS **v1.5.32** — both tagged on green CI.
 - Repos: ALeXXBody/home-climate-control · ALeXXBody/home-climate-system (public).
 - CI: both repos run on every push + tags (public = free Actions minutes).
   HCC verifies the packaged label against the pushed tag on tag builds
@@ -23,8 +25,7 @@ external temperatures (now also HCC-keeper-fed).
 - Live house: all TRVZB temperature sources = remote_temperature (keeper
   re-asserts + feeds external inputs, keep-alive ≤5 min); stuck-valve failover
   ready; no drift/failover flags live; boiler ceiling learned at 55 °C on the
-  board (hub-side display pending user's Redownload to 1.23.0 →
-  `backend_nodes` appears → trace closes).
+  board and shown hub-side (`backend_nodes` present since 1.23.0).
 - Learner retrains weekly (last 2026-10-25); datalogger in
   /config/home_climate_training/data-YYYY-MM.jsonl.
 
@@ -37,7 +38,7 @@ external temperatures (now also HCC-keeper-fed).
 - Datalogger cold-start compromise → replaced by the data contract
   (./docs/functions-analysis.md E18) and the datalogger module.
 - Zone-rename races, reload loops, dedupe guards → test_lockers in
-  tests/ (575+ tests, panel DOM gates, pyflakes — all green).
+  tests/ (622 tests across 75 modules, panel DOM gates, pyflakes — all green).
 - Insulation scoring → shipped; v1.23.0 additionally scales learned setback
   depth by k (poor ×0.8 … excellent ×1.15, 1–5 °C clamps, maturity-gated).
 - TRVZB temperature-source flaps (#29650, unfixed upstream) → the keeper:

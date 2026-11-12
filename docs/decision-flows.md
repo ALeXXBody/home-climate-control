@@ -1,7 +1,7 @@
 # HCC decision flows — whole-app logic spec (audit pass)
 
 Companion to `docs/decision-tables.md` (room/boiler control). This file
-covers every OTHER subsystem's implied decision logic, as步步 rules,
+covers every OTHER subsystem's implied decision logic, as step-by-step rules,
 with an attack pass per subsystem. Rules marked `[FIXED]` were logic
 flaws found by this audit and repaired same-pass. `OPEN` items are real
 issues left for later batches with reasons.

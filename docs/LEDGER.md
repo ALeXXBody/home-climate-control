@@ -537,27 +537,43 @@ session does not re-litigate them.
 16. The learner shadows; it never controls until explicitly promoted.
 17. The ESP32 merge of HCC into HCS stays parked (§9).
 
+### Documentation rules
+
+18. Exactly one README per repository, and it is `README.md` — the file GitHub
+    and the Marketplace actually render. `readme.md` is not tracked.
+19. The wiki exists only as the GitHub wiki. No in-repo copy (`docs/wiki/`,
+    `wiki/`) is maintained, and wiki links use GitHub page names without the
+    `.md` suffix. Engineering documents stay in `docs/`.
+20. `docs/LEDGER.md` is the reference; `docs/HCC-HCS-COMPACT-2026-10.md` is the
+    plan. Neither may contradict the other, and neither is a release artefact.
+
 ## 8. Documentation drift (as of 2026-11-06)
 
-Both repositories carry documents that no longer match what ships. None of
-these affect behaviour; all of them mislead a reader.
+The 2026-11-06 pass removed the structural duplicates and corrected the stale
+facts. What follows is the state after that pass, so the table records only
+drift that still exists.
 
 | File | Says | Truth |
 |---|---|---|
-| `README.md` line 21 | Current version **v1.7.13** | v1.32.0 |
-| `README.md` line 136 | "Tier — Status (v1.4.5)" | Tiers 0–5 shipped long ago; internal tier labels were removed from UI in v1.15.25 |
-| `README.md` line 148 | Companion firmware **HCS v1.4.0** | v1.5.32 |
-| `README.md` vs `readme.md` | Two different README files are tracked | GitHub and the Marketplace display `README.md`; the newer branding README (`readme.md`, 2026-08-23) is effectively hidden |
-| `readme.md` line 30 | "Highlights (v1.0.0)" | 32 minors behind |
-| `readme.md` line 80 | Floor plan "Placeholder (coming later)" | Floor plan shipped in v1.15.2 (2026-09-20) |
-| `docs/wiki/Home.md` line 8 | Current version **v1.5.7** | v1.32.0 |
-| `docs/hacs-default-pr.md` | Obsolete banner added, but the body still plans a PR to `hacs/default` and quotes "continuous releases since 2024", "current version v1.5.3", "283 unit tests" | The plan is dead: HACS is the built-in Marketplace since 2026.11 and repositories migrate automatically, so there is no `hacs/default` list to PR. Its numbers are stale too (first commit 2026-08-22; current 1.32.0; 579 test functions across 74 test modules) |
-| HCS `README.md` lines 21/32/62 | Current firmware **v1.5.0** | v1.5.32 |
+| Root `icon.png` / `logo.png` | 1024 × 1024, 76 KB, byte-identical to each other | Legacy root images from 2026-08-23; `brand/` holds the normalised `@1x`/`@2x` set that Home Assistant actually serves |
+| `docs/screenshots/*.png` | Captured 2026-08-28 | Predate the floor plan, the Statistics tab, the merged Device card and the battery chips — the first thing a Marketplace visitor sees |
+| `docs/AUDIT.md`, `docs/AUDIT-1.4.0.md`, `docs/research.md`, `docs/functions-analysis.md` | Current-tense findings from the 1.4–1.18 era | Historical audit artifacts, not descriptions of today's code |
+| `docs/decision-flows.md` | Contains `[OPEN]` items (orphan learner timer, unvalidated backup restore) | Left open deliberately; both are recorded here in §9 |
+| `docs/hacs-default-pr.md` | Obsolete banner, but the body still plans a PR to `hacs/default` and quotes "continuous releases since 2024", "current version v1.5.3", "283 unit tests" | The plan is dead: HACS is the built-in Marketplace since 2026.11, so there is no `hacs/default` list to PR. Its numbers are stale too (first commit 2026-08-22; current 1.32.0; 533 test functions across 75 modules, 622 tests collected) |
 | HCS `docs/wiki/Changelog.md` | Latest entry **v1.4.8** | v1.5.32; the 1.5.x line has no changelog entries |
-| Root `icon.png` / `logo.png` | 1024 × 1024, 76 KB | Not normalised to the HA spec used by `brand/`; legacy copies from 2026-08-23 |
+| HCS releases vs tags | 63 releases, 65 tags | Tags without a release: `v1.0.0`, `v1.3.4`, `v1.5.6-test2`. Release without a tag: `v1.5.3` |
 
 The docs-drift list is maintenance work, not a release. Fixing it must not bump
 the version or move a tag.
+
+### 8.1 Structural duplication removed on 2026-11-06
+
+| Was | Now |
+|---|---|
+| `README.md` and `readme.md` both tracked; GitHub and the Marketplace render `README.md`, so the newer branded `readme.md` was invisible | One `README.md` carrying the branded copy and the current facts; `readme.md` deleted |
+| `docs/wiki/` (13 pages) and `wiki/` (9 pages) were divergent copies of the same wiki, with different file names and 16 links that only resolved as GitHub-wiki page names | The wiki exists **only** as the GitHub wiki; both in-repo copies deleted. The live wiki was rewritten to v1.32.0 first, so no content was lost |
+| `docs/wiki/Install.md`, `Sidebar-app.md`, `Calibrate-and-setbacks.md`, `Efficiency-tiers.md`, `Gas-metering.md` | Wiki pages `Installation`, `Using-the-panel`, `Learning-and-setbacks`, and metering folded into `Gas-optimization`. The tier roadmap page was dropped: tier labels were removed from user-facing text in v1.15.25 |
+| `wiki/How-the-app-decides.md` (364 lines, version-scoped audit with an "attack: holes" section) | Not on the wiki. The engineering version stays in the repo as `docs/decision-flows.md` and `docs/decision-tables.md` |
 
 ## 9. Parked and open
 

@@ -256,7 +256,7 @@ No cycles; every arrow has a single writer — verified on this pass.
 | 6 | Post-cap verification pass for balancing | balancing | MED (reclaims headroom honestly) | M |
 | 7 | Design-outdoor as a config option | heating_curve | MED (correctness across climates) | S |
 | 8 | Exercise task bound to entity lifetime | zone | LOW-MED (safety) | S |
-| 9 | Manual-grid dead zone通透 | panel/docs | LOW (documented) | — |
+| 9 | Manual-grid dead zone not covered | panel/docs | LOW (documented) | — |
 | 10 | CO2-ventilate-then-preheat note | preheat | LOW | — |
 
 ## What works better than designed

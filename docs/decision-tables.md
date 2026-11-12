@@ -144,7 +144,7 @@ Table 3). `demand` = 0..1 = how far below setpoint the room is, clamped to
 
 7. **[LOW, open] Table 7 row 3 recovery nuance**: the escape pause continues only
    while the room is falling — a *paused heating but the room removed from falling by
-   design* (permanently marginal radiator)不停地 latched. This is the one unresolved
+   design* (permanently marginal radiator) can stay latched indefinitely. This is the one unresolved
    state where a misdetected "escape" can keep a room cold for hours. Mitigated by
    setpoint guards and the 45-min cap for the CLIFF trigger, but escape keeps a
    longer tail. Needs a network reviewer's eye.
