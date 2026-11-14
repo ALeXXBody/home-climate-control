@@ -331,6 +331,7 @@ The tag count (172) and the semver count (169) differ only by the three
 | v1.32.2 | Stale caps self-heal: the hub sends the curve value clamped only to configured min/max (the board clamps each write and probes above); balance auto-cap also releases cold calling rooms back to 100 % |
 | v1.32.3 | Training rows carry per-zone `valve_pct` and `valve_cap_pct`, so a future model can tell a slow room from a starved one |
 | v1.33.0 | Cap-gap alarm + one-click ceiling re-test: persistent notification when wire want exceeds the learned ceiling, Device-tab ceiling row with a Re-test button publishing `clear_tset_cap` (needs HCS ≥ 1.5.33) |
+| v1.35.0 | Set the boiler maximum (ID 57): backend publish, admin WS command (20–90 °C), Device-tab Set max control gated on firmware 1.5.35+
 | v1.34.0 | Live OpenTherm ID map: parses the board's retained `ot_map` into diagnostics with a per-ID Diagnostics card (registry names shared with firmware); surfaces ID 57, the OT-side ceiling |
 
 ## 5. HCS release ledger
@@ -441,6 +442,7 @@ v1.5.23 exists specifically to make that class impossible.
 | v1.5.31 | ESP8266 collects Origin and Cookie through the variadic header API (the array form is ESP32-only) |
 | v1.5.32 | A missed outdoor or return read keeps the last temperature instead of publishing nothing |
 | v1.5.33 | One-shot `clear_tset_cap` command: forget the learned CH ceiling so the next TSet write re-tests the boiler unclamped; a genuine ceiling re-latches on its own |
+| v1.5.35 | Write the boiler Max CH setpoint (ID 57) over MQTT (`set/max_tset`, clamped, read-back verified); exact library pins after a floating caret grew the gw image past its OTA slot
 | v1.5.34 | Full OpenTherm ID registry sweep: every readable boiler-side ID probed in rotation, ACKs in retained `ot_map` leaf and `/api/status` (includes ID 57, the OT-side CH ceiling value) |
 
 ### 5.7 HCS version gaps
