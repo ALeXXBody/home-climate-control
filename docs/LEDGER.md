@@ -15,7 +15,7 @@ Compiled 2026-11-06 from the Git history of both repositories.
 | HCS repo | `ALeXXBody/home-climate-system` (firmware + hardware) |
 | HCC history | 367 commits, 172 tags, first commit 2026-08-22, last 2026-11-04 |
 | HCS history | 133 commits, 65 tags, first commit 2026-08-22, last 2026-11-02 |
-| HCC head | `v1.35.0` → `f5581da` |
+| HCC head | `v1.36.0` → `TBD` |
 | HCS head | `v1.5.36` → `ae940bc` |
 | Distribution | Built-in Home Assistant **Marketplace** (HA 2026.11); HACS was folded into it and its repositories migrate automatically, so "HACS" only appears below where it is historical |
 
@@ -331,6 +331,7 @@ The tag count (172) and the semver count (169) differ only by the three
 | v1.32.2 | Stale caps self-heal: the hub sends the curve value clamped only to configured min/max (the board clamps each write and probes above); balance auto-cap also releases cold calling rooms back to 100 % |
 | v1.32.3 | Training rows carry per-zone `valve_pct` and `valve_cap_pct`, so a future model can tell a slow room from a starved one |
 | v1.33.0 | Cap-gap alarm + one-click ceiling re-test: persistent notification when wire want exceeds the learned ceiling, Device-tab ceiling row with a Re-test button publishing `clear_tset_cap` (needs HCS ≥ 1.5.33) |
+| v1.36.0 | On-demand board pull: WS board_check_update + Device-tab Pull now button publish set/check_update; the board fetches latest.json immediately instead of waiting out its 6 h cadence (deferred during burns/flashes)
 | v1.35.0 | Set the boiler maximum (ID 57): backend publish, admin WS command (20–90 °C), Device-tab Set max control gated on firmware 1.5.35+
 | v1.34.0 | Live OpenTherm ID map: parses the board's retained `ot_map` into diagnostics with a per-ID Diagnostics card (registry names shared with firmware); surfaces ID 57, the OT-side ceiling |
 

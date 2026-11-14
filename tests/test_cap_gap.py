@@ -118,6 +118,33 @@ def test_ws_retest_rejected_without_linked_board():
     assert conn.send_error.called
 
 
+def test_ws_board_check_update_nudges_board():
+    from custom_components.home_climate_control.boiler.hcs_mqtt import (
+        HcsMqttBackend,
+    )
+    from custom_components.home_climate_control import websocket_api as ws
+
+    backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
+    controller = SimpleNamespace(backend=backend)
+    hass = _ws_hass(controller)
+    conn = MagicMock()
+
+    from homeassistant.components import mqtt
+
+    asyncio.run(ws.ws_board_check_update(
+        hass, conn, {"id": 1, "type": "home_climate_control/board_check_update"}))
+    topic, payload = mqtt.async_publish.call_args[0][1:3]
+    assert topic == "hcs/hcs-a/set/check_update"
+    assert payload == "1"
+    assert conn.send_result.called
+
+    conn2 = MagicMock()
+    hass2 = _ws_hass(SimpleNamespace(backend=SimpleNamespace()))
+    asyncio.run(ws.ws_board_check_update(
+        hass2, conn2, {"id": 2, "type": "home_climate_control/board_check_update"}))
+    assert conn2.send_error.called
+
+
 def test_ws_set_max_tset_publishes_and_validates():
     from custom_components.home_climate_control.boiler.hcs_mqtt import (
         HcsMqttBackend,

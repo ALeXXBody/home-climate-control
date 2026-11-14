@@ -569,6 +569,14 @@ class HcsMqttBackend(BoilerBackend):
         """
         await self._publish_cmd("clear_tset_cap", "clear")
 
+    async def async_check_update(self) -> None:
+        """Tell the linked board to fetch latest.json right now instead of
+        waiting for the 6 h pull cadence. Non-retained; deferred on the
+        board while a burn or an OTA is in flight. Needs firmware 1.5.36+;
+        older boards ignore the unknown topic.
+        """
+        await self._publish_cmd("check_update", "1")
+
     async def async_set_max_tset(self, value: float) -> None:
         """Set the boiler's Max CH water setpoint (OT ID 57).
 

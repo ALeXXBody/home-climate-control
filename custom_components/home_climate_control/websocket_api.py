@@ -158,6 +158,7 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_reboot_device)
     websocket_api.async_register_command(hass, ws_retest_tset_cap)
     websocket_api.async_register_command(hass, ws_set_max_tset)
+    websocket_api.async_register_command(hass, ws_board_check_update)
     websocket_api.async_register_command(hass, ws_firmware_catalog)
     websocket_api.async_register_command(hass, ws_get_ot_log)
     websocket_api.async_register_command(hass, ws_get_debug_log)
@@ -2126,6 +2127,38 @@ async def ws_set_max_tset(
         return
     await backend.async_set_max_tset(value)
     connection.send_result(msg["id"], {"ok": True, "value": value})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/board_check_update"}
+)
+@websocket_api.async_response
+async def ws_board_check_update(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Nudge the linked board to fetch the firmware catalog right now.
+
+    Same pull path as the board's own 6 h cadence, just immediate — the
+    answer to "push an update without waiting or clicking through a flash
+    wizard". Deferred on the board while a burn or an OTA is in flight.
+    Needs board firmware 1.5.36+; older boards ignore the unknown topic.
+    """
+    entry = _primary_entry(hass)
+    data = (hass.data.get(DOMAIN) or {}).get(
+        entry.entry_id, {}) if entry else {}
+    controller = data.get("controller") if isinstance(data, dict) else None
+    backend = getattr(controller, "backend", None)
+    if backend is None or not hasattr(backend, "tset_cap"):
+        connection.send_error(
+            msg["id"], "not_supported",
+            "No linked HCS board (demo mode has nothing to update)",
+        )
+        return
+    await backend.async_check_update()
+    connection.send_result(msg["id"], {"ok": True})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/firmware_catalog"})

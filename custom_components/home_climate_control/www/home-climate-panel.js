@@ -2985,6 +2985,7 @@ class HomeClimatePanel extends HTMLElement {
           <div class="controls" style="margin-left:auto">
             <button type="button" class="ghost" data-board-action="unlink" data-entry="${this._esc(entryId)}">Unlink</button>
             <button type="button" class="ghost" data-fw-action="check-updates">Check updates</button>
+            <button type="button" class="ghost" data-fw-action="pull-now" data-node="${this._esc(linked)}" title="Tell the board to fetch the firmware catalog right now instead of waiting for its 6 h self-check">Pull now</button>
             <button type="button" class="ghost" data-fw-action="reboot" data-node="${this._esc(linked)}" ${online && !this._busy[linked] ? "" : "disabled"}>Reboot</button>
             <button type="button" class="ghost" data-fw-action="open" data-node="${this._esc(linked)}" ${online && d?.ota_http ? "" : "disabled"}>OTA</button>
           </div>
@@ -3070,6 +3071,7 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "retest-cap") return this._retestCap();
     if (action === "set-max-tset") return this._setMaxTset(el);
     if (action === "flash") return this._flashDevice(nodeId);
+    if (action === "pull-now") return this._pullNow();
     if (action === "forget") {
       if (!confirm(`Remove board ${nodeId} from the list?\n\nIts MQTT announcements are wiped, so a powered-off board stays gone. A still-running board reappears after 'Scan now' or an HA restart.`)) return;
       return this._forgetDevice(nodeId);
@@ -3240,6 +3242,16 @@ class HomeClimatePanel extends HTMLElement {
     try {
       await this._hass.callWS({ type: "home_climate_control/retest_tset_cap" });
       this._flashNotice("Ceiling re-test sent. Watch the flow setpoint — it should rise within minutes if the ceiling was stale.");
+    } catch (err) {
+      this._showError(err?.message || String(err));
+    }
+    await this._refresh();
+  }
+
+  async _pullNow() {
+    try {
+      await this._hass.callWS({ type: "home_climate_control/board_check_update" });
+      this._flashNotice("Board asked to check for firmware now.");
     } catch (err) {
       this._showError(err?.message || String(err));
     }
