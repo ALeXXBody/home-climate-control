@@ -3001,21 +3001,30 @@ class HomeClimatePanel extends HTMLElement {
       </div>`;
   }
 
-  /* Device tab — boiler ceiling row: learned cap, gap alarm, re-test. */
+  /* Device tab — boiler ceiling row: learned cap, boiler max, gap, fix. */
   _capGapHtml(sys, d, online) {
     const cap = sys?.tset_cap;
     const gap = sys?.boiler?.cap_gap || null;
-    if (cap == null && !gap) return "";
+    const otMax = sys?.ot?.["57"];
+    if (cap == null && !gap && otMax == null) return "";
     const retestOk = online && d?.version &&
       !HomeClimatePanel._verNewer("1.5.33", d.version);
+    const setOk = online && d?.version &&
+      !HomeClimatePanel._verNewer("1.5.35", d.version);
     return `
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <label>Boiler ceiling</label>
         <span>learned cap <b>${cap == null ? "—" : `${cap} °C`}</b></span>
+        <span>boiler max (ID 57) <b>${otMax == null ? "—" : `${otMax} °C`}</b></span>
         ${gap?.active
           ? `<span class="badge heat" title="The curve wants ${gap.want_c} °C but the learned ceiling holds flow at ${gap.cap_c} °C. Rooms stay cold until the ceiling is re-tested.">gap ${gap.gap_c} °C — starving</span>`
           : ""}
         <span style="margin-left:auto"></span>
+        <input type="number" min="20" max="90" step="1" style="max-width:80px" title="New boiler maximum"
+          value="${otMax ?? ""}" data-max-tset-input>
+        <button type="button" class="ghost" data-fw-action="set-max-tset" data-node="${this._esc(sys?.linked_node || "")}"
+          title="Write the boiler Max CH setpoint over OpenTherm (needs firmware 1.5.35+). The next sweep reads it back."
+          ${setOk ? "" : "disabled"}>Set max</button>
         <button type="button" class="ghost" data-fw-action="retest-cap" data-node="${this._esc(sys?.linked_node || "")}"
           title="Forget the learned ceiling; the board re-tests the boiler unclamped (needs firmware 1.5.33+)"
           ${retestOk ? "" : "disabled"}>Re-test ceiling</button>
@@ -3059,6 +3068,7 @@ class HomeClimatePanel extends HTMLElement {
     if (action === "open") return this._openOtaPage(nodeId);
     if (action === "reboot") return this._rebootDevice(nodeId);
     if (action === "retest-cap") return this._retestCap();
+    if (action === "set-max-tset") return this._setMaxTset(el);
     if (action === "flash") return this._flashDevice(nodeId);
     if (action === "forget") {
       if (!confirm(`Remove board ${nodeId} from the list?\n\nIts MQTT announcements are wiped, so a powered-off board stays gone. A still-running board reappears after 'Scan now' or an HA restart.`)) return;
@@ -3205,6 +3215,24 @@ class HomeClimatePanel extends HTMLElement {
       delete this._busy[nodeId];
       setTimeout(() => this._refresh(), 300);
     }
+  }
+
+  async _setMaxTset(el) {
+    const wrap = el?.closest(".row");
+    const input = wrap?.querySelector("[data-max-tset-input]");
+    const v = input ? parseFloat(input.value) : NaN;
+    if (!isFinite(v) || v < 20 || v > 90) {
+      this._showError("Enter a boiler maximum between 20 and 90 °C.");
+      return;
+    }
+    if (!confirm(`Set the boiler maximum CH temperature to ${v} °C? The boiler may clamp to its own internal limit; the next sweep reads back what stuck.`)) return;
+    try {
+      await this._hass.callWS({ type: "home_climate_control/set_max_tset", value: v });
+      this._flashNotice(`Boiler maximum set to ${v} °C — watch the ID 57 row for what the boiler accepted.`);
+    } catch (err) {
+      this._showError(err?.message || String(err));
+    }
+    await this._refresh();
   }
 
   async _retestCap() {

@@ -157,6 +157,7 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_device_control)
     websocket_api.async_register_command(hass, ws_reboot_device)
     websocket_api.async_register_command(hass, ws_retest_tset_cap)
+    websocket_api.async_register_command(hass, ws_set_max_tset)
     websocket_api.async_register_command(hass, ws_firmware_catalog)
     websocket_api.async_register_command(hass, ws_get_ot_log)
     websocket_api.async_register_command(hass, ws_get_debug_log)
@@ -2081,6 +2082,50 @@ async def ws_retest_tset_cap(
     if controller is not None:
         controller._cap_gap_ticks = 0
     connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_max_tset",
+        vol.Required("value"): vol.Any(vol.Coerce(float), int),
+    }
+)
+@websocket_api.async_response
+async def ws_set_max_tset(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set the boiler's Max CH water setpoint (OT ID 57) via the board.
+
+    Range-guarded 20–90 °C; the firmware clamps to the boiler's stated ID 49
+    range when known and the next sweep's read-back is the verdict. Needs
+    board firmware 1.5.35+ (older boards ignore the unknown topic).
+    """
+    try:
+        value = float(msg["value"])
+    except (TypeError, ValueError):
+        connection.send_error(msg["id"], "invalid_value",
+                              "value must be a number")
+        return
+    if not 20.0 <= value <= 90.0:
+        connection.send_error(msg["id"], "invalid_value",
+                              "value must be between 20 and 90")
+        return
+    entry = _primary_entry(hass)
+    data = (hass.data.get(DOMAIN) or {}).get(
+        entry.entry_id, {}) if entry else {}
+    controller = data.get("controller") if isinstance(data, dict) else None
+    backend = getattr(controller, "backend", None)
+    if backend is None or not hasattr(backend, "tset_cap"):
+        connection.send_error(
+            msg["id"], "not_supported",
+            "No linked HCS board (demo mode has no boiler ceiling)",
+        )
+        return
+    await backend.async_set_max_tset(value)
+    connection.send_result(msg["id"], {"ok": True, "value": value})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/firmware_catalog"})

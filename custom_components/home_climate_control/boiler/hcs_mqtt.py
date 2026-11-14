@@ -569,6 +569,15 @@ class HcsMqttBackend(BoilerBackend):
         """
         await self._publish_cmd("clear_tset_cap", "clear")
 
+    async def async_set_max_tset(self, value: float) -> None:
+        """Set the boiler's Max CH water setpoint (OT ID 57).
+
+        Non-retained like clear_tset_cap; the board clears any retained
+        copy after applying. Requires firmware 1.5.35+; older boards
+        ignore the unknown topic.
+        """
+        await self._publish_cmd("max_tset", f"{float(value):.1f}")
+
     async def async_set_flow_setpoint(self, temp: float, *, force: bool = False) -> None:
         temp = max(self._min_flow, min(self._max_flow, temp))
         temp = round(temp * 2) / 2.0

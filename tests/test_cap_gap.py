@@ -116,3 +116,43 @@ def test_ws_retest_rejected_without_linked_board():
     asyncio.run(ws.ws_retest_tset_cap(
         hass, conn, {"id": 1, "type": "home_climate_control/retest_tset_cap"}))
     assert conn.send_error.called
+
+
+def test_ws_set_max_tset_publishes_and_validates():
+    from custom_components.home_climate_control.boiler.hcs_mqtt import (
+        HcsMqttBackend,
+    )
+    from custom_components.home_climate_control import websocket_api as ws
+
+    backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
+    controller = SimpleNamespace(backend=backend, _cap_gap_ticks=0)
+    hass = _ws_hass(controller)
+    hass.async_add_executor_job = MagicMock()
+    conn = MagicMock()
+
+    from homeassistant.components import mqtt
+
+    asyncio.run(ws.ws_set_max_tset(
+        hass, conn, {"id": 1, "type": "home_climate_control/set_max_tset",
+                     "value": 75}))
+    topic, payload = mqtt.async_publish.call_args[0][1:3]
+    assert topic == "hcs/hcs-a/set/max_tset"
+    assert payload == "75.0"
+    assert conn.send_result.called
+
+    # out of range rejected, nothing published
+    mqtt.async_publish.reset_mock()
+    conn2 = MagicMock()
+    asyncio.run(ws.ws_set_max_tset(
+        hass, conn2, {"id": 2, "type": "home_climate_control/set_max_tset",
+                      "value": 120}))
+    assert conn2.send_error.called
+    assert mqtt.async_publish.call_count == 0
+
+    # demo mode has no boiler ceiling to set
+    conn3 = MagicMock()
+    hass3 = _ws_hass(SimpleNamespace(backend=SimpleNamespace()))
+    asyncio.run(ws.ws_set_max_tset(
+        hass3, conn3, {"id": 3, "type": "home_climate_control/set_max_tset",
+                       "value": 75}))
+    assert conn3.send_error.called
