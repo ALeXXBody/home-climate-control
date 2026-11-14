@@ -1152,6 +1152,24 @@ class CentralController:
                     ls = None
                 if ls is not None:
                     zr["lead_time_s"] = round(ls, 0)
+            # Supply-side truth for the learner: the valve opening the room
+            # actually got and any cap clamping it. Without these columns a
+            # model cannot tell "slow room" from "starved room" — the exact
+            # blindness behind the 2026-11-14 diagnosis (LivingRoom pinned
+            # at a 31 % cap while 2.9 ° short looked like room sluggishness).
+            vpct = getattr(z, "_valve_pct", None)
+            try:
+                zr["valve_pct"] = round(float(vpct), 1) if vpct is not None else None
+            except (TypeError, ValueError):
+                zr["valve_pct"] = None
+            zr["valve_cap_pct"] = None
+            cap_ent = getattr(z, "_trv_position_entity", None)
+            if cap_ent and str(cap_ent).startswith("number."):
+                try:
+                    st = self.hass.states.get(cap_ent) if self.hass else None
+                    zr["valve_cap_pct"] = float(st.state) if st else None
+                except (AttributeError, TypeError, ValueError):
+                    zr["valve_cap_pct"] = None
             if getattr(z, "_preheat_active", False):
                 zr["preheat"] = True
             if self.insulation is not None:
