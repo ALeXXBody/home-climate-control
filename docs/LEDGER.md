@@ -16,7 +16,7 @@ Compiled 2026-11-06 from the Git history of both repositories.
 | HCC history | 367 commits, 172 tags, first commit 2026-08-22, last 2026-11-04 |
 | HCS history | 133 commits, 65 tags, first commit 2026-08-22, last 2026-11-02 |
 | HCC head | `v1.35.0` → `f5581da` |
-| HCS head | `v1.5.35` → `f04b1f6` |
+| HCS head | `v1.5.36` → `ae940bc` |
 | Distribution | Built-in Home Assistant **Marketplace** (HA 2026.11); HACS was folded into it and its repositories migrate automatically, so "HACS" only appears below where it is historical |
 
 Every row below is taken from a tag or a commit in one of the two repos. Where
@@ -443,6 +443,7 @@ v1.5.23 exists specifically to make that class impossible.
 | v1.5.32 | A missed outdoor or return read keeps the last temperature instead of publishing nothing |
 | v1.5.33 | One-shot `clear_tset_cap` command: forget the learned CH ceiling so the next TSet write re-tests the boiler unclamped; a genuine ceiling re-latches on its own |
 | v1.5.35 | Write the boiler Max CH setpoint (ID 57) over MQTT (`set/max_tset`, clamped, read-back verified); exact library pins after a floating caret grew the gw image past its OTA slot
+| v1.5.36 | Retained-echo self-trigger kill: empty MQTT payloads never act, out-of-range MaxTSet rejected instead of clamped (v1.5.35 had pinned a live house at 20 C); gw OTA gate rescoped to the deployed board only |
 | v1.5.34 | Full OpenTherm ID registry sweep: every readable boiler-side ID probed in rotation, ACKs in retained `ot_map` leaf and `/api/status` (includes ID 57, the OT-side CH ceiling value) |
 
 ### 5.7 HCS version gaps
