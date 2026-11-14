@@ -156,6 +156,7 @@ async def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_device_settings)
     websocket_api.async_register_command(hass, ws_device_control)
     websocket_api.async_register_command(hass, ws_reboot_device)
+    websocket_api.async_register_command(hass, ws_retest_tset_cap)
     websocket_api.async_register_command(hass, ws_firmware_catalog)
     websocket_api.async_register_command(hass, ws_get_ot_log)
     websocket_api.async_register_command(hass, ws_get_debug_log)
@@ -2043,6 +2044,42 @@ async def ws_reboot_device(
         return
     result = await mgr.async_reboot(msg["node_id"])
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/retest_tset_cap"}
+)
+@websocket_api.async_response
+async def ws_retest_tset_cap(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """One-click re-test of the learned boiler CH ceiling.
+
+    Publishes clear_tset_cap to the linked board (needs firmware 1.5.33+;
+    older boards ignore the unknown topic and keep their ceiling). The
+    board forgets the ceiling, the next TSet write goes out unclamped, and
+    the echoes re-learn the real limit within seconds — a genuine ceiling
+    re-latches on its own. Resets the gap watch so the alarm re-evaluates
+    from zero; it dismisses itself when the gap closes.
+    """
+    entry = _primary_entry(hass)
+    data = (hass.data.get(DOMAIN) or {}).get(
+        entry.entry_id, {}) if entry else {}
+    controller = data.get("controller") if isinstance(data, dict) else None
+    backend = getattr(controller, "backend", None)
+    if backend is None or not hasattr(backend, "tset_cap"):
+        connection.send_error(
+            msg["id"], "not_supported",
+            "No linked HCS board (demo mode has no ceiling to re-test)",
+        )
+        return
+    await backend.async_clear_tset_cap()
+    if controller is not None:
+        controller._cap_gap_ticks = 0
+    connection.send_result(msg["id"], {"ok": True})
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/firmware_catalog"})

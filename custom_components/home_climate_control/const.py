@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.32.3"
+INTEGRATION_VERSION = "1.33.0"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
@@ -69,6 +69,9 @@ BALANCE_AUTOCAP_MIN_PCT = 15   # never cap a valve below this
 BALANCE_AUTOCAP_INTERVAL_S = 3600  # at most one adjustment per hour
 BALANCE_CAP_RELEASE_BELOW_PCT = 96  # a number entity below this holds an active cap
 BALANCE_CAP_RELEASE_BELOW_SHARE = 0.5  # mostly below target across the window
+CAP_GAP_WARN_C = 5.0  # wire want exceeds learned ceiling by this (°C)…
+CAP_GAP_WARN_TICKS = 30  # …for this many consecutive CH ticks (~30 min) → alarm
+CAP_GAP_CLEAR_C = 2.0  # hysteresis: gap below this resets and dismisses
 
 # Master gate for automatic actuation ("Auto-Optimize"): when OFF, every
 # auto-writer feature (e.g. balance auto-cap) stays suggestion-only and the

@@ -323,6 +323,15 @@ These numbers were allocated but never tagged. They are not missing releases.
 The tag count (172) and the semver count (169) differ only by the three
 `v1.4.6-dev*` tags.
 
+### 4.11 v1.32.1 – v1.33.0 — loop-block fixes, self-healing caps (2026-11-12 – 14)
+
+| Version | Change |
+|---|---|
+| v1.32.1 | No blocking disk calls on the event loop: the executor guard awaited coroutines but the executor returns Futures, so manifest/mirror writes and the per-poll version read ran (twice) on the loop |
+| v1.32.2 | Stale caps self-heal: the hub sends the curve value clamped only to configured min/max (the board clamps each write and probes above); balance auto-cap also releases cold calling rooms back to 100 % |
+| v1.32.3 | Training rows carry per-zone `valve_pct` and `valve_cap_pct`, so a future model can tell a slow room from a starved one |
+| v1.33.0 | Cap-gap alarm + one-click ceiling re-test: persistent notification when wire want exceeds the learned ceiling, Device-tab ceiling row with a Re-test button publishing `clear_tset_cap` (needs HCS ≥ 1.5.33) |
+
 ## 5. HCS release ledger
 
 ### 5.1 v0.x — gateway foundation (2026-08-22 – 08-23)
@@ -430,6 +439,7 @@ v1.5.23 exists specifically to make that class impossible.
 | v1.5.30 | Pull-based self-update: fetch the hub's `latest.json` over plain LAN HTTP, self-apply a newer signed release |
 | v1.5.31 | ESP8266 collects Origin and Cookie through the variadic header API (the array form is ESP32-only) |
 | v1.5.32 | A missed outdoor or return read keeps the last temperature instead of publishing nothing |
+| v1.5.33 | One-shot `clear_tset_cap` command: forget the learned CH ceiling so the next TSet write re-tests the boiler unclamped; a genuine ceiling re-latches on its own |
 
 ### 5.7 HCS version gaps
 

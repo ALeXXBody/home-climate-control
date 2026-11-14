@@ -2959,7 +2959,29 @@ class HomeClimatePanel extends HTMLElement {
           </div>
         ` : ""}
         ${HomeClimatePanel._otaHtml(d)}
+        ${this._capGapHtml(sys, d, online)}
         ${this._boardBodyHtml()}
+      </div>`;
+  }
+
+  /* Device tab — boiler ceiling row: learned cap, gap alarm, re-test. */
+  _capGapHtml(sys, d, online) {
+    const cap = sys?.tset_cap;
+    const gap = sys?.boiler?.cap_gap || null;
+    if (cap == null && !gap) return "";
+    const retestOk = online && d?.version &&
+      !HomeClimatePanel._verNewer("1.5.33", d.version);
+    return `
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <label>Boiler ceiling</label>
+        <span>learned cap <b>${cap == null ? "—" : `${cap} °C`}</b></span>
+        ${gap?.active
+          ? `<span class="badge heat" title="The curve wants ${gap.want_c} °C but the learned ceiling holds flow at ${gap.cap_c} °C. Rooms stay cold until the ceiling is re-tested.">gap ${gap.gap_c} °C — starving</span>`
+          : ""}
+        <span style="margin-left:auto"></span>
+        <button type="button" class="ghost" data-fw-action="retest-cap" data-node="${this._esc(sys?.linked_node || "")}"
+          title="Forget the learned ceiling; the board re-tests the boiler unclamped (needs firmware 1.5.33+)"
+          ${retestOk ? "" : "disabled"}>Re-test ceiling</button>
       </div>`;
   }
 
@@ -2999,6 +3021,7 @@ class HomeClimatePanel extends HTMLElement {
     if (!nodeId) return;
     if (action === "open") return this._openOtaPage(nodeId);
     if (action === "reboot") return this._rebootDevice(nodeId);
+    if (action === "retest-cap") return this._retestCap();
     if (action === "flash") return this._flashDevice(nodeId);
     if (action === "forget") {
       if (!confirm(`Remove board ${nodeId} from the list?\n\nIts MQTT announcements are wiped, so a powered-off board stays gone. A still-running board reappears after 'Scan now' or an HA restart.`)) return;
@@ -3145,6 +3168,17 @@ class HomeClimatePanel extends HTMLElement {
       delete this._busy[nodeId];
       setTimeout(() => this._refresh(), 300);
     }
+  }
+
+  async _retestCap() {
+    if (!confirm("Re-test the boiler ceiling?\n\nThe board forgets the learned limit and probes the boiler unclamped. A genuine limit re-learns itself within seconds; a stale one clears and flow rises.")) return;
+    try {
+      await this._hass.callWS({ type: "home_climate_control/retest_tset_cap" });
+      this._flashNotice("Ceiling re-test sent. Watch the flow setpoint — it should rise within minutes if the ceiling was stale.");
+    } catch (err) {
+      this._showError(err?.message || String(err));
+    }
+    await this._refresh();
   }
 
   async _rebootDevice(nodeId) {

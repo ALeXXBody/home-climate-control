@@ -532,6 +532,15 @@ class HcsMqttBackend(BoilerBackend):
     async def async_set_ch_enabled(self, enabled: bool) -> None:
         await self._publish_cmd("ch_enable", "on" if enabled else "off")
 
+    async def async_clear_tset_cap(self) -> None:
+        """One-shot re-test of the learned boiler CH ceiling.
+
+        Non-retained (one-shot semantics live here; the board also clears
+        any retained copy). Requires firmware 1.5.33+; older boards ignore
+        the unknown topic and keep their ceiling.
+        """
+        await self._publish_cmd("clear_tset_cap", "clear")
+
     async def async_set_flow_setpoint(self, temp: float, *, force: bool = False) -> None:
         temp = max(self._min_flow, min(self._max_flow, temp))
         temp = round(temp * 2) / 2.0

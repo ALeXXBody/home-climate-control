@@ -33,6 +33,9 @@ from .const import (
     BALANCE_AUTOCAP_MIN_PCT,
     BALANCE_CAP_RELEASE_BELOW_PCT,
     BALANCE_CAP_RELEASE_BELOW_SHARE,
+    CAP_GAP_CLEAR_C,
+    CAP_GAP_WARN_C,
+    CAP_GAP_WARN_TICKS,
     CONTROL_LOOP_SECONDS,
     CURVE_RING_POINTS,
     DEFAULT_BOILER_MIN_MODULATION,
@@ -154,6 +157,12 @@ class CentralController:
         self._flowcap_res: deque[bool] = deque(maxlen=FLOWCAP_WINDOW_SAMPLES)
         self._flowcap_last_ts: float | None = None
         self._flowcap_suggestion: dict | None = None
+        # Learned-ceiling gap watch: the wire value deliberately ignores the
+        # cap (the board clamps + probes), so a stale ceiling shows up here
+        # as wire want far above the learned cap while rooms stay cold.
+        self._cap_gap_ticks = 0
+        self._cap_gap_active = False
+        self._cap_gap_info: dict = {}
 
         from .windtrim import WindTrimmer
 
@@ -845,6 +854,7 @@ class CentralController:
             await self.backend.async_set_flow_setpoint(target_flow)
 
             self.flow_setpoint = target_flow
+            self._maybe_cap_gap_tick(target_flow)
             self.active_zone_names = [z.name for z in demanding]
 
             # Auto-tune: feed aggregate comfort error, maybe learn a better
@@ -1347,6 +1357,86 @@ class CentralController:
 
     # ── Auto-flow-cap (condensing trim) ─────────────────────────────────
 
+    def _maybe_cap_gap_tick(self, wire_flow: float | None) -> None:
+        """Raise the alarm when the learned ceiling starves the house.
+
+        The wire value ignores the cap by design, so `wire - cap` is the
+        heat the boiler would deliver if the ceiling were not there. When
+        that gap stays wide while the burner runs, the ceiling is stale
+        (2026-11-14: 17 °C gap for days, boiler bound 80, cap 55) — raise
+        one persistent notification with the one-click re-test attached.
+        Heals automatically when the gap closes or the cap moves.
+        """
+        cap = getattr(self.backend, "tset_cap", None)
+        gap = None
+        if (
+            cap is not None
+            and wire_flow is not None
+            and self._ch_on
+            and self._system_healthy_for_auto()
+        ):
+            try:
+                gap = float(wire_flow) - float(cap)
+            except (TypeError, ValueError):
+                gap = None
+        if gap is not None and gap >= CAP_GAP_WARN_C:
+            self._cap_gap_ticks += 1
+            self._cap_gap_info = {
+                "want_c": float(wire_flow),
+                "cap_c": float(cap),
+                "ticks": self._cap_gap_ticks,
+            }
+        elif gap is None or gap < CAP_GAP_CLEAR_C:
+            self._cap_gap_ticks = 0
+            if self._cap_gap_active:
+                self._cap_gap_active = False
+                self._cap_gap_info = {}
+                self._cap_gap_dismiss()
+                _LOGGER.info("Cap-gap alarm cleared (gap closed or cap moved)")
+        if not self._cap_gap_active and self._cap_gap_ticks >= CAP_GAP_WARN_TICKS:
+            self._cap_gap_active = True
+            want = self._cap_gap_info.get("want_c", 0.0)
+            capv = self._cap_gap_info.get("cap_c", 0.0)
+            _LOGGER.warning(
+                "Boiler ceiling gap: curve wants %.0f °C but the learned "
+                "ceiling holds flow at %.0f °C for %d ticks — rooms will "
+                "stay cold until the ceiling is re-tested",
+                want, capv, self._cap_gap_ticks,
+            )
+            self.debug_log(
+                "cap-gap",
+                f"curve wants {want:.0f} °C, learned ceiling {capv:.0f} °C "
+                f"for {self._cap_gap_ticks} ticks",
+            )
+            self._cap_gap_notify(want, capv)
+
+    def _cap_gap_notify(self, want: float, cap: float) -> None:
+        try:
+            from homeassistant.components import persistent_notification
+
+            persistent_notification.async_create(
+                self.hass,
+                f"The heating curve wants {want:.0f} °C but the boiler's "
+                f"learned ceiling holds flow at {cap:.0f} °C "
+                f"({self._cap_gap_ticks} ticks). Rooms will stay cold until "
+                f"the ceiling is re-tested: open the Home Climate panel → "
+                f"Device tab → Re-test boiler ceiling.",
+                title="Home Climate Control — boiler ceiling gap",
+                notification_id=f"{DOMAIN}_cap_gap",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("cap-gap notification failed", exc_info=True)
+
+    def _cap_gap_dismiss(self) -> None:
+        try:
+            from homeassistant.components import persistent_notification
+
+            persistent_notification.async_dismiss(
+                self.hass, f"{DOMAIN}_cap_gap"
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("cap-gap dismiss failed", exc_info=True)
+
     def _maybe_flowcap_tick(self, ret, now) -> None:
         """Sample the hot-return signal and maybe trim self.max_flow.
 
@@ -1415,6 +1505,17 @@ class CentralController:
         cap = getattr(self.backend, "tset_cap", None)
         if cap is not None:
             data["tset_cap"] = float(cap)
+        if self._cap_gap_active:
+            data["cap_gap"] = {
+                "active": True,
+                "want_c": round(self._cap_gap_info.get("want_c", 0.0), 1),
+                "cap_c": round(self._cap_gap_info.get("cap_c", 0.0), 1),
+                "gap_c": round(
+                    self._cap_gap_info.get("want_c", 0.0)
+                    - self._cap_gap_info.get("cap_c", 0.0), 1),
+                "since_tick_min": self._cap_gap_info.get("ticks", 0),
+                "retest_min_version": "1.5.33",
+            }
         nodes = getattr(self.backend, "diagnostics", None)
         if callable(nodes):
             try:

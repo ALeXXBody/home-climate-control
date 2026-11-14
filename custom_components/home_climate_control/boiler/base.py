@@ -38,6 +38,13 @@ class BoilerBackend(ABC):
     async def async_set_max_modulation(self, percent: float) -> None:
         """Limit relative modulation level (MM)."""
 
+    async def async_clear_tset_cap(self) -> None:
+        """One-shot re-test of the learned boiler CH ceiling.
+
+        Default: not supported (older firmware ignores the topic too).
+        Real backends override with the actual command publish.
+        """
+
     # --- telemetry -----------------------------------------------------------
     @property
     @abstractmethod
