@@ -546,6 +546,14 @@ session does not re-litigate them.
     `.md` suffix. Engineering documents stay in `docs/`.
 20. `docs/LEDGER.md` is the reference; `docs/HCC-HCS-COMPACT-2026-10.md` is the
     plan. Neither may contradict the other, and neither is a release artefact.
+21. The hub sends the curve flow target clamped only to the configured
+    min/max flow — never to the board's learned tset_cap. The board clamps
+    each write to the cap and probes above it every ~5 min, so a stale cap
+    self-heals. (2026-11-14: hub+board pinned at 55 for days while the
+    boiler's ID-49 bound said 80; clamping on both sides dead-ended the probe.)
+22. Balance auto-cap works in both directions: it tightens oversupplied rooms
+    and releases back to 100 % a room that is persistently below target and
+    actively calling for heat. A truly oversized radiator re-caps later.
 
 ## 8. Documentation drift (as of 2026-11-06)
 
