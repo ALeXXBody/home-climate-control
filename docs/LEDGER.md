@@ -15,7 +15,7 @@ Compiled 2026-11-06 from the Git history of both repositories.
 | HCS repo | `ALeXXBody/home-climate-system` (firmware + hardware) |
 | HCC history | 367 commits, 172 tags, first commit 2026-08-22, last 2026-11-04 |
 | HCS history | 133 commits, 65 tags, first commit 2026-08-22, last 2026-11-02 |
-| HCC head | `v1.36.0` → `TBD` |
+| HCC head | `v1.36.0` → `79dd577` |
 | HCS head | `v1.5.36` → `ae940bc` |
 | Distribution | Built-in Home Assistant **Marketplace** (HA 2026.11); HACS was folded into it and its repositories migrate automatically, so "HACS" only appears below where it is historical |
 
