@@ -39,22 +39,34 @@ def test_tset_cap_unknown_node_is_none(backend):
     assert b.tset_cap is None
 
 
-def test_central_plans_within_learned_cap():
-    """The curve clamp: with a 55 °C boiler ceiling learned, the central
-    must never target more than 55 even though configured max is 75."""
+def test_central_wire_ignores_stale_cap_for_board_probe():
+    """The wire value must NOT be clamped to the learned cap.
+
+    Field evidence 2026-11-14: the board's ID-49 bound says the boiler
+    accepts 80 °C, but hub and board sat pinned at 55 for days while rooms
+    starved — the hub clamped every request to the cap, so the board's
+    ~5 min above-cap probe only ever saw requests at/below it and no echo
+    could clear it. Contract: the hub sends the curve value clamped only
+    to the configured min/max; the board clamps each write to the cap and
+    probes above it, so a stale cap self-heals. Planning/display
+    (flow_max_eff) still respect the cap.
+    """
     from home_climate_control.heating_curve import flow_for_outdoor
 
     # reproduce the arithmetic the central tick uses (base curve + PID trim)
     max_flow = 75.0
     min_flow = 25.0
     tset_cap = 55.0
-    flow_max_eff = min(max_flow, float(tset_cap))
+    flow_max_eff = min(max_flow, float(tset_cap))  # planning stays honest
+    assert flow_max_eff == 55.0
     base = flow_for_outdoor(20.0, 7.8, 3.0, min_flow, max_flow, -10.0)  # 44.4
     pid_extra = 30.0  # morning-recovery trim, same shape as live evidence
-    raw = base + pid_extra                     # → 74.4, past every cap
+    raw = base + pid_extra                     # → 74.4, past the stale cap
     assert raw > 55.0
-    clamped = min(max(raw, min_flow), flow_max_eff)
-    assert clamped == 55.0
+    wire = min(max(raw, min_flow), max_flow)   # wire: options only, no cap
+    assert wire == pytest.approx(74.4)
+    planned = min(max(raw, min_flow), flow_max_eff)  # display: cap respected
+    assert planned == 55.0
 
 
 def test_central_cap_below_min_flow_is_ignored():

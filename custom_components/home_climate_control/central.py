@@ -31,6 +31,8 @@ from .const import (
     UNDERFLOOR_MAX_FLOW_DEFAULT,
     BALANCE_AUTOCAP_INTERVAL_S,
     BALANCE_AUTOCAP_MIN_PCT,
+    BALANCE_CAP_RELEASE_BELOW_PCT,
+    BALANCE_CAP_RELEASE_BELOW_SHARE,
     CONTROL_LOOP_SECONDS,
     CURVE_RING_POINTS,
     DEFAULT_BOILER_MIN_MODULATION,
@@ -769,9 +771,15 @@ class CentralController:
                 self._last_outdoor = outdoor
                 self._warned_no_outdoor = False
             # The board learns the boiler's real CH ceiling from TSet
-            # write-ACK echoes and publishes it as tset_cap. The curve must
-            # never plan beyond what the boiler actually stores — a 75 °C
-            # plan on a 55 °C boiler dead-ends and starves the autotune.
+            # write-ACK echoes and publishes it as tset_cap. Planning and
+            # display stay within it (flow_max_eff) — but the value on the
+            # wire deliberately does NOT: the board clamps every write to
+            # the cap and re-probes above it every ~5 min, so a stale cap
+            # self-heals as soon as the boiler accepts a higher setpoint.
+            # Clamping here as well dead-ends the probe — the board only
+            # ever sees requests at/below the cap and no echo can clear it
+            # (2026-11-14 field evidence: ID-49 boiler bound 80 °C, hub and
+            # board pinned at 55 for days while rooms starved).
             cap = getattr(self.backend, "tset_cap", None)
             flow_max_eff = self.max_flow
             if cap is not None and float(cap) >= self.min_flow:
@@ -782,7 +790,7 @@ class CentralController:
                 outdoor,
                 self.curve_coeff,
                 self.min_flow,
-                flow_max_eff,
+                self.max_flow,
                 self.design_outdoor,
             )
             # Floor rooms don't drive the radiator flow curve — their loop
@@ -792,7 +800,7 @@ class CentralController:
                  if getattr(z, "heater_control", "smart") != "floor"),
                 default=0.0,
             )
-            target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, flow_max_eff)
+            target_flow = clamp(base_flow + worst_pid_extra, self.min_flow, self.max_flow)
 
             # Curve chart ring (panel Diagnostics): 1 point per 5th tick.
             self._curve_i += 1
@@ -1215,7 +1223,16 @@ class CentralController:
 
         Guards: `number.` entity assigned, oversupplied verdict with a
         suggestion, current opening above the suggestion, and at most one
-        adjustment per hour per room. Never opens a valve up.
+        adjustment per hour per room.
+
+        Release path: a cap written in milder weather must not starve a
+        room that is now persistently cold — when the verdict is no longer
+        oversupplied, the room is mostly below target across the window,
+        and it is actively calling for heat, the cap is released back to
+        100 %. If the radiator is truly oversized the tighten path re-caps
+        it later, so the loop self-corrects in both directions instead of
+        ratcheting shut (2026-11-14 field evidence: LivingRoom pinned at
+        31 % while 2.9 °C short, verdict "ok", nothing ever released it).
 
         Additional Auto-Optimize guardrails: the master gate must be on, and
         the system must be healthy — backend connected, OpenTherm valid, and
@@ -1229,9 +1246,9 @@ class CentralController:
         if not ent or not str(ent).startswith("number."):
             return
         rep = z.balance.report()
-        cap = rep.get("suggested_cap_pct")
-        if rep.get("state") != "oversupplied" or cap is None:
-            return
+        state = rep.get("state")
+        if state not in ("oversupplied", "ok", "undersupplied"):
+            return  # still learning — touch nothing
         last = getattr(z, "_cap_last_ts", None)
         # Persisted cooldown must use wall-clock time (not the monotonic tick
         # clock) — a monotonic value survives a restart as a huge number and
@@ -1243,12 +1260,31 @@ class CentralController:
             cur = float(st.state) if st else None
         except (AttributeError, TypeError, ValueError):
             cur = None
-        if cur is None or cur <= cap + 4.0:
-            return  # already capped (or lower) — nothing to write
+        if state == "oversupplied":
+            cap = rep.get("suggested_cap_pct")
+            if cap is None:
+                return
+            if cur is None or cur <= cap + 4.0:
+                return  # already capped (or lower) — nothing to write
+            await self._async_write_valve_cap(
+                z, ent, max(float(cap), BALANCE_AUTOCAP_MIN_PCT), cur)
+            return
+        # Release path — never opens a valve that isn't capped, and never
+        # beyond fully open.
+        if (
+            cur is not None
+            and cur < BALANCE_CAP_RELEASE_BELOW_PCT
+            and rep.get("below_share", 0.0) > BALANCE_CAP_RELEASE_BELOW_SHARE
+            and str(getattr(z, "hvac_action", "")).lower() == "heating"
+        ):
+            await self._async_write_valve_cap(z, ent, 100, cur)
+
+    async def _async_write_valve_cap(self, z, ent: str, cap: float, cur: float) -> None:
+        """Write one opening-degree value to the TRV number entity."""
         try:
             await self.hass.services.async_call(
                 "number", "set_value",
-                {"entity_id": ent, "value": max(float(cap), BALANCE_AUTOCAP_MIN_PCT)},
+                {"entity_id": ent, "value": float(cap)},
                 blocking=False,
             )
             z._cap_last_ts = _time_mod.time()

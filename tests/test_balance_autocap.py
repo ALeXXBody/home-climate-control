@@ -94,6 +94,66 @@ def test_autocap_not_oversupplied_is_noop():
     assert c.hass.services.async_call.await_count == 0
 
 
+# ── Release path: cold rooms must not stay capped ──────────────────────
+def _cold_zone(current_val=31, heating=True):
+    """LivingRoom 2026-11-14: capped at 31 % in mild weather, now 2.9 °C
+    short with the valve pinned — verdict 'ok', nothing released it."""
+    z = _zone(valve=31.0)
+    z.balance._hist.clear()
+    for _ in range(120):
+        z.balance.sample(31.0, True)  # pinned at the cap, below target
+    z._demand = 1.0 if heating else 0.0
+    z.coordinator.flow_setpoint = 55.0
+    from homeassistant.components.climate import HVACMode
+    z._hvac_mode = HVACMode.HEAT
+    return z
+
+
+def _release_value(c):
+    call = c.hass.services.async_call.await_args
+    data = (call.args[2] if len(call.args) > 2 else call.kwargs["data"])
+    return data["entity_id"], data["value"]
+
+
+def test_autocap_releases_cap_when_room_cold_and_calling():
+    c = _controller(True, current_val=31)
+    z = _cold_zone()
+    assert z.balance.report()["state"] == "ok"
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 1
+    ent, val = _release_value(c)
+    assert ent == "number.kitchen_trv_valve_opening_degree"
+    assert val == 100
+    # cooldown shared with the tighten path: no second write within the hour
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 1
+
+
+def test_autocap_no_release_when_idle():
+    c = _controller(True, current_val=31)
+    z = _cold_zone(heating=False)
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 0
+
+
+def test_autocap_no_release_when_uncapped():
+    c = _controller(True, current_val=100)
+    z = _cold_zone()
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 0
+
+
+def test_autocap_no_release_when_comfortable():
+    c = _controller(True, current_val=31)
+    z = _zone(valve=31.0)  # at target: below_share 0
+    z._demand = 1.0
+    z.coordinator.flow_setpoint = 55.0
+    from homeassistant.components.climate import HVACMode
+    z._hvac_mode = HVACMode.HEAT
+    asyncio.run(c._async_maybe_autocap(z, NOW))
+    assert c.hass.services.async_call.await_count == 0
+
+
 # ── Auto-Optimize master gate + health guardrails ──────────────────────────
 from custom_components.home_climate_control.const import DOMAIN
 

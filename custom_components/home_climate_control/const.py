@@ -3,7 +3,7 @@
 DOMAIN = "home_climate_control"
 MANUFACTURER = "Home Climate Control"
 NAME = "Home Climate Control"
-INTEGRATION_VERSION = "1.32.1"
+INTEGRATION_VERSION = "1.32.2"
 
 # Sidebar app (custom panel)
 PANEL_URL_PATH = "home-climate"
@@ -67,6 +67,8 @@ CURVE_RING_POINTS = 288
 CONF_BALANCE_AUTOCAP = "balance_autocap"
 BALANCE_AUTOCAP_MIN_PCT = 15   # never cap a valve below this
 BALANCE_AUTOCAP_INTERVAL_S = 3600  # at most one adjustment per hour
+BALANCE_CAP_RELEASE_BELOW_PCT = 96  # a number entity below this holds an active cap
+BALANCE_CAP_RELEASE_BELOW_SHARE = 0.5  # mostly below target across the window
 
 # Master gate for automatic actuation ("Auto-Optimize"): when OFF, every
 # auto-writer feature (e.g. balance auto-cap) stays suggestion-only and the
