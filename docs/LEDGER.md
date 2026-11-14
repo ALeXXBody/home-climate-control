@@ -442,9 +442,9 @@ v1.5.23 exists specifically to make that class impossible.
 | v1.5.31 | ESP8266 collects Origin and Cookie through the variadic header API (the array form is ESP32-only) |
 | v1.5.32 | A missed outdoor or return read keeps the last temperature instead of publishing nothing |
 | v1.5.33 | One-shot `clear_tset_cap` command: forget the learned CH ceiling so the next TSet write re-tests the boiler unclamped; a genuine ceiling re-latches on its own |
+| v1.5.34 | Full OpenTherm ID registry sweep: every readable boiler-side ID probed in rotation, ACKs in retained `ot_map` leaf and `/api/status` (includes ID 57, the OT-side CH ceiling value) |
 | v1.5.35 | Write the boiler Max CH setpoint (ID 57) over MQTT (`set/max_tset`, clamped, read-back verified); exact library pins after a floating caret grew the gw image past its OTA slot
 | v1.5.36 | Retained-echo self-trigger kill: empty MQTT payloads never act, out-of-range MaxTSet rejected instead of clamped (v1.5.35 had pinned a live house at 20 C); gw OTA gate rescoped to the deployed board only |
-| v1.5.34 | Full OpenTherm ID registry sweep: every readable boiler-side ID probed in rotation, ACKs in retained `ot_map` leaf and `/api/status` (includes ID 57, the OT-side CH ceiling value) |
 
 ### 5.7 HCS version gaps
 
