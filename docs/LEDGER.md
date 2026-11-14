@@ -570,6 +570,23 @@ session does not re-litigate them.
     and releases back to 100 % a room that is persistently below target and
     actively calling for heat. A truly oversized radiator re-caps later.
 
+23. HIGH PRIORITY — nothing ships untested. Every change needs the
+    tests that could have caught it breaking, not just tests that pass
+    around it:
+    (a) unit coverage for the changed logic (host tests firmware-side,
+    pytest hub-side);
+    (b) interaction coverage for the changed path — v1.5.35 proved a
+    fully unit-tested parser can still pin a live house at 20 C when the
+    untested dispatch loop re-delivers its own retained echo. If a path
+    cannot be host-tested, extract its decision into a pure function and
+    test the matrix, or say so in the release notes;
+    (c) full suite green (pytest + panel DOM gates + pyflakes hub-side;
+    native + all-env builds firmware-side);
+    (d) firmware releases are not good until a live canary passes: flash,
+    watch the board log for at least five minutes, confirm the intended
+    effect on the wire before calling the release healthy.
+    A release whose tests came after it is a draft, not a release.
+
 ## 8. Documentation drift (as of 2026-11-06)
 
 The 2026-11-06 pass removed the structural duplicates and corrected the stale
