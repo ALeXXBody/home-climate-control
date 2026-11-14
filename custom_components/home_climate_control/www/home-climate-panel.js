@@ -2655,6 +2655,42 @@ class HomeClimatePanel extends HTMLElement {
 
   /* Diagnostics tab body (read-only engineering telemetry).
      Swapped in place by _applyStatus. */
+  static OT_NAMES = {
+    0: "Status", 3: "SConfig", 5: "ASF", 6: "RBPflags", 9: "TrOverride",
+    10: "TSP", 13: "FHBsize", 15: "MaxCapMinMod", 16: "TrSet",
+    18: "CHPressure", 19: "DHWFlow", 20: "DayTime", 21: "Date", 22: "Year",
+    23: "TrSetCH2", 24: "Tr", 29: "Tstorage", 30: "Tcollector",
+    31: "TflowCH2", 32: "Tdhw2", 33: "Texhaust", 48: "TdhwSetUB",
+    49: "MaxTSetUB", 50: "HcratioUB", 56: "TdhwSet", 57: "MaxTSet",
+    58: "Hcratio", 100: "RemOverride", 115: "OEMDiag", 116: "BurnerStarts",
+    117: "CHPumpStarts", 118: "DHWPumpStarts", 119: "DHWBurnStarts",
+    120: "BurnerHours", 121: "CHPumpHours", 122: "DHWPumpHours",
+    123: "DHWBurnHours", 125: "OTVerSlave", 127: "SlaveVersion",
+  };
+
+  /** OpenTherm answered-ID map: every ID this boiler responds to, live. */
+  _otMapHtml(ot) {
+    // Keep OT_NAMES in sync with firmware/include/hcs_ot_ids.h.
+    if (!ot || typeof ot !== "object" || !Object.keys(ot).length) return "";
+    const tempIds = new Set([9, 16, 18, 19, 23, 24, 29, 30, 31, 32, 33, 56, 57, 58]);
+    const rows = Object.keys(ot)
+      .map((k) => parseInt(k, 10))
+      .filter((n) => !isNaN(n))
+      .sort((a, b) => a - b)
+      .map((id) => {
+        const nm = HomeClimatePanel.OT_NAMES[id] || `id${id}`;
+        const v = ot[String(id)];
+        const val = tempIds.has(id) && typeof v === "number" ? `${v.toFixed(1)} °C` : this._esc(v);
+        return `<div class="diag-item"><span class="nm">ID ${id} · ${this._esc(nm)}</span><span>${val}</span></div>`;
+      }).join("");
+    return `
+      <div class="card">
+        <h3>OpenTherm IDs <span class="diag-summary">${Object.keys(ot).length} answered</span></h3>
+        <div class="diag-list">${rows}</div>
+        <p class="sub">Live answers to the registry sweep — IDs the boiler ignores stay absent.</p>
+      </div>`;
+  }
+
   _setupChecklistHtml(sys) {
     const items = sys.setup;
     if (!Array.isArray(items) || !items.length) return "";
@@ -2736,6 +2772,7 @@ class HomeClimatePanel extends HTMLElement {
         <div class="card"><h3>Curve coefficient</h3><div class="metric">${this._fmt(sys.curve_coeff)}</div>
         ${sys.autotune ? `<p class="sub">auto-tune: ${this._esc(sys.autotune.last_action || "")}${sys.autotune.mean_error != null ? ` · err ${this._esc(sys.autotune.mean_error)}°C` : ""} · ${sys.autotune.adjustments} adjustment${sys.autotune.adjustments === 1 ? "" : "s"}</p>` : ""}</div>
         <div class="card"><h3>Flow limits</h3><div class="metric">${this._fmt(sys.min_flow)}<span class="unit"> / </span>${this._fmt(sys.max_flow)}<span class="unit">°C</span></div>${(sys.tset_cap ?? sys.boiler?.tset_cap) != null ? `<p class="sub">Boiler maximum: ${this._fmt(sys.tset_cap ?? sys.boiler.tset_cap)} °C</p>` : ""}</div>
+        ${this._otMapHtml(sys.ot)}
         ${sys.cycle_guard ? `<div class="card"><h3>Burner cycles</h3><div class="metric">${sys.cycle_guard.starts_1h}<span class="unit">/h</span></div><p class="sub">${this._esc(sys.cycle_guard.last_reason || sys.cycle_guard.state)} · patience ×${this._esc(sys.cycle_guard.multiplier)}</p></div>` : ""}
         ${sys.gas ? `<div class="card"><h3>Gas (est.)</h3>
           <div class="metric">${this._esc(sys.gas.today_kwh)}<span class="unit">kWh today</span></div>

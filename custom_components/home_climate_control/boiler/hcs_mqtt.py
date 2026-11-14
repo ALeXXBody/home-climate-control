@@ -52,7 +52,7 @@ class _NodeState:
         "node_id", "last_rx", "telemetry_rx", "online", "ot_valid", "outdoor_temp",
         "outdoor_rx", "flow_temp", "return_temp", "modulation", "pressure",
         "flame", "ch_active", "fault_text", "commanded_setpoint",
-        "custom", "sensors_snapshot", "tset_cap",
+        "custom", "sensors_snapshot", "tset_cap", "ot_map",
     )
 
     def __init__(self, node_id: str) -> None:
@@ -76,6 +76,7 @@ class _NodeState:
         self.custom: dict[str, float] = {}
         self.sensors_snapshot: list = []
         self.tset_cap: float | None = None  # learned boiler CH ceiling
+        self.ot_map: dict[str, float] = {}  # answered OT IDs, hub-side names
 
 
 class HcsMqttBackend(BoilerBackend):
@@ -203,6 +204,14 @@ class HcsMqttBackend(BoilerBackend):
             st.ch_active = bool(d.get("ch_active"))
         if "tset_cap" in d:
             st.tset_cap = _n(d.get("tset_cap"))
+        if "ot_map" in d and isinstance(d.get("ot_map"), dict):
+            parsed = {}
+            for kid, raw in d["ot_map"].items():
+                try:
+                    parsed[str(int(kid))] = float(raw)
+                except (TypeError, ValueError):
+                    continue
+            st.ot_map = parsed
         st.online = True
         st.last_rx = time.monotonic()   # the poll IS a heartbeat
         st.telemetry_rx = st.last_rx
@@ -355,6 +364,7 @@ class HcsMqttBackend(BoilerBackend):
         """
         data = super().diagnostics()
         data["tset_cap"] = self.tset_cap
+        data["ot_map"] = self.ot_map
         data["pressure_bar"] = self.pressure_bar
         data["leaf_count"] = self._leaf_count
         data["leaf_topics"] = list(self._leaf_topics)
@@ -448,6 +458,24 @@ class HcsMqttBackend(BoilerBackend):
             # the boiler ACKs every request unchanged).
             st.tset_cap = _f(text)
             self._notify_sensors()
+            return
+        if key == "ot_map":
+            # Retained answered-ID map {"57":80.0,...} from the firmware's
+            # registry sweep. Names live hub-side (same table as firmware).
+            try:
+                data = json.loads(text) if text else {}
+            except ValueError:
+                return
+            if isinstance(data, dict):
+                merged = False
+                for kid, raw in data.items():
+                    try:
+                        st.ot_map[str(int(kid))] = float(raw)
+                        merged = True
+                    except (TypeError, ValueError):
+                        continue
+                if merged:
+                    self._notify_sensors()
             return
         if key == "ctl" and text.startswith("{"):
             # Retained control-state mirror (publishCtl JSON). Carries the
@@ -574,6 +602,12 @@ class HcsMqttBackend(BoilerBackend):
         (None while the boiler ACKs every request unchanged)."""
         st = self._state()
         return st.tset_cap if st else None
+
+    @property
+    def ot_map(self) -> dict[str, float]:
+        """Answered OpenTherm IDs from the firmware registry sweep."""
+        st = self._state()
+        return dict(st.ot_map) if st else {}
 
     @property
     def outdoor_temp(self):

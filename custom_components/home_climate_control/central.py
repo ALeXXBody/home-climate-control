@@ -1505,6 +1505,9 @@ class CentralController:
         cap = getattr(self.backend, "tset_cap", None)
         if cap is not None:
             data["tset_cap"] = float(cap)
+        ot_map = getattr(self.backend, "ot_map", None)
+        if ot_map:
+            data["ot_map"] = dict(ot_map)
         if self._cap_gap_active:
             data["cap_gap"] = {
                 "active": True,

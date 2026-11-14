@@ -417,6 +417,7 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                 "min_flow": getattr(controller, "min_flow", None),
                 "max_flow": getattr(controller, "max_flow", None),
                 "tset_cap": diag.get("tset_cap"),
+                "ot": diag.get("ot_map"),
                 "boiler": diag,
                 # Flatten common diag blocks the panel reads as sys.*
                 "gas": diag.get("gas"),

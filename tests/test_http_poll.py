@@ -99,6 +99,20 @@ def test_diagnostics_exports_the_fields_the_card_reads():
     assert d["pressure_bar"] == 1.8
 
 
+def test_ot_map_leaf_parsed_and_surfaced():
+    backend = HcsMqttBackend(MagicMock(), "hcs-a", 25, 75)
+    backend._on_value("hcs-a", "ot_map", '{"57":80.0,"115":0,"116":42}',
+                      retained=True)
+    st = backend._nodes["hcs-a"]
+    assert st.ot_map == {"57": 80.0, "115": 0.0, "116": 42.0}
+    assert backend.diagnostics()["ot_map"] == {"57": 80.0, "115": 0.0, "116": 42.0}
+    # garbage in, nothing out — never wedges the node state
+    backend._on_value("hcs-a", "ot_map", "{broken", retained=True)
+    assert st.ot_map == {"57": 80.0, "115": 0.0, "116": 42.0}
+    backend._on_value("hcs-a", "ot_map", '{"57":"hot"}', retained=True)
+    assert st.ot_map == {"57": 80.0, "115": 0.0, "116": 42.0}
+
+
 def test_http_poll_maps_portal_fields_and_adopts():
     import asyncio
 
