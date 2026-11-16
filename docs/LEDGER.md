@@ -323,7 +323,7 @@ These numbers were allocated but never tagged. They are not missing releases.
 The tag count (172) and the semver count (169) differ only by the three
 `v1.4.6-dev*` tags.
 
-### 4.11 v1.32.1 – v1.33.0 — loop-block fixes, self-healing caps (2026-11-12 – 14)
+### 4.11 v1.32.1 – v1.36.1 — loop-block fixes, self-healing caps, native temp API (2026-11-12 – 16)
 
 | Version | Change |
 |---|---|
@@ -333,6 +333,7 @@ The tag count (172) and the semver count (169) differ only by the three
 | v1.33.0 | Cap-gap alarm + one-click ceiling re-test: persistent notification when wire want exceeds the learned ceiling, Device-tab ceiling row with a Re-test button publishing `clear_tset_cap` (needs HCS ≥ 1.5.33) |
 | v1.36.0 | On-demand board pull: WS board_check_update + Device-tab Pull now button publish set/check_update; the board fetches latest.json immediately instead of waiting out its 6 h cadence (deferred during burns/flashes)
 | v1.35.0 | Set the boiler maximum (ID 57): backend publish, admin WS command (20–90 °C), Device-tab Set max control gated on firmware 1.5.35+
+| v1.36.1 | Zone entities migrated to the native temperature API (`_attr_native_temperature_unit`, `native_current_temperature`, `native_target_temperature`); HA deprecation removal target is 2027.11. Wire payload keys and panel bindings unchanged
 | v1.34.0 | Live OpenTherm ID map: parses the board's retained `ot_map` into diagnostics with a per-ID Diagnostics card (registry names shared with firmware); surfaces ID 57, the OT-side ceiling |
 
 ## 5. HCS release ledger
