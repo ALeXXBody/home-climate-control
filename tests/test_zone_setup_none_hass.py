@@ -43,7 +43,7 @@ def test_on_trv_update_noop_before_attach():
 def test_refresh_temp_from_trv_noop_before_attach():
     z = _bare_zone()
     z._refresh_temp_from_trv()  # must not raise
-    assert z.current_temperature is None
+    assert z.native_current_temperature is None
 
 
 def test_on_sensor_update_before_attach_does_not_raise():

@@ -139,7 +139,7 @@ def test_room_uses_trv_temp_when_no_external_sensor():
     )
     room.async_write_ha_state = MagicMock()
     room._refresh_temp_from_trv()
-    assert room.current_temperature == 19.5
+    assert room.native_current_temperature == 19.5
     assert room.trv_entity == "climate.living_trv"
     assert room.window_sensor_entities == ["binary_sensor.living_window"]
     assert room.wants_heat() is False  # hvac off by default

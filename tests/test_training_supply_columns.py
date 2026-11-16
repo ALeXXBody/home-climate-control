@@ -16,7 +16,7 @@ def _zone(valve_pct=31.0, cap_entity="number.livingroom_trv_valve_opening_degree
         name="LivingRoom",
         floor=0,
         heater_control="smart",
-        current_temperature=20.1,
+        native_current_temperature=20.1,
         _target_temp=23.0,
         _valve_pct=valve_pct,
         _preset="none",

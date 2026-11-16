@@ -342,7 +342,7 @@ class RoomControlSensor(SensorEntity):
                        or getattr(zone, "_trv_climates", None))
         has_temp = (
             getattr(zone, "_temp_sensor", None) is not None
-            or getattr(zone, "current_temperature", None) is not None
+            or getattr(zone, "native_current_temperature", None) is not None
         )
         value = "healthy"
         if rc == "valve" and not (

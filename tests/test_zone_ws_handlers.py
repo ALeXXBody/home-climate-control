@@ -30,8 +30,8 @@ def _make_zone(name: str, heat_control: str = "smart"):
     return SimpleNamespace(
         name=name,
         entity_id=f"climate.{name.lower().replace(' ', '_')}",
-        current_temperature=21.0,
-        target_temperature=22.0,
+        native_current_temperature=21.0,
+        native_target_temperature=22.0,
         hvac_mode="heat",
         hvac_action="idle",
         preset_mode="none",

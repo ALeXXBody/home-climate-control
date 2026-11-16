@@ -178,8 +178,8 @@ def test_room_rows_carry_model_same_schema():
     class _Z:
         name = "Office"
         entity_id = "climate.office"
-        current_temperature = 20.0
-        target_temperature = 21.0
+        native_current_temperature = 20.0
+        native_target_temperature = 21.0
         hvac_mode = "heat"
         hvac_action = "idle"
         preset_mode = "none"

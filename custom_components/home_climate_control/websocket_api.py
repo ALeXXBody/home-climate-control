@@ -269,8 +269,8 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                     "entity_id": entity_id,
                     "name": getattr(zone, "name", None)
                     or (state.name if state else "Zone"),
-                    "current_temperature": getattr(zone, "current_temperature", None),
-                    "target_temperature": getattr(zone, "target_temperature", None),
+                    "current_temperature": getattr(zone, "native_current_temperature", None),
+                    "target_temperature": getattr(zone, "native_target_temperature", None),
                     "hvac_mode": str(getattr(zone, "hvac_mode", "off")),
                     "hvac_action": str(getattr(zone, "hvac_action", "off")),
                     "preset_mode": getattr(zone, "preset_mode", "none"),

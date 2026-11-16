@@ -284,7 +284,7 @@ class CentralController:
             ensure = getattr(self.backend, "ensure_room", None)
             if callable(ensure):
                 name = getattr(zone, "name", None) or "Zone"
-                ensure(name, getattr(zone, "current_temperature", None) or 18.0)
+                ensure(name, getattr(zone, "native_current_temperature", None) or 18.0)
 
     def _sync_known_rooms(self) -> None:
         """Feed the learner the current room names so ghost keys from old
@@ -414,7 +414,7 @@ class CentralController:
                 f"calibration already running for '{self.calibration.active_zone}'"
             )
         cur = (
-            getattr(zone, "current_temperature", None)
+            getattr(zone, "native_current_temperature", None)
             or getattr(zone, "_current_temp", None)
         )
         if cur is None:
@@ -611,7 +611,7 @@ class CentralController:
         for z in self.zones:
             if z.wants_heat() and not z.paused():
                 cur = (
-                    getattr(z, "current_temperature", None)
+                    getattr(z, "native_current_temperature", None)
                     or getattr(z, "_current_temp", None)
                 )
                 snap[z] = (True, z.demand_level(), z.effective_setpoint(), cur)
@@ -918,7 +918,7 @@ class CentralController:
         for z in self.zones:
             dem = bool(z.wants_heat() and not z.paused())
             cur = (
-                getattr(z, "current_temperature", None)
+                getattr(z, "native_current_temperature", None)
                 or getattr(z, "_current_temp", None)
             )
             sp = z.effective_setpoint()
@@ -970,13 +970,13 @@ class CentralController:
                         pass
             if getattr(z, "radiator_kw", None):
                 z._radiator_kw_est = radiator_output_kw(
-                    z.radiator_kw, be_flow, be_ret, z.current_temperature
+                    z.radiator_kw, be_flow, be_ret, z.native_current_temperature
                 )
             valve = getattr(z, "_valve_pct", None)
             if valve is not None:
                 below = (
-                    z.current_temperature is not None
-                    and z.effective_setpoint() - z.current_temperature > 0.1
+                    z.native_current_temperature is not None
+                    and z.effective_setpoint() - z.native_current_temperature > 0.1
                 )
                 z.balance.sample(valve, below)
             if (getattr(z, "floor_active", None) and callable(
@@ -1087,7 +1087,7 @@ class CentralController:
         z = self._find_zone(name)
         if z is None:
             return
-        cur = getattr(z, "current_temperature", None)
+        cur = getattr(z, "native_current_temperature", None)
         outdoor = self.outdoor_temp()
         try:
             demand = min(1.0, max(0.0, float(z.demand_level())))
@@ -1130,7 +1130,7 @@ class CentralController:
         zones_out = []
         for z in self.zones:
             cur = (
-                getattr(z, "current_temperature", None)
+                getattr(z, "native_current_temperature", None)
                 or getattr(z, "_current_temp", None)
             )
             zr = {
@@ -1215,7 +1215,7 @@ class CentralController:
                 (
                     z.effective_setpoint()
                     for z in self.zones
-                    if z.wants_heat() and z.current_temperature is not None
+                    if z.wants_heat() and z.native_current_temperature is not None
                 ),
                 default=DEFAULT_PRESET_TEMPS.get("comfort", 21.0),
             )

@@ -87,7 +87,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         name = zone_cfg["name"]
         self._attr_name = name
         self._attr_unique_id = f"{entry.entry_id}_room_{name}"
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+        self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_precision = PRECISION_HALVES
         self._attr_min_temp = DEFAULT_MIN_ROOM_TEMP
         self._attr_max_temp = DEFAULT_MAX_ROOM_TEMP
@@ -373,11 +373,11 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         return cur
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self._temp_current()
 
     @property
-    def target_temperature(self) -> float:
+    def native_target_temperature(self) -> float:
         return self._target_temp
 
     @property
@@ -1621,7 +1621,7 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         # heat faster than the room absorbs — back the opening off instead
         # of letting the room shoot past the setpoint.
         dev = self._trv_current_temp()
-        ext = self.current_temperature
+        ext = self.native_current_temperature
         if isinstance(dev, (int, float)) and isinstance(ext, (int, float)):
             gap = float(dev) - float(ext)
             if gap > 2.0:
