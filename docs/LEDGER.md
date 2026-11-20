@@ -15,7 +15,7 @@ Compiled 2026-11-06 from the Git history of both repositories.
 | HCS repo | `ALeXXBody/home-climate-system` (firmware + hardware) |
 | HCC history | 367 commits, 172 tags, first commit 2026-08-22, last 2026-11-04 |
 | HCS history | 133 commits, 65 tags, first commit 2026-08-22, last 2026-11-02 |
-| HCC head | `v1.36.1` → `a0cbeb4` |
+| HCC head | `v1.36.2` → `b6a1d6c` |
 | HCS head | `v1.5.36` → `ae940bc` |
 | Distribution | Built-in Home Assistant **Marketplace** (HA 2026.11); HACS was folded into it and its repositories migrate automatically, so "HACS" only appears below where it is historical |
 
@@ -334,6 +334,7 @@ The tag count (172) and the semver count (169) differ only by the three
 | v1.36.0 | On-demand board pull: WS board_check_update + Device-tab Pull now button publish set/check_update; the board fetches latest.json immediately instead of waiting out its 6 h cadence (deferred during burns/flashes)
 | v1.35.0 | Set the boiler maximum (ID 57): backend publish, admin WS command (20–90 °C), Device-tab Set max control gated on firmware 1.5.35+
 | v1.36.1 | Zone entities migrated to the native temperature API (`_attr_native_temperature_unit`, `native_current_temperature`, `native_target_temperature`); HA deprecation removal target is 2027.11. Wire payload keys and panel bindings unchanged
+| v1.36.2 | Room cards, setbacks table and Debug TRV table show the live valve state (open/closed) instead of the TRV number entity, which is an opening limit that can sit unchanged for days; valve-direct rooms keep their HCC-written %; caps display as caps only where in force |
 | v1.34.0 | Live OpenTherm ID map: parses the board's retained `ot_map` into diagnostics with a per-ID Diagnostics card (registry names shared with firmware); surfaces ID 57, the OT-side ceiling |
 
 ## 5. HCS release ledger
