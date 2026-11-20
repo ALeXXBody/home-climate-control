@@ -393,6 +393,25 @@ class ZoneClimateEntity(ClimateEntity, RestoreEntity):
         return HVACAction.IDLE
 
     @property
+    def valve_state(self) -> str | None:
+        """Display-honest valve state: "open", "closed", or None.
+
+        The TRV number entity is an opening *limit*, not a live position
+        (proven 2026-11-20: frozen for 24 h across a 15→23 °C house swing,
+        and a 59 % reading beside a stone-cold radiator). Rendering it as a
+        position told users their valves were stuck open. The only live
+        signal is the drive state: a room calling for heat is opening its
+        valve; a satisfied room has closed it. Valve-direct rooms are the
+        exception — HCC writes their opening every tick, so the panel may
+        additionally show that commanded percentage.
+        """
+        if self.heater_control == "manual" or not self._trv_entity:
+            return None
+        if self.hvac_action == HVACAction.HEATING:
+            return "open"
+        return "closed"
+
+    @property
     def preset_mode(self) -> str:
         return self._preset
 

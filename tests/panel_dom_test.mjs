@@ -587,11 +587,11 @@ check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
   el._status.systems[0].zones = [
     { name: "Office", heat_control: "valve", trv: "climate.office_trv",
       hvac_mode: "heat", current_temperature: 21.2, effective_setpoint: 21.5,
-      demand_level: 0.4, valve_pct: 62.4, temp_source: "trv",
+      demand_level: 0.4, valve_pct: 62.4, valve_state: "open", temp_source: "trv",
       window_open: false },
     { name: "LivingRoom", heat_control: "smart", trv: "climate.livingroom_trv",
       hvac_mode: "heat", current_temperature: 20.1, effective_setpoint: 21.0,
-      demand_level: 0.55, valve_pct: 30.0, temp_source: "trv",
+      demand_level: 0.55, valve_pct: 30.0, valve_state: "open", temp_source: "trv",
       window_open: true },
   ];
   el._render();
@@ -606,6 +606,7 @@ check(el.shadowRoot.getElementById("hcc-otlog-pre") === before,
   check(tabTxt.includes("Office") && tabTxt.includes("LivingRoom"),
     "TRV table does not list the rooms");
   check(tabTxt.includes("62%"), "TRV table missing live valve %");
+  check(tabTxt.includes("cap 30%"), "smart-room valve limit must read as a cap, not a position");
   check(tabTxt.includes("TRV internal"), "TRV table missing temp source");
   check(tabTxt.includes("Debug feed"), "the rolling feed must stay on the tab too");
   el._status.systems[0].zones = savedZones;
@@ -891,6 +892,29 @@ if (failures.length) {
   el._addingRoom = false;
   el._status.systems[0].zones = saved_zones_for_sys;
   el._render();
+}
+
+// -- Gate: valve display helpers never render the number entity as a live --
+// position. The TRV number is an opening *limit*; only valve-direct rooms
+// (HCC-written every tick) may show its percentage as live.
+{
+  const smart = { heat_control: "smart", valve_pct: 59, valve_state: "closed" };
+  const smartOpen = { heat_control: "smart", valve_pct: 100, valve_state: "open" };
+  const vRoom = { heat_control: "valve", valve_pct: 62.4, valve_state: "open" };
+  const vRoomClosed = { heat_control: "valve", valve_pct: 0, valve_state: "closed" };
+  const manual = { heat_control: "manual", valve_pct: 59 };
+  const noData = { heat_control: "smart", valve_pct: null, valve_state: null };
+  check(el._valveStateText(smart) === "closed", "valve state helper must say closed");
+  check(el._valveStateText(smartOpen) === "open", "valve state helper must say open");
+  check(el._valveStateText(vRoom) === "open \u00b7 62%", "valve-direct rooms keep the live %");
+  check(el._valveStateText(manual) === null, "manual rooms have no valve state");
+  check(el._valveStateText(noData) === null, "rooms without TRV data have no valve state");
+  check(el._valveCapText(smart) === "cap 59%", "smart-room limit must read as a cap");
+  check(el._valveCapText(smartOpen) === "open", "uncapped smart room shows live state, not 100%");
+  check(el._valveCapText(vRoom) === "62%", "valve-direct room shows the live opening");
+  check(el._valveCapText(vRoomClosed) === "0%", "valve-direct room may show 0%");
+  check(el._valveCapText(manual) === "\u2014", "manual room shows no valve");
+  check(el._valveCapText(noData) === "\u2014", "missing data shows an em dash, never a bare %");
 }
 
 if (failures.length) {

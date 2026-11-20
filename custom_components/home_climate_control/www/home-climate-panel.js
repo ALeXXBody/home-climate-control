@@ -1647,6 +1647,29 @@ class HomeClimatePanel extends HTMLElement {
 
   /* Live per-room TRV state at a glance — read from the same status the
      panel polls, so the table refreshes with every poll on this tab. */
+  /* Valve display helpers — the TRV number entity is an opening *limit*,
+     not a live position (frozen 24 h across a 15→23 °C swing; 59 % beside
+     a cold radiator), so no UI surface may render it as a position.
+     Valve-direct rooms are the exception: HCC writes their opening every
+     tick, so that number is live. */
+  _valveStateText(z) {
+    if (!z || !z.valve_state) return null;
+    if (z.heat_control === "valve" && z.valve_pct != null && !Number.isNaN(z.valve_pct))
+      return `${z.valve_state} · ${Math.round(z.valve_pct)}%`;
+    return z.valve_state;
+  }
+
+  _valveCapText(z) {
+    if (!z || z.heat_control === "manual") return "—";
+    if (z.heat_control === "valve") {
+      if (z.valve_pct == null || Number.isNaN(z.valve_pct)) return "—";
+      return `${Math.round(z.valve_pct)}%`;
+    }
+    if (z.valve_pct != null && z.valve_pct < 100)
+      return `cap ${Math.round(z.valve_pct)}%`;
+    return z.valve_state ?? "—";
+  }
+
   _trvTableHtml() {
     const sys = (this._status?.systems || [])[0] || {};
     const zones = sys.zones || [];
@@ -1656,9 +1679,7 @@ class HomeClimatePanel extends HTMLElement {
       const src = z.temp_source === "trv" && !z.temp_sensor
         ? "TRV internal"
         : (z.temp_sensor ? this._esc(String(z.temp_sensor)) : "—");
-      const valve = (z.valve_pct != null && !Number.isNaN(z.valve_pct))
-        ? `${Math.round(z.valve_pct)}%${z.valve_failover ? " ⚡failover" : ""}`
-        : "—";
+      const valve = `${this._valveCapText(z)}${z.valve_failover ? " ⚡failover" : ""}`;
       const trv = z.trv ? this._esc(String(z.trv)) : "—";
       const demand = (!manual && z.demand_level != null)
         ? `${Math.round(z.demand_level * 100)}%`
@@ -1689,7 +1710,7 @@ class HomeClimatePanel extends HTMLElement {
               <tr style="text-align:left;opacity:.7">
                 <th>Room</th><th>Control</th><th>TRV</th><th>Mode</th>
                 <th>Room °C</th><th>Target</th><th>Demand</th>
-                <th>Valve cap</th><th>Temp source</th><th>Window</th>
+                <th>Valve</th><th>Temp source</th><th>Window</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -2235,7 +2256,7 @@ class HomeClimatePanel extends HTMLElement {
                     temp source: ${z.temp_sensor ? this._esc(z.temp_sensor) : (!manual && z.temp_source === "trv" ? "TRV internal" : "—")}<br>
                     ${!manual && z.trv ? `TRV: ${this._esc(z.trv)}<br>` : ""}
                     ${(z.window_sensors || []).length ? `window sensors: ${this._esc((z.window_sensors || []).join(", "))}<br>` : "no window sensors<br>"}
-                    ${z.solar_gain ? `<span style="color:#ffd54f">☀️ solar gain</span> · ` : ""}${z.co2_ppm != null ? `CO₂ ${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠ ventilate" : ""} · ` : ""}${z.valve_pct != null ? `valve ${Math.round(z.valve_pct)}% · ` : ""}${z.radiator_kw_est != null ? `radiator ~${z.radiator_kw_est} kW · ` : ""}${z.balance && z.balance.state !== "learning" && z.balance.state !== "ok" ? `<span style="color:#ef9a9a">balance: ${this._esc(z.balance.state)}${z.balance.suggested_cap_pct ? ` — cap ≈ ${z.balance.suggested_cap_pct}%` : ""}</span>` : ""}
+                    ${z.solar_gain ? `<span style="color:#ffd54f">☀️ solar gain</span> · ` : ""}${z.co2_ppm != null ? `CO₂ ${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠ ventilate" : ""} · ` : ""}${this._valveStateText(z) ? `valve ${this._valveStateText(z)} · ` : ""}${z.radiator_kw_est != null ? `radiator ~${z.radiator_kw_est} kW · ` : ""}${z.balance && z.balance.state !== "learning" && z.balance.state !== "ok" ? `<span style="color:#ef9a9a">balance: ${this._esc(z.balance.state)}${z.balance.suggested_cap_pct ? ` — cap ≈ ${z.balance.suggested_cap_pct}%` : ""}</span>` : ""}
                   </div>
                 </details>
               </div>`;
@@ -2796,12 +2817,12 @@ class HomeClimatePanel extends HTMLElement {
           const rooms = sys.zones || [];
           const t34 = new Map();
           for (const z of rooms) {
-            if (z.solar_gain || z.co2_ppm != null || z.valve_pct != null ||
+            if (z.solar_gain || z.co2_ppm != null || this._valveStateText(z) != null ||
                 z.radiator_kw_est != null || (z.balance && z.balance.state !== "learning")) {
               t34.set(z.name, {
                 solar: !!z.solar_gain,
                 co2: z.co2_ppm != null ? `${z.co2_ppm} ppm${z.needs_ventilation ? " ⚠" : ""}` : "—",
-                valve: z.valve_pct != null ? `${Math.round(z.valve_pct)} %` : "—",
+                valve: this._valveStateText(z) ?? "—",
                 radiator: z.radiator_kw_est != null ? `~${z.radiator_kw_est} kW` : "—",
                 balance: z.balance ? (z.balance.state + (z.balance.suggested_cap_pct ? ` · cap ≈ ${z.balance.suggested_cap_pct}%` : "")) : "—",
               });

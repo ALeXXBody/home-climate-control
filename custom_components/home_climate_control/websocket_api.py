@@ -372,6 +372,11 @@ def _collect_status(hass: HomeAssistant) -> dict[str, Any]:
                         else False
                     ),
                     "valve_pct": getattr(zone, "_valve_pct", None),
+                    # Display-honest valve state ("open"/"closed"/None).
+                    # valve_pct mirrors the TRV number entity, which is an
+                    # opening limit, not a live position — the panel must
+                    # not render it as one (see ZoneClimateEntity.valve_state).
+                    "valve_state": getattr(zone, "valve_state", None),
                     "lux_sensor": getattr(zone, "_lux_sensor", None),
                     "co2_sensor": getattr(zone, "_co2_sensor", None),
                     "trv_position_entity": getattr(
